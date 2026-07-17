@@ -1,6 +1,6 @@
 {
-  "homepage": "http://fzerlina.github.io/klay",
-  "name": "klay",
+  "homepage": "http://fzerlina.github.io/klay-mvp",
+  "name": "klay-mvp",
   "private": true,
   "version": "0.0.0",
   "type": "module",
