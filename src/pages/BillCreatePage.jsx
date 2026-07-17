@@ -4,6 +4,7 @@ import { useBills } from "../state/BillsContext";
 import { useVendors } from "../state/VendorsContext";
 import { formatDate, initials } from "../lib/format";
 import { previewJournalLines } from "../lib/billJournalPreview";
+import { TODAY } from "../lib/clock";
 import "./modules.css";
 import "./invoice-create.css";
 import "./bill-detail.css";
@@ -155,6 +156,28 @@ function fmtNum(n) {
   return Number(n).toLocaleString("id-ID");
 }
 
+// ── Date helpers ─────────────────────────────────────────────────────────────
+// Defaults derive from the demo clock (TODAY) instead of hardcoded 2025 dates.
+// Uses local getters (TODAY is local midnight) to avoid a UTC off-by-one.
+function toISODate(d) {
+  const x = d instanceof Date ? d : new Date(d);
+  return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
+}
+function addDays(iso, n) {
+  const x = new Date(iso + "T00:00:00");
+  x.setDate(x.getDate() + n);
+  return toISODate(x);
+}
+function daysBetween(isoA, isoB) {
+  return Math.round((new Date(isoA + "T00:00:00") - new Date(isoB + "T00:00:00")) / 86400000);
+}
+// Parse "NET 30" → 30 days; falls back to 30 when unparseable.
+function termDays(terms) {
+  const m = String(terms || "").match(/\d+/);
+  return m ? parseInt(m[0], 10) : 30;
+}
+const TODAY_ISO = toISODate(TODAY);
+
 function CheckSvg() {
   return <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>;
 }
@@ -179,8 +202,14 @@ function VendorCombobox({ value, onChange, vendors, onRequestCreate }) {
 
   const selected = vendors.find((v) => v.id === value);
   const q = search.toLowerCase().trim();
+  // Vendor field accepts name (fuzzy), NPWP, and vendor code — PRD Zone 2.
   const list = vendors.filter(
-    (v) => !q || v.name.toLowerCase().includes(q) || (v.contact || "").toLowerCase().includes(q),
+    (v) =>
+      !q ||
+      v.name.toLowerCase().includes(q) ||
+      (v.contact || "").toLowerCase().includes(q) ||
+      (v.tax_id || "").toLowerCase().includes(q) ||
+      (v.code || "").toLowerCase().includes(q),
   );
   // Show the "Create new vendor" affordance when the user has typed a query
   // and no vendor exactly matches that name (case-insensitive).
@@ -204,7 +233,7 @@ function VendorCombobox({ value, onChange, vendors, onRequestCreate }) {
         <div className="cust-combo-pop">
           <div className="cust-combo-search">
             <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name or contact…" autoFocus />
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, NPWP, or vendor code…" autoFocus />
           </div>
           <div className="cust-combo-list">
             {list.length === 0 && <div className="cust-combo-empty">No vendor matches</div>}
@@ -410,6 +439,10 @@ export default function BillCreatePage() {
   const [scanning, setScanning] = useState(false);
   const [scanPhase, setScanPhase] = useState(0);
   const [aiFilled, setAiFilled] = useState(false);
+  // Entry gate: on a fresh Create Bill, uploading is the primary action shown
+  // in a focused popup. The escape link drops into manual entry (attach a
+  // document later). Per PRD Zone 1 / Entry State 1.
+  const [uploadGateOpen, setUploadGateOpen] = useState(true);
   const [toast, setToast] = useState("");
   const toastTmr = useRef(null);
 
@@ -417,14 +450,29 @@ export default function BillCreatePage() {
   const [vendorId, setVendorId] = useState("");
   const [poNo, setPoNo] = useState("");
   const [invNo, setInvNo] = useState("");
-  const [date, setDate] = useState("2025-04-15");
-  const [due, setDue] = useState("2025-05-15");
+  const [date, setDate] = useState(TODAY_ISO);
+  const [due, setDue] = useState(addDays(TODAY_ISO, 30));
   const [keterangan, setDescription] = useState("");
   const [items, setItems] = useState([]); // {desc,qty,price,acct}
   const [ppnRate, setPpnRate] = useState(0.11);
   const [pphChoice, setPphChoice] = useState("none");
   const [fakturPajak, setFakturPajak] = useState("");
   const [attachments, setAttachments] = useState([]);
+
+  // Exception engine state: per-field OCR confidence (from the scan), the set
+  // of review/advisory exceptions the user has resolved, and the no-document
+  // justification modal.
+  const [ocrConfidence, setOcrConfidence] = useState({}); // { invNo:'red', date:'yellow' }
+  const [resolvedFx, setResolvedFx] = useState({});        // { [exceptionId]: true }
+  const [noDocOpen, setNoDocOpen] = useState(false);
+  const [noDocJustification, setNoDocJustification] = useState("");
+  // Exceptions panel is grouped by tier; advisory folds away by default to keep
+  // a long list scannable.
+  const [foldedTiers, setFoldedTiers] = useState({ blocking: false, review: false, advisory: true });
+  // Entry mode (PRD): Simple = single total + one account (default); Detailed =
+  // line-item table. Both write to the same `items` array so totals/GL/save are
+  // one code path.
+  const [entryMode, setEntryMode] = useState("simple");
 
   const vendor = useMemo(() => vendors.find((v) => v.id === vendorId), [vendors, vendorId]);
 
@@ -452,10 +500,14 @@ export default function BillCreatePage() {
   useEffect(() => {
     if (prevVendorIdRef.current === vendorId) return;
     prevVendorIdRef.current = vendorId;
+    // Re-evaluate exceptions against the newly selected vendor.
+    setResolvedFx({});
     if (!vendor) return;
     setPpnRate(vendor.pkp === "PKP" ? 0.11 : 0);
     setPphChoice(vendor.pph || "none");
     if (vendor.pkp !== "PKP") setFakturPajak("");
+    // Due date from vendor payment terms — PRD "Due Date (from terms)".
+    setDue(addDays(date, termDays(vendor.payment_terms)));
   }, [vendor, vendorId]);
 
   // Per-row account suggestions — Tier 1/2/3 from suggestAccount(). Computed
@@ -484,6 +536,9 @@ export default function BillCreatePage() {
   // from a known vendor anchor (V001). Phase 2 will swap this for a real
   // vendor cascade triggered by vendor selection; Phase F will replace the
   // A4 reconstruction on the right with the actual source PDF.
+  function chooseUploadFromGate() { setUploadGateOpen(false); simulateScan(); }
+  function skipToManualEntry()    { setUploadGateOpen(false); }
+
   function simulateScan() {
     setScanning(true);
     setScanPhase(0);
@@ -495,16 +550,21 @@ export default function BillCreatePage() {
   function prefillFromOcr() {
     setVendorId("V001");
     setPoNo("PO-2025-0006");
-    setInvNo("INV-V001-20250415");
+    setInvNo("");                       // OCR couldn't read the invoice number (red)
     setDate("2025-04-15");
     setDue("2025-05-15");
     setDescription("Pengadaan komponen elektronik Q2 — sesuai PO.");
     setItems([
       { desc: "Komponen Elektronik - Panel LCD 24 inch", qty: 50, price: 1500000, acct: "1-3100" },
     ]);
+    setEntryMode("detailed");           // OCR extracted a line item
     setPpnRate(0.11);
     setPphChoice("none");
     setAttachments([{ name: "invoice_supplier_elektronik.pdf", size: "PDF · 2.4 MB", fromOCR: true }]);
+    // Simulated extraction confidence: invoice number unreadable (red → blocking),
+    // invoice date read with low confidence (yellow → review).
+    setOcrConfidence({ invNo: "red", date: "yellow" });
+    setResolvedFx({});
     setAiFilled(true);
     setScanning(false);
   }
@@ -524,6 +584,45 @@ export default function BillCreatePage() {
   const total = dpp + ppn;
   const netPayable = total - pph;
 
+  // ── Duplicate detection (PRD Zone 8) ────────────────────────────────────
+  // Cheap subset: same vendor + exact invoice number. Falls back to same
+  // vendor + near-identical amount (±10%) within 60 days when the invoice
+  // number doesn't match — the PRD's amount/date signal.
+  const duplicateMatch = useMemo(() => {
+    if (!vendor) return null;
+    const inv = invNo.trim().toLowerCase();
+    const vendorBills = bills.filter((b) => b.vendor === vendor.id);
+    if (inv && inv !== "—") {
+      const exact = vendorBills.find((b) => (b.invNo || "").trim().toLowerCase() === inv);
+      if (exact) return { bill: exact, reason: "same invoice number" };
+    }
+    if (total > 0) {
+      const near = vendorBills.find(
+        (b) => b.total && Math.abs(b.total - total) / b.total <= 0.1 && Math.abs(daysBetween(b.date, date)) <= 60,
+      );
+      if (near) return { bill: near, reason: "near-identical amount within 60 days" };
+    }
+    return null;
+  }, [vendor, invNo, total, date, bills]);
+
+  // ── Amount variance detection (PRD Zone 7) ──────────────────────────────
+  // Flag when this bill's total deviates >15% from the vendor's rolling
+  // 6-month average. Skipped when the vendor has <3 prior invoices in the
+  // window (insufficient baseline).
+  const variance = useMemo(() => {
+    if (!vendor || total <= 0) return null;
+    const anchor = date || TODAY_ISO;
+    const windowStart = addDays(anchor, -183);
+    const priors = bills.filter(
+      (b) => b.vendor === vendor.id && b.total > 0 && b.date >= windowStart && b.date <= anchor,
+    );
+    if (priors.length < 3) return null;
+    const avg = priors.reduce((s, b) => s + b.total, 0) / priors.length;
+    const deviation = (total - avg) / avg;
+    if (Math.abs(deviation) <= 0.15) return null;
+    return { avg, deviation, multiple: total / avg, count: priors.length };
+  }, [vendor, total, date, bills]);
+
   // Items handlers — new rows pick up the Tier 1 suggestion when vendor
   // history exists; otherwise fall back to a generic expense bucket.
   function addRow() {
@@ -536,6 +635,28 @@ export default function BillCreatePage() {
     setAttachments((p) => [...p, { name: names[Math.floor(Math.random() * names.length)], size: "PDF · 1.1 MB", fromOCR: false }]);
   }
   function delAttach(i)                { setAttachments((p) => p.filter((_, idx) => idx !== i)); }
+
+  // Simple-mode helpers — bind a single description + amount + account to
+  // items[0]. The description feeds the same account-suggestion engine so
+  // Tier-2 inference works even in Simple mode.
+  function setSimpleDesc(d) {
+    setItems((p) => [{ desc: d, qty: 1, price: p[0]?.price || 0, acct: p[0]?.acct || defaultNewRowAcct }]);
+  }
+  function setSimpleAmount(v) {
+    setItems((p) => [{ desc: p[0]?.desc || "", qty: 1, price: v, acct: p[0]?.acct || defaultNewRowAcct }]);
+  }
+  function setSimpleAcct(a) {
+    setItems((p) => [{ desc: p[0]?.desc || "", qty: 1, price: p[0]?.price || 0, acct: a }]);
+  }
+  function switchMode(mode) {
+    if (mode === entryMode) return;
+    if (mode === "simple" && items.length > 1) {
+      if (!window.confirm("Switching to Simple mode will collapse your line items into a single amount. Continue?")) return;
+      const sum = items.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.price) || 0), 0);
+      setItems([{ desc: "Bill amount", qty: 1, price: sum, acct: items[0]?.acct || defaultNewRowAcct }]);
+    }
+    setEntryMode(mode);
+  }
 
   // GL preview — same generator as Bill Detail so the two pages always
   // agree on what will post.
@@ -566,6 +687,68 @@ export default function BillCreatePage() {
     [previewBill, vendor],
   );
 
+  // ── Exception engine ────────────────────────────────────────────────────
+  // Consolidates every check into one list shown at the top of the form, with
+  // per-field highlighting. Severity → CTA: blocking = Fix; review = This is
+  // correct / Fix; advisory = Acknowledge. Blocking clears when the condition
+  // is fixed; review/advisory clear when acknowledged (or fixed).
+  const exceptions = useMemo(() => {
+    const list = [];
+    // Blocking — must be fixed before submit
+    if (!vendor)
+      list.push({ id: "no-vendor", severity: "blocking", field: "vendor", title: "Vendor not set", detail: "Select the vendor this invoice is from." });
+    if (items.length === 0 || total <= 0)
+      list.push({ id: "no-items", severity: "blocking", field: "items", title: "No line items", detail: "Add at least one line item with an amount." });
+    if (ocrConfidence.invNo === "red" && !invNo.trim())
+      list.push({ id: "ocr-invno", severity: "blocking", field: "invNo", title: "Invoice number couldn't be read", detail: "The scan was unreadable here — type the vendor's invoice number." });
+    if (total > 0 && !balanced)
+      list.push({ id: "gl-unbalanced", severity: "blocking", field: "gl", title: "GL preview is out of balance", detail: "Debits and credits don't match — check the line items and tax." });
+    // Review — must be acknowledged or fixed
+    if (duplicateMatch)
+      list.push({ id: "duplicate", severity: "review", field: "invNo", title: "Possible duplicate", detail: `Invoice ${duplicateMatch.bill.invNo} from ${vendor?.name} for Rp ${fmtNum(duplicateMatch.bill.total)} already exists (${duplicateMatch.reason}).` });
+    if (variance)
+      list.push({ id: "variance", severity: "review", field: "items", title: "Amount looks unusual", detail: `Rp ${fmtNum(total)} is ${variance.deviation > 0 ? `${variance.multiple.toFixed(1)}× higher` : `${(1 / variance.multiple).toFixed(1)}× lower`} than this vendor's typical invoice (avg Rp ${fmtNum(Math.round(variance.avg))} across ${variance.count} bills).` });
+    if (vendor && vendor.pkp !== "PKP" && vendor.pkp !== "NON_PKP")
+      list.push({ id: "pkp-unknown", severity: "review", field: "vendor", title: "PKP status unknown", detail: "PPN applicability can't be determined until this vendor's PKP status is set." });
+    if (vendor && vendor.pkp !== "PKP" && (ppn > 0 || fakturPajak))
+      list.push({ id: "pkp-mismatch", severity: "review", field: "tax", title: "PKP / PPN mismatch", detail: "PPN or a Faktur Pajak is present, but this vendor is Non-PKP." });
+    if (attachments.length === 0)
+      list.push({ id: "no-document", severity: "review", field: "attachments", title: "No source document", detail: "This bill has no attachment — attach one or record a justification." });
+    if (ocrConfidence.date === "yellow")
+      list.push({ id: "ocr-date", severity: "review", field: "date", title: "Invoice date read with low confidence", detail: "Confirm the invoice date matches the document." });
+    // Advisory — informational, acknowledge to clear
+    if (vendor && vendor.health && vendor.health !== "healthy")
+      list.push({ id: "pph-health", severity: "advisory", field: "vendor", title: "PPh classification may be outdated", detail: `Verify ${vendor.name}'s withholding setup before posting.` });
+    if (itemSuggestions.some((s) => s && (s.tier === 2 || s.tier === 3)))
+      list.push({ id: "low-conf-acct", severity: "advisory", field: "items", title: "Account chosen from a weak signal", detail: "One or more account codes came from a description/category guess, not this vendor's history." });
+    return list;
+  }, [vendor, invNo, date, items, total, ppn, fakturPajak, attachments, balanced, duplicateMatch, variance, ocrConfidence, itemSuggestions]);
+
+  const ackable = (sev) => sev === "review" || sev === "advisory";
+  const activeExceptions = exceptions.filter((e) => !(ackable(e.severity) && resolvedFx[e.id]));
+
+  const SEV_RANK = { blocking: 3, review: 2, advisory: 1 };
+  const fieldFlags = useMemo(() => {
+    const m = {};
+    for (const e of activeExceptions) {
+      if (!e.field) continue;
+      if (!m[e.field] || SEV_RANK[e.severity] > SEV_RANK[m[e.field]]) m[e.field] = e.severity;
+    }
+    return m;
+  }, [activeExceptions]);
+  const flagClass = (field) => (fieldFlags[field] ? ` field-flag-${fieldFlags[field]}` : "");
+  const blockingCount = activeExceptions.filter((e) => e.severity === "blocking").length;
+
+  function resolveFx(id) { setResolvedFx((r) => ({ ...r, [id]: true })); }
+  function toggleTier(t) { setFoldedTiers((f) => ({ ...f, [t]: !f[t] })); }
+  function focusFx(field) {
+    const el = document.querySelector(`[data-fx="${field}"]`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    const inp = el.querySelector("input, select, textarea, button");
+    if (inp) setTimeout(() => inp.focus(), 320);
+  }
+
   // Save. All amounts are IDR (the entity's functional currency).
   function buildDraft(approval) {
     if (!vendor) return null;
@@ -582,10 +765,13 @@ export default function BillCreatePage() {
       ppn,
       pph23:             pph,
       total,                                   // IDR gross (DPP + PPN)
-      sisa:              netPayable,           // IDR net to vendor
+      sisa:              total,                // outstanding AP balance = gross
+      netPayable,                              // display only — total − PPh withheld
       approval,
       grn:               poNo ? "matched" : "pending",
       faktur_pajak:      fakturPajak || undefined,
+      no_document_flag:          attachments.length === 0,
+      no_document_justification: attachments.length === 0 ? noDocJustification.trim() : "",
       items: items.map((it) => {
         const acct = EXPENSE_ACCOUNTS.find((a) => a.code === it.acct);
         const sub  = (Number(it.qty) || 0) * (Number(it.price) || 0);
@@ -609,18 +795,36 @@ export default function BillCreatePage() {
   }
 
   function onSubmitForReview() {
-    const draft = buildDraft("review");
-    if (!draft)             { showToast("Pick a vendor first"); return; }
-    if (!items.length)      { showToast("Add at least 1 item"); return; }
+    if (activeExceptions.length > 0) { showToast("Resolve the exceptions above first"); return; }
+    finalizeSubmit("review");
+  }
+
+  function finalizeSubmit(approval) {
+    const draft = buildDraft(approval);
+    if (!draft) { showToast("Pick a vendor first"); return; }
     addBill(draft);
-    showToast("Bill submitted for review ✓");
+    setNoDocOpen(false);
+    showToast(approval === "review" ? "Bill submitted for review ✓" : "Draft saved ✓");
     setTimeout(() => navigate("/bills"), 700);
   }
 
-  const canSubmit = vendor && items.length > 0 && total > 0;
+  // The no-document exception's "record a justification" path: capture the
+  // reason, then mark that exception resolved.
+  function confirmNoDoc() {
+    if (noDocJustification.trim().length < 3) return;
+    resolveFx("no-document");
+    setNoDocOpen(false);
+  }
+
+  const canSaveDraft = vendor && items.length > 0 && total > 0;   // drafts allow open exceptions
+  const canSubmit = canSaveDraft && activeExceptions.length === 0; // review requires all resolved
+
+  // Simple-mode bindings (single row) + its account suggestion.
+  const simpleItem = items[0] || { desc: "", qty: 1, price: 0, acct: defaultNewRowAcct };
+  const simpleSuggestion = itemSuggestions[0];
 
   return (
-    <div className="bd-page bd-create">
+    <div className={`bd-page bd-create${uploadGateOpen ? " gate-only" : ""}`}>
       {/* ── Header (mirrors Bill Detail) ──────────────────────────── */}
       <div className="bd-head">
         <button className="bd-back" onClick={() => navigate("/bills")}>← Bills</button>
@@ -652,24 +856,14 @@ export default function BillCreatePage() {
         {/* Form side (right) */}
         <div className="bd-form">
           <div className="bd-form-body">
-          {/* Upload zone — visual primary action per PRD. Manual fields
-              stay visible below regardless; the zone is a shortcut, not a
-              gate. Phase F will replace the A4 reconstruction with the
-              real source PDF in the side panel. */}
-          <div className="form-sec card upload-card">
-            <div className="form-sec-title">Upload Invoice</div>
-            <div className="upload-zone-compact" onClick={simulateScan}>
-              <div className="upload-zone-icon">
-                <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              </div>
-              <div className="upload-zone-text">
-                <div className="upload-zone-title">Drag & drop or click to upload</div>
-                <div className="upload-zone-sub">We'll auto-fill fields from the document · PDF, PNG, JPG, HEIC up to 20 MB</div>
-              </div>
-              <button className="upload-zone-cta" onClick={(e) => { e.stopPropagation(); simulateScan(); }}>Choose file</button>
-            </div>
-            <div className="upload-skip-hint">No document? Just fill in the fields below — you can attach a file later.</div>
-          </div>
+          {/* Upload is a focused entry gate (modal below). After skipping, this
+              slim affordance re-opens it to auto-fill from a document. */}
+          {!aiFilled && (
+            <button type="button" className="upload-reopen" onClick={() => setUploadGateOpen(true)}>
+              <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              Upload an invoice to auto-fill fields
+            </button>
+          )}
 
           {aiFilled && (
             <div className="ai-fill-banner">
@@ -681,11 +875,66 @@ export default function BillCreatePage() {
             </div>
           )}
 
+          {/* ── Exceptions panel (top of page) — grouped & foldable by tier ───
+              Blocking = Fix; Need Review = This is correct / Fix; Advisory =
+              Acknowledge. Each row also highlights its field. */}
+          {activeExceptions.length > 0 && (
+            <div className="fx-panel">
+              <div className="fx-panel-head">
+                <span className="fx-panel-count">
+                  {activeExceptions.length} exception{activeExceptions.length === 1 ? "" : "s"} to resolve
+                </span>
+                {blockingCount > 0 && <span className="fx-panel-blocking">{blockingCount} blocking</span>}
+              </div>
+              {[
+                { key: "blocking", label: "Blocking" },
+                { key: "review", label: "Need Review" },
+                { key: "advisory", label: "Advisory" },
+              ].map((tier) => {
+                const rows = activeExceptions.filter((e) => e.severity === tier.key);
+                if (rows.length === 0) return null;
+                const folded = foldedTiers[tier.key];
+                return (
+                  <div className="fx-tier" key={tier.key}>
+                    <button type="button" className="fx-tier-head" onClick={() => toggleTier(tier.key)} aria-expanded={!folded}>
+                      <span className={`fx-dot ${tier.key}`} aria-hidden />
+                      <span className="fx-tier-label">{tier.label}</span>
+                      <span className="fx-tier-count">{rows.length}</span>
+                      <svg className={`fx-tier-chev${folded ? " folded" : ""}`} viewBox="0 0 24 24" aria-hidden><polyline points="6 9 12 15 18 9"/></svg>
+                    </button>
+                    {!folded && rows.map((e) => (
+                      <div key={e.id} className="fx-row">
+                        <div className="fx-body">
+                          <div className="fx-title">{e.title}</div>
+                          <div className="fx-detail">{e.detail}</div>
+                        </div>
+                        <div className="fx-actions">
+                          {e.severity === "blocking" && (
+                            <button type="button" className="fx-btn primary" onClick={() => focusFx(e.field)}>Fix</button>
+                          )}
+                          {e.severity === "review" && (
+                            <>
+                              <button type="button" className="fx-btn" onClick={() => (e.id === "no-document" ? setNoDocOpen(true) : resolveFx(e.id))}>This is correct</button>
+                              <button type="button" className="fx-btn primary" onClick={() => focusFx(e.field)}>Fix</button>
+                            </>
+                          )}
+                          {e.severity === "advisory" && (
+                            <button type="button" className="fx-btn" onClick={() => resolveFx(e.id)}>Acknowledge</button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {/* Bill Information */}
           <div className="form-sec card">
             <div className="form-sec-title">Bill Information</div>
             <div className="fg2">
-              <div className="form-fld">
+              <div className={`form-fld${flagClass("vendor")}`} data-fx="vendor">
                 <label>Vendor</label>
                 <VendorCombobox
                   value={vendorId}
@@ -694,15 +943,25 @@ export default function BillCreatePage() {
                   onRequestCreate={handleRequestCreateVendor}
                 />
               </div>
-              <div className="form-fld">
+              <div className={`form-fld${flagClass("invNo")}`} data-fx="invNo">
                 <label>Vendor Invoice No.</label>
-                <input type="text" value={invNo} onChange={(e) => setInvNo(e.target.value)} placeholder="Vendor's invoice number" style={{ fontFamily: "var(--font-mono)" }} />
+                <input
+                  type="text"
+                  value={invNo}
+                  onChange={(e) => { setInvNo(e.target.value); if (ocrConfidence.invNo) setOcrConfidence((c) => ({ ...c, invNo: undefined })); }}
+                  placeholder="Vendor's invoice number"
+                  style={{ fontFamily: "var(--font-mono)" }}
+                />
               </div>
             </div>
             <div className="fg3">
-              <div className="form-fld">
+              <div className={`form-fld${flagClass("date")}`} data-fx="date">
                 <label>Invoice Date</label>
-                <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+                <input
+                  type="date"
+                  value={date}
+                  onChange={(e) => { setDate(e.target.value); if (ocrConfidence.date) setOcrConfidence((c) => ({ ...c, date: undefined })); }}
+                />
               </div>
               <div className="form-fld">
                 <label>Due Date</label>
@@ -715,9 +974,68 @@ export default function BillCreatePage() {
             </div>
           </div>
 
-          {/* Line Items */}
-          <div className="form-sec card">
-            <div className="form-sec-title">Line Items</div>
+          {/* Amount / Line Items — Simple (single total + one account, default)
+              or Detailed (line-item table), per PRD Entry Modes. */}
+          <div className={`form-sec card${flagClass("items")}`} data-fx="items">
+            <div className="form-sec-title" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span>{entryMode === "simple" ? "Amount" : "Line Items"}</span>
+              <div className="entry-mode-toggle" role="tablist" aria-label="Entry mode">
+                <button type="button" className={entryMode === "simple" ? "active" : ""} onClick={() => switchMode("simple")}>Simple</button>
+                <button type="button" className={entryMode === "detailed" ? "active" : ""} onClick={() => switchMode("detailed")}>Detailed</button>
+              </div>
+            </div>
+
+            {entryMode === "simple" ? (
+              <div className="simple-entry">
+                <div className="form-fld">
+                  <label>Description</label>
+                  <input
+                    type="text"
+                    value={simpleItem.desc}
+                    onChange={(e) => setSimpleDesc(e.target.value)}
+                    placeholder="What is this bill for? e.g. Sewa kantor — April, or Jasa konsultasi IT"
+                  />
+                </div>
+                <div className="fg2" style={{ marginTop: 12 }}>
+                  <div className="form-fld">
+                    <label>Amount (before tax)</label>
+                    <input
+                      type="text"
+                      value={fmtNum(simpleItem.price)}
+                      onChange={(e) => setSimpleAmount(parseInt(e.target.value.replace(/\./g, "")) || 0)}
+                      placeholder="0"
+                      style={{ textAlign: "right", fontFamily: "var(--font-mono)" }}
+                    />
+                  </div>
+                  <div className="form-fld">
+                    <label>Expense Account</label>
+                    <select value={simpleItem.acct} onChange={(e) => setSimpleAcct(e.target.value)}>
+                      {EXPENSE_ACCOUNTS.map((a) => <option key={a.code} value={a.code}>{a.code} · {a.name}</option>)}
+                    </select>
+                    {simpleSuggestion && simpleSuggestion.tier !== 3 && (
+                      <button
+                        type="button"
+                        className={`bd-suggest-chip bd-suggest-tier-${simpleSuggestion.tier}`}
+                        onClick={() => setSimpleAcct(simpleSuggestion.acct)}
+                        disabled={simpleItem.acct === simpleSuggestion.acct}
+                      >
+                        <span className="bd-suggest-glyph" aria-hidden>{simpleItem.acct === simpleSuggestion.acct ? "✓" : "✦"}</span>
+                        <span className="bd-suggest-body">
+                          <span className="bd-suggest-acct">{simpleSuggestion.acct} {simpleSuggestion.name}</span>
+                          <span className="bd-suggest-sentence">{simpleSuggestion.sentence}</span>
+                        </span>
+                      </button>
+                    )}
+                    {simpleSuggestion && simpleSuggestion.tier === 3 && (
+                      <div className="bd-suggest-chip bd-suggest-tier-3">
+                        <span className="bd-suggest-sentence">{simpleSuggestion.sentence}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : (
+            <>
             <div className="items-wrap">
               <table>
                 <thead>
@@ -789,12 +1107,19 @@ export default function BillCreatePage() {
               <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
               Add row
             </button>
+            </>
+            )}
+
+            {/* Totals + tax summary (shared). The PPN / PPh explanation sits
+                right next to the numbers (was a separate Tax card). */}
             {items.length > 0 && (
-              <div className="total-block">
-                <div className="t-row">
-                  <span className="t-row-lbl">Subtotal</span>
-                  <span className="t-row-val">{fmtNum(subtotal)}</span>
-                </div>
+              <div className={`total-block${flagClass("tax")}`} data-fx="tax">
+                {entryMode === "detailed" && (
+                  <div className="t-row">
+                    <span className="t-row-lbl">Subtotal</span>
+                    <span className="t-row-val">{fmtNum(subtotal)}</span>
+                  </div>
+                )}
                 <div className="t-row">
                   <span className="t-row-lbl">DPP</span>
                   <span className="t-row-val">{fmtNum(dpp)}</span>
@@ -810,51 +1135,9 @@ export default function BillCreatePage() {
                   </div>
                   <span className="t-row-val" style={{ color: "var(--danger-text)" }}>+ {fmtNum(ppn)}</span>
                 </div>
-                <div className="t-row grand">
-                  <span className="t-row-lbl">Total</span>
-                  <span className="t-row-val">{fmtNum(total)}</span>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* ── Tax card ─── plain-language explanations driven by the vendor
-              master, per PRD Zone 5. Faktur Pajak input is surfaced when
-              the vendor is PKP; Non-PKP vendors hide it and flag mistaken
-              entries. */}
-          <div className="form-sec card">
-            <div className="form-sec-title">Tax Treatment</div>
-            {!vendor && (
-              <div className="bd-rule-note" style={{ fontStyle: "normal", marginTop: 0 }}>
-                Pick a vendor above to see how PPN and PPh apply.
-              </div>
-            )}
-            {vendor && (
-              <>
-                <div className="tax-line">
-                  <div className="tax-line-lbl">PPN</div>
-                  <div className="tax-line-body">
-                    <div className="tax-line-sentence">{ppnSentence(vendor)}</div>
-                    <div className="bd-rule-note">
-                      {vendor.pkp === "PKP"
-                        ? `Auto-set from vendor master · override the rate in the totals above if needed.`
-                        : `No VAT collected — vendor cannot issue a valid Faktur Pajak.`}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="tax-line">
-                  <div className="tax-line-lbl">PPh</div>
-                  <div className="tax-line-body">
-                    <div className="tax-line-sentence">{pphSentence(vendor)}</div>
-                    <div className="bd-rule-note">
-                      Auto-set from vendor master · {pph > 0 ? `withholding ${fmtNum(pph)} from this invoice.` : "no withholding to compute."}
-                    </div>
-                  </div>
-                </div>
-
-                {vendor.pkp === "PKP" && (
-                  <div className="form-fld" style={{ marginTop: 10 }}>
+                {vendor && <div className="tax-explain">{ppnSentence(vendor)}</div>}
+                {vendor && vendor.pkp === "PKP" && (
+                  <div className="form-fld" style={{ margin: "2px 0 8px" }}>
                     <label>Faktur Pajak Number</label>
                     <input
                       type="text"
@@ -863,35 +1146,31 @@ export default function BillCreatePage() {
                       placeholder="010.000-25.12345678"
                       style={{ fontFamily: "var(--font-mono)" }}
                     />
-                    {!fakturPajak && (
-                      <div className="bd-rule-note" style={{ color: "var(--color-danger-text, var(--danger-text))" }}>
-                        Required for PKP vendors before posting.
-                      </div>
-                    )}
-                    {fakturPajak && (
-                      <div className="bd-rule-note">Entered manually · will surface as a settled field on the Bill Detail page.</div>
-                    )}
                   </div>
                 )}
-
-                {vendor.pkp !== "PKP" && fakturPajak && (
-                  <div className="bd-rule-note" style={{ color: "#6B4F00", marginTop: 10 }}>
-                    Faktur Pajak number entered for a Non-PKP vendor. Confirm this vendor is PKP before posting.
-                  </div>
-                )}
-
-                <div className="tax-line tax-net" style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--color-border-default)" }}>
-                  <div className="tax-line-lbl">Net Payable to vendor</div>
-                  <div className="tax-line-body" style={{ textAlign: "right" }}>
-                    <div style={{ fontFamily: "var(--font-mono)", fontSize: 14, fontWeight: 700 }}>
-                      Rp {fmtNum(netPayable)}
-                    </div>
-                    <div className="bd-rule-note">Total minus PPh withheld.</div>
-                  </div>
+                <div className="t-row grand">
+                  <span className="t-row-lbl">Total</span>
+                  <span className="t-row-val">{fmtNum(total)}</span>
                 </div>
-              </>
+                {pph > 0 && (
+                  <div className="t-row">
+                    <span className="t-row-lbl">PPh (withheld)</span>
+                    <span className="t-row-val">− {fmtNum(pph)}</span>
+                  </div>
+                )}
+                {vendor && <div className="tax-explain">{pphSentence(vendor)}</div>}
+                {pph > 0 && (
+                  <div className="t-row grand">
+                    <span className="t-row-lbl">Net Payable to vendor</span>
+                    <span className="t-row-val">{fmtNum(netPayable)}</span>
+                  </div>
+                )}
+              </div>
             )}
           </div>
+
+          {/* Tax explanation + Faktur Pajak + Net Payable now live inline in the
+              totals block above, next to the PPN / PPh numbers. */}
 
           {/* ── Payment Info ─── Auto-populated from the selected vendor's
               master record. Read-only here — bank changes happen in
@@ -939,7 +1218,7 @@ export default function BillCreatePage() {
           </div>
 
           {/* Attachments */}
-          <div className="form-sec card">
+          <div className={`form-sec card${flagClass("attachments")}`} data-fx="attachments">
             <div className="form-sec-title">Attachments</div>
             {attachments.length > 0 && (
               <div className="attach-list">
@@ -978,7 +1257,7 @@ export default function BillCreatePage() {
               disagree on what will post. Phase 5+ adds rule-annotation
               chips and yellow indicators on low-confidence lines. */}
           {total > 0 && (
-            <div className="form-sec card">
+            <div className={`form-sec card${flagClass("gl")}`} data-fx="gl">
               <div className="form-sec-title">
                 GL Journal Entry Preview
                 <span className={`bd-je-status${balanced ? " ok" : " err"}`} style={{ marginLeft: 8 }}>
@@ -1158,11 +1437,15 @@ export default function BillCreatePage() {
       {/* ── Action bar (mirrors Bill Detail) ──────────────────────── */}
       <div className="bd-actionbar">
         <div className="bd-actionbar-note">
-          {canSubmit ? "Saved when you click Save Draft or Submit" : "Pick a vendor and add at least one item to continue"}
+          {!canSaveDraft
+            ? "Pick a vendor and add at least one item to continue"
+            : activeExceptions.length > 0
+              ? `${activeExceptions.length} exception${activeExceptions.length === 1 ? "" : "s"} to resolve before submitting`
+              : "All exceptions resolved — ready to submit"}
         </div>
         <div className="bd-actionbar-buttons">
           <button className="drawer-btn ghost" onClick={() => navigate("/bills")}>Cancel</button>
-          <button className="drawer-btn ghost" onClick={onSaveDraft} disabled={!canSubmit}>
+          <button className="drawer-btn ghost" onClick={onSaveDraft} disabled={!canSaveDraft}>
             <svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v14a2 2 0 01-2 2z"/></svg>
             Save Draft
           </button>
@@ -1173,6 +1456,40 @@ export default function BillCreatePage() {
         </div>
       </div>
 
+      {/* Upload gate — Entry State 1 primary action (PRD Zone 1). Upload is the
+          focused choice; the escape link drops into manual entry. */}
+      {uploadGateOpen && (
+        <>
+          <div className="bd-overlay" onClick={skipToManualEntry} />
+          <div className="bd-modal upload-gate-modal">
+            <div className="bd-modal-head">
+              <div>
+                <div className="bd-modal-title">Upload the invoice</div>
+                <div className="bd-modal-sub">We'll read the document and fill in the bill for you. You review every field before submitting.</div>
+              </div>
+              <button className="bd-modal-close" onClick={skipToManualEntry} aria-label="Close">
+                <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+            <div className="bd-modal-body">
+              <div className="upload-gate-drop" onClick={chooseUploadFromGate}>
+                <div className="upload-zone-icon">
+                  <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                </div>
+                <div className="upload-zone-title">Drag &amp; drop or click to upload</div>
+                <div className="upload-zone-sub">PDF, PNG, JPG, HEIC up to 20 MB</div>
+                <div style={{ marginTop: 14 }}>
+                  <button type="button" className="upload-zone-cta" onClick={(e) => { e.stopPropagation(); chooseUploadFromGate(); }}>Choose file</button>
+                </div>
+              </div>
+              <button type="button" className="upload-gate-skip" onClick={skipToManualEntry}>
+                Fill in manually — attach a document later →
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
       {createVendorOpen && (
         <InlineVendorCreatePanel
           initialName={createVendorSeedName}
@@ -1180,6 +1497,45 @@ export default function BillCreatePage() {
           onCancel={handleCancelCreateVendor}
           onConfirm={handleCreateVendor}
         />
+      )}
+
+      {/* No-document confirmation (PRD): a bill with no source document may be
+          submitted only with a written justification, which sets
+          no_document_flag and surfaces in AP Close. */}
+      {noDocOpen && (
+        <>
+          <div className="bd-overlay" onClick={() => setNoDocOpen(false)} />
+          <div className="bd-modal">
+            <div className="bd-modal-head">
+              <div>
+                <div className="bd-modal-title">Record a no-document justification</div>
+                <div className="bd-modal-sub">This bill has no source document. Add a short justification for the audit trail — it will be flagged for review before close.</div>
+              </div>
+              <button className="bd-modal-close" onClick={() => setNoDocOpen(false)} aria-label="Close">
+                <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+            <div className="bd-modal-body">
+              <div className="form-fld">
+                <label>Justification *</label>
+                <textarea
+                  rows={3}
+                  value={noDocJustification}
+                  onChange={(e) => setNoDocJustification(e.target.value)}
+                  placeholder="e.g. Paper receipt lost; vendor refused to issue invoice; emergency cash advance…"
+                  autoFocus
+                />
+                <div className="bd-rule-note">Required. Stored on the bill and surfaced in AP Close as a no-document bill.</div>
+              </div>
+            </div>
+            <div className="bd-modal-foot">
+              <button className="bd-modal-btn ghost" onClick={() => setNoDocOpen(false)}>Cancel</button>
+              <button className="bd-modal-btn primary" disabled={noDocJustification.trim().length < 3} onClick={confirmNoDoc}>
+                Save justification
+              </button>
+            </div>
+          </div>
+        </>
       )}
 
       {toast && <div className="toast show">{toast}</div>}
