@@ -57,11 +57,18 @@ export function BillsProvider({ children }) {
       ppn: draft.ppn,
       pph23: draft.pph23 || 0,
       total: draft.total,
-      sisa: draft.total,
+      // sisa (outstanding AP balance) tracks the gross document total, matching
+      // the seed convention and AP-aging math. Net-of-PPh is a display value
+      // only ("Net Payable" on the form), never the subledger balance.
+      sisa: draft.sisa != null ? draft.sisa : draft.total,
       approval: draft.approval || "draft",
       pay: "unpaid",
       isAI: !!draft.fromAI,
       keterangan: draft.keterangan || "",
+      // No-document path (Create Bill PRD): set when a bill is created without
+      // a source document; justification is captured in the confirm modal.
+      no_document_flag: !!draft.no_document_flag,
+      no_document_justification: draft.no_document_justification || "",
       items: draft.items,
       audit,
     };
