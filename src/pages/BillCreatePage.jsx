@@ -329,7 +329,7 @@ function InlineVendorCreatePanel({ initialName, vendors, onCancel, onConfirm }) 
         <div className="bd-modal-head">
           <div>
             <div className="bd-modal-title">Create new vendor</div>
-            <div className="bd-modal-sub">Required fields only — full bank, address, and contact details can be added later in Vendor Master.</div>
+            <div className="bd-modal-sub">Required fields only. The vendor is saved as a <strong>pending draft</strong> — a manager approves it and adds the bank account in Vendor Master before this bill can be posted or paid.</div>
           </div>
           <button className="bd-modal-close" onClick={onCancel} aria-label="Close">
             <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -486,7 +486,7 @@ export default function BillCreatePage() {
     setCreateVendorOpen(false);
     setCreateVendorSeedName("");
     setVendorId(record.id);
-    showToast(`${record.name} added to vendor master · auto-selected.`);
+    showToast(`${record.name} created as a pending draft · a manager approves it & adds the bank before this bill can post.`);
   }
   function handleCancelCreateVendor() {
     setCreateVendorOpen(false);
@@ -978,6 +978,12 @@ export default function BillCreatePage() {
                   vendors={vendors}
                   onRequestCreate={handleRequestCreateVendor}
                 />
+                {vendor && vendor.status === "pending" && (
+                  <div className="bd-rule-note" style={{ marginTop: 6, display: "flex", gap: 6, alignItems: "flex-start", fontStyle: "normal", color: "#6B4F00" }}>
+                    <span aria-hidden>⏳</span>
+                    <span>Pending vendor — a manager must approve it and add the bank in Vendor Master before this bill can be posted or paid.</span>
+                  </div>
+                )}
               </div>
               <div className={`form-fld${flagClass("invNo")}`} data-fx="invNo">
                 <label>Vendor Invoice No.</label>
