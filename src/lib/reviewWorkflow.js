@@ -116,6 +116,16 @@ export function computeBillFlags(bill, vendorArg, opts = {}) {
     });
   }
 
+  // Vendor is a pending draft — Vendor Master SoD: a manager approves it and
+  // adds the bank before the bill can post/pay. Clears when the vendor → Active.
+  if (vendor && vendor.status === "pending") {
+    push("vendor_pending", {
+      label: "Vendor pending approval", severity: SEVERITY.REVIEW, category: "Vendor",
+      ownerRole: "finance_manager",
+      message: `${vendor.name} is a pending draft — a manager must approve it and add its bank (in Vendor Master) before this bill can be posted or paid.`,
+    });
+  }
+
   // 2) Transaction Risk Checks ------------------------------------------------
   if ((bill.total || 0) > BIG_TXN_THRESHOLD) {
     push("big_txn", {

@@ -978,12 +978,6 @@ export default function BillCreatePage() {
                   vendors={vendors}
                   onRequestCreate={handleRequestCreateVendor}
                 />
-                {vendor && vendor.status === "pending" && (
-                  <div className="bd-rule-note" style={{ marginTop: 6, display: "flex", gap: 6, alignItems: "flex-start", fontStyle: "normal", color: "#6B4F00" }}>
-                    <span aria-hidden>⏳</span>
-                    <span>Pending vendor — a manager must approve it and add the bank in Vendor Master before this bill can be posted or paid.</span>
-                  </div>
-                )}
               </div>
               <div className={`form-fld${flagClass("invNo")}`} data-fx="invNo">
                 <label>Vendor Invoice No.</label>
