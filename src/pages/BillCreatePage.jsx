@@ -710,7 +710,12 @@ export default function BillCreatePage() {
     approval: "draft",
     anomalies: [],
     audit: [{ date }],
-  }), [vendor, poNo, invNo, date, due, dpp, ppn, pph, total, ppnRate, fakturPajak]);
+    items: items.map((it) => ({
+      desc: it.desc,
+      acct: it.acct,
+      acctName: (EXPENSE_ACCOUNTS.find((a) => a.code === it.acct) || {}).name,
+    })),
+  }), [vendor, poNo, invNo, date, due, dpp, ppn, pph, total, ppnRate, fakturPajak, items]);
 
   const exceptions = useMemo(() => {
     const list = [];

@@ -36,6 +36,20 @@ const FAKTUR_WINDOW_DAYS = 90; // ~3-month VAT input-credit window
 const BANK_CHANGE_BILLS = new Set(["BILL021", "BILL032"]); // vendor bank changed
 const SKB_ON_FILE = new Set(["BILL033"]); // has a tax-exemption cert (SKB) → Tax Omitted overridable-clear
 
+// Item-category → expected PPh. Tax is driven by the transaction *object* (the
+// expense category), NOT the vendor — a service line attracts PPh, a goods line
+// doesn't, regardless of vendor default. RATES/ARTICLES ARE PLACEHOLDER — to be
+// validated with the tax advisor (see the "Tax category → account → treatment"
+// table in the PRD). Keyed by GL account code.
+const CATEGORY_TAX = {
+  "6-2700": { pphExpected: true, article: "PPh 23",   rate: 0.02 }, // professional services
+  "6-1200": { pphExpected: true, article: "PPh 23",   rate: 0.02 }, // marketing / advertising
+  "6-3100": { pphExpected: true, article: "PPh 23",   rate: 0.02 }, // courier / logistics
+  "6-3200": { pphExpected: true, article: "PPh 23",   rate: 0.02 }, // repairs & maintenance
+  "6-2300": { pphExpected: true, article: "PPh 4(2)", rate: 0.10 }, // rent of building
+};
+const catTax = (acct) => CATEGORY_TAX[acct] || { pphExpected: false };
+
 export function getVendor(vendorId) {
   return VENDORS.find((v) => v.id === vendorId) || null;
 }
@@ -149,6 +163,27 @@ export function computeBillFlags(bill, vendorArg, opts = {}) {
       label: "Review Tax", severity: SEVERITY.REVIEW, category: "Tax",
       message: `${vendor.name} usually has PPh withholding, but none was applied — confirm the tax category.`,
     });
+  }
+
+  // 4b) Tax Category check — does the applied tax match the item categories?
+  // Category-driven (the vendor's PPh default can differ from what the line
+  // categories actually attract). PLACEHOLDER category map — see the PRD tax
+  // table; treated as REVIEW because the object isn't certain.
+  {
+    const lines = bill.items || [];
+    const svc = lines.find((it) => catTax(it.acct).pphExpected);
+    const pphApplied = (bill.pph23 || 0) > 0;
+    if (svc && !pphApplied) {
+      push("tax_category", {
+        label: "Review Tax", severity: SEVERITY.REVIEW, category: "Tax",
+        message: `A line ("${svc.desc || svc.acctName || svc.acct}") is a ${catTax(svc.acct).article}-type expense, but no withholding is applied — confirm the tax category.`,
+      });
+    } else if (!svc && pphApplied && lines.length) {
+      push("tax_category", {
+        label: "Review Tax", severity: SEVERITY.REVIEW, category: "Tax",
+        message: "PPh is withheld but the invoice looks goods-only — confirm the tax category.",
+      });
+    }
   }
 
   // 5) Withholding deadline (separate branch — never blocks) -------------------
