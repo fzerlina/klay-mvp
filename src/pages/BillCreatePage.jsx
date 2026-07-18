@@ -4,6 +4,7 @@ import { useBills } from "../state/BillsContext";
 import { useVendors } from "../state/VendorsContext";
 import { formatDate, initials } from "../lib/format";
 import { previewJournalLines } from "../lib/billJournalPreview";
+import { computeBillFlags } from "../lib/reviewWorkflow";
 import { TODAY } from "../lib/clock";
 import "./modules.css";
 import "./invoice-create.css";
@@ -555,7 +556,7 @@ export default function BillCreatePage() {
     setDue("2025-05-15");
     setDescription("Pengadaan komponen elektronik Q2 — sesuai PO.");
     setItems([
-      { desc: "Komponen Elektronik - Panel LCD 24 inch", qty: 50, price: 1500000, acct: "1-3100" },
+      { desc: "Komponen Elektronik - Panel LCD 24 inch", qty: 50, price: 20000000, acct: "1-3100" },
     ]);
     setEntryMode("detailed");           // OCR extracted a line item
     setPpnRate(0.11);
@@ -692,6 +693,25 @@ export default function BillCreatePage() {
   // per-field highlighting. Severity → CTA: blocking = Fix; review = This is
   // correct / Fix; advisory = Acknowledge. Blocking clears when the condition
   // is fixed; review/advisory clear when acknowledged (or fixed).
+  // Bill-record-shaped draft so the canonical review-flag engine
+  // (reviewWorkflow.computeBillFlags) evaluates the in-progress bill the same
+  // way it will on Bill Detail / Bills List after submit.
+  const flagDraft = useMemo(() => ({
+    id: "DRAFT",
+    vendor: vendor?.id,
+    vendorName: vendor?.name,
+    poNo: poNo || "—",
+    invNo: invNo || "—",
+    date, due,
+    dpp, ppn, pph23: pph, total,
+    ppnRate,
+    faktur_pajak: fakturPajak || undefined,
+    grn: poNo ? "matched" : "pending",
+    approval: "draft",
+    anomalies: [],
+    audit: [{ date }],
+  }), [vendor, poNo, invNo, date, due, dpp, ppn, pph, total, ppnRate, fakturPajak]);
+
   const exceptions = useMemo(() => {
     const list = [];
     // Blocking — must be fixed before submit
@@ -710,8 +730,6 @@ export default function BillCreatePage() {
       list.push({ id: "variance", severity: "review", field: "items", title: "Amount looks unusual", detail: `Rp ${fmtNum(total)} is ${variance.deviation > 0 ? `${variance.multiple.toFixed(1)}× higher` : `${(1 / variance.multiple).toFixed(1)}× lower`} than this vendor's typical invoice (avg Rp ${fmtNum(Math.round(variance.avg))} across ${variance.count} bills).` });
     if (vendor && vendor.pkp !== "PKP" && vendor.pkp !== "NON_PKP")
       list.push({ id: "pkp-unknown", severity: "review", field: "vendor", title: "PKP status unknown", detail: "PPN applicability can't be determined until this vendor's PKP status is set." });
-    if (vendor && vendor.pkp !== "PKP" && (ppn > 0 || fakturPajak))
-      list.push({ id: "pkp-mismatch", severity: "review", field: "tax", title: "PKP / PPN mismatch", detail: "PPN or a Faktur Pajak is present, but this vendor is Non-PKP." });
     if (attachments.length === 0)
       list.push({ id: "no-document", severity: "review", field: "attachments", title: "No source document", detail: "This bill has no attachment — attach one or record a justification." });
     if (ocrConfidence.date === "yellow")
@@ -721,8 +739,21 @@ export default function BillCreatePage() {
       list.push({ id: "pph-health", severity: "advisory", field: "vendor", title: "PPh classification may be outdated", detail: `Verify ${vendor.name}'s withholding setup before posting.` });
     if (itemSuggestions.some((s) => s && (s.tier === 2 || s.tier === 3)))
       list.push({ id: "low-conf-acct", severity: "advisory", field: "items", title: "Account chosen from a weak signal", detail: "One or more account codes came from a description/category guess, not this vendor's history." });
+
+    // ── Canonical review-flag engine (the flowchart) — run on the live draft so
+    // the same Vendor / Transaction-risk / Tax checks that gate Bill Detail
+    // surface here too. Time-based "side" monitors + post-submission flags are
+    // excluded at create; duplicate / price-anomaly are handled live above.
+    if (vendor) {
+      const FIELD = { Vendor: "vendor", Tax: "items", Documents: "attachments", "Transaction risk": "items", Workflow: "items" };
+      const SKIP = new Set(["approval_stalled", "period_locked", "missing_document", "duplicate", "price_anomaly"]);
+      for (const f of computeBillFlags(flagDraft, vendor, { autoAssignLateBills: true })) {
+        if (f.side || SKIP.has(f.key)) continue;
+        list.push({ id: `eng-${f.key}`, severity: f.severity.toLowerCase(), field: FIELD[f.category] || "items", title: f.label, detail: f.message });
+      }
+    }
     return list;
-  }, [vendor, invNo, date, items, total, ppn, fakturPajak, attachments, balanced, duplicateMatch, variance, ocrConfidence, itemSuggestions]);
+  }, [vendor, invNo, date, items, total, ppn, fakturPajak, attachments, balanced, duplicateMatch, variance, ocrConfidence, itemSuggestions, flagDraft]);
 
   const ackable = (sev) => sev === "review" || sev === "advisory";
   const activeExceptions = exceptions.filter((e) => !(ackable(e.severity) && resolvedFx[e.id]));
