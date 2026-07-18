@@ -745,7 +745,7 @@ export default function BillCreatePage() {
     // surface here too. Time-based "side" monitors + post-submission flags are
     // excluded at create; duplicate / price-anomaly are handled live above.
     if (vendor) {
-      const FIELD = { Vendor: "vendor", Tax: "items", Documents: "attachments", "Transaction risk": "items", Workflow: "items" };
+      const FIELD = { Vendor: "vendor", Tax: "tax", Documents: "attachments", "Transaction risk": "items", Workflow: "items" };
       const SKIP = new Set(["approval_stalled", "period_locked", "missing_document", "duplicate", "price_anomaly"]);
       for (const f of computeBillFlags(flagDraft, vendor, { autoAssignLateBills: true })) {
         if (f.side || SKIP.has(f.key)) continue;
