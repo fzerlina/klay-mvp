@@ -19,20 +19,18 @@ import { LEVELS } from "../data/seed/roles";
 import {
   computeFieldConfidence,
   computeReviewBrief,
-  hasUnresolvedAttention,
   anomalyIndexesForField,
-  summarizeConfidence,
   FIELD_LABELS,
 } from "../lib/billConfidence";
 import { previewJournalLines, buildJournalEntry } from "../lib/billJournalPreview";
 import { billFlags, canPost, SEVERITY } from "../lib/reviewWorkflow";
 import "./modules.css";
+import "./invoice-create.css";
 import "./bill-detail.css";
 
 // ─── Labels ─────────────────────────────────────────────────────────────────
 
 const GRN_LABEL      = { matched: "Matched", pending: "Pending", mismatch: "Mismatch" };
-const APPROVAL_LABEL = { approved: "Approved", review: "Review", draft: "Draft" };
 const PAY_LABEL      = { paid: "Paid", unpaid: "Unpaid", overdue: "Overdue" };
 
 // ─── Per-action permission tiers ─────────────────────────────────────────────
@@ -53,16 +51,7 @@ const AP_ACTION_LEVEL = {
   "Submit for review": "transact",
   "Edit":              "transact",
   "Delete":            "transact",
-  "Edit & resubmit":   "transact",
   "Cancel bill":       "transact",
-  "Skip — mark for later": "transact",
-  // EXCEPTION-state primaries (all data-prep)
-  "Verify & resubmit": "transact",
-  "Mark as new":       "transact",
-  "Confirm vendor":    "transact",
-  "Classify document": "transact",
-  "Enter manually":    "transact",
-  "Resolve":           "transact",
 };
 
 // ─── Review Brief ───────────────────────────────────────────────────────────
@@ -107,140 +96,44 @@ function ReviewBrief({ brief }) {
 }
 
 // ─── Field Row ──────────────────────────────────────────────────────────────
-// Replaces the plain drawer-row in the Detail tab. Renders a confidence
-// indicator (small colored dot) on the right of each row when a confidence
-// object is provided; on row hover, a small tooltip surfaces the source +
-// score + explanation. YELLOW/RED rows get a faint background tint so the
-// eye is drawn to them. Phase F wires the bounding-box highlight into the
-// tooltip ("read from this region of the document").
+// A drawer-row for a bill field. When the field carries a YELLOW/RED confidence
+// state the row gets a faint background tint and delegates the inline reason +
+// "Review" edit affordance to <FlaggedNote>. GREEN/BLUE/manual fields render as
+// a plain row. Editing is gated by canEdit (AP "transact"): non-editors still
+// see the reason, just no Review button. MVP dropped the per-field confidence
+// dot + hover tooltip — the tint + inline reason carry the signal.
 
-// FieldRow with inline edit + confirm affordances. When the field carries a
-// YELLOW/RED confidence and the caller has passed an `onSave` (and optionally
-// `onConfirm`), the row exposes:
-//   • Edit / "Enter value" — click to open an inline input. Enter saves,
-//     Esc cancels.
-//   • Confirm — YELLOW only. Marks the anomaly resolved without changing
-//     the value (PRD: "yellow fields can be confirmed or corrected").
-// onSave receives the typed-and-parsed value; the page applies it to the
-// bill via updateBill and clears any anomaly indexes that hit the field.
-
-function FieldRow({
-  label, value, confidence, mono,
-  fieldName, rawValue, inputType, parser, onSave, onConfirm, canEdit = true,
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState("");
-
-  const vs = confidence?.visual_state;
-  const cls = (vs === "YELLOW" || vs === "RED") ? ` bd-field-${vs.toLowerCase()}` : "";
-  const editable = canEdit && !!onSave && (vs === "YELLOW" || vs === "RED");
-
-  function startEdit() {
-    setDraft(rawValue == null ? "" : String(rawValue));
-    setEditing(true);
-  }
-  function cancelEdit() {
-    setEditing(false);
-    setDraft("");
-  }
-  function commitEdit() {
-    if (!onSave) { cancelEdit(); return; }
-    const parsed = parser ? parser(draft) : draft;
-    if (parsed === "" || parsed == null) { cancelEdit(); return; }
-    onSave(parsed);
-    setEditing(false);
-    setDraft("");
-  }
-
-  if (editing) {
-    return (
-      <div className={`drawer-row bd-field-row bd-field-editing${cls}`}>
-        <div className="drawer-label">{label}</div>
-        <div className="bd-field-edit">
-          <input
-            type={inputType || "text"}
-            className="bd-field-input"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") commitEdit();
-              if (e.key === "Escape") cancelEdit();
-            }}
-            autoFocus
-          />
-          <button type="button" className="bd-field-edit-btn save" onClick={commitEdit}>Save</button>
-          <button type="button" className="bd-field-edit-btn cancel" onClick={cancelEdit}>Cancel</button>
-        </div>
-      </div>
-    );
-  }
-
-  // Display mode — show the value, inline rule note for RULE_ENGINE /
-  // YELLOW / RED, then Edit and (optionally) Confirm action chips below.
-  const inline = vs === "YELLOW" || vs === "RED";
+function FieldRow({ label, value, confidence, mono, rawValue, inputType, parser, onSave, canEdit = true }) {
   return (
-    <div className={`drawer-row bd-field-row${cls}`}>
+    <div className={`drawer-row${confidenceRowClass(confidence)}`}>
       <div className="drawer-label">{label}</div>
       <div className={`drawer-value${mono ? " mono" : ""}`}>
         {value}
-        {inline && <div className="bd-rule-note">{confidence.explanation}</div>}
-        {editable && (
-          <div className="bd-field-actions">
-            <button type="button" className="bd-field-action edit" onClick={startEdit}>
-              <svg viewBox="0 0 12 12" aria-hidden><path d="M2 10h2l5.5-5.5-2-2L2 8v2zM8.5 2L10 3.5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
-              Review
-            </button>
-          </div>
-        )}
+        <FlaggedNote
+          confidence={confidence}
+          rawValue={rawValue}
+          inputType={inputType}
+          parser={parser}
+          onSave={canEdit ? onSave : undefined}
+        />
       </div>
-      <ConfidenceIndicator confidence={confidence} />
     </div>
   );
 }
 
-// Shared confidence/exception indicator — the colored dot (or check) pinned to
-// the right edge of a row, plus the hover tooltip. Extracted so FieldRow,
-// PlainRow, RefRow and RateRow all surface a field's exception inline, not just
-// in the top review brief. Dot shows when there's a visual_state; tooltip shows
-// whenever a confidence record is present. Caller adds `bd-field-row
-// bd-field-<state>` to the row so it gets the positioning context + tint.
-function ConfidenceIndicator({ confidence }) {
-  if (!confidence) return null;
-  const vs = confidence.visual_state;
-  // Only exceptions (YELLOW/RED) get a visible dot. GREEN/BLUE/manual carry no
-  // indicator — their source still surfaces on hover via the tooltip below.
-  const flagged = vs === "YELLOW" || vs === "RED";
-  return (
-    <>
-      {flagged && (
-        <div className={`bd-field-indicator bd-field-ind-${vs.toLowerCase()}`} aria-hidden>
-          <span className="bd-field-dot" />
-        </div>
-      )}
-      <div className="bd-field-tooltip" role="tooltip">
-        <div className="bd-field-tt-summary">{summarizeConfidence(confidence)}</div>
-        <div className="bd-field-tt-explanation">{confidence.explanation}</div>
-      </div>
-    </>
-  );
-}
-
-// Row-class helper: opts a non-FieldRow into the same positioning + tint as a
-// flagged FieldRow when it carries a confidence state.
+// Row-class helper: tints a row YELLOW/RED when its field carries a flagged
+// confidence state. GREEN/BLUE/manual add no class.
 function confidenceRowClass(confidence) {
-  if (!confidence) return "";
-  const vs = confidence.visual_state;
-  // Any field carrying confidence becomes a hoverable field-row (so its source
-  // tooltip works); only exceptions (YELLOW/RED) also get the colored tint.
-  const tint = (vs === "YELLOW" || vs === "RED") ? ` bd-field-${vs.toLowerCase()}` : "";
-  return ` bd-field-row${tint}`;
+  const vs = confidence?.visual_state;
+  return (vs === "YELLOW" || vs === "RED") ? ` bd-field-${vs.toLowerCase()}` : "";
 }
 
 // Visible exception note for a flagged (YELLOW/RED) field: states what's wrong
-// AND offers the CTA to settle it — "Review", which opens an inline editor on
-// that field (same as FieldRow's edit). Saving corrects the value and clears
-// the field's anomalies, flipping it back to GREEN. Non-flagged fields render
-// nothing.
+// AND — when an onSave is supplied — offers the "Review" CTA that opens an
+// inline editor. Saving corrects the value and clears the field's anomalies,
+// flipping it back to GREEN. This is the single inline-edit affordance shared
+// by FieldRow and every other row (Total / RefRow / RateRow). Non-flagged
+// fields render nothing.
 function FlaggedNote({ confidence, rawValue, inputType, parser, onSave }) {
   const vs = confidence?.visual_state;
   const [editing, setEditing] = useState(false);
@@ -440,20 +333,19 @@ function VendorContextPanel({ vendor }) {
 
 // ─── Status Stepper ─────────────────────────────────────────────────────────
 // PRD: a stepped indicator showing where the bill is in the review/approval
-// pipeline. Pre-posting (DRAFT → PENDING REVIEW → [RETURNED] → APPROVED →
-// POSTED) flips to the payment lifecycle after posting (OPEN → PARTIAL →
-// PAID). Branching states (ON_HOLD, EXCEPTION) render as a banner above the
-// stepper rather than as inline steps — they're "off the happy path."
-// RETURNED is shown inline when it's the current state, with the reason text.
+// pipeline. Pre-posting (Draft → Pending Review → Approved → Posted) flips to
+// the payment lifecycle after posting (Unpaid → Requested → Approved → Partial
+// → Paid). ON_HOLD is a paused status "off the happy path" — the stepper
+// highlights its underlying approval stage and the hold reason lives in the
+// "What needs your attention" list. Returned (REVIEW) and Period-locked
+// (BLOCKING) are exceptions in that list, not lifecycle steps.
 
 function StatusStepper({ bill, paymentStage = "unpaid" }) {
   const ws = workflowStatus(bill);
-  const ov = DEMO_OVERRIDES[bill.id] || {};
 
-  // EXCEPTION / ON_HOLD no longer get their own banner — the reason lives in the
-  // single "What needs your attention" list. The stepper still shows where the
-  // bill sits in its lifecycle (using its underlying approval state below).
-  const isBranchState = ws === "EXCEPTION" || ws === "ON_HOLD";
+  // ON_HOLD is the one non-lifecycle status the stepper handles: it maps to the
+  // bill's underlying approval stage so the stepper still reads correctly.
+  const isBranchState = ws === "ON_HOLD";
 
   // Two lifecycles. The pre-posting stepper (Draft → Pending Review → Approved
   // → Posted) stays in view through APPROVED ("ready to post") and only flips
@@ -462,7 +354,6 @@ function StatusStepper({ bill, paymentStage = "unpaid" }) {
 
   let steps;
   let activeKey;
-  let returnedReason = null;
 
   if (isPostApproval) {
     // Payment lifecycle: Unpaid → Requested → Approved → Partial → Paid. The
@@ -482,22 +373,18 @@ function StatusStepper({ bill, paymentStage = "unpaid" }) {
     else if (paymentStage === "requested")                activeKey = "REQUESTED";
     else                                                  activeKey = "UNPAID";
   } else {
-    // Review lifecycle. RETURNED only appears as an inline step when the bill
-    // is currently in that state; otherwise we skip it so the happy-path
-    // sequence reads cleanly.
-    const baseSteps = [
+    // Review lifecycle — the happy path only. Returned / Period-locked are
+    // exceptions surfaced in the attention list, not steps here.
+    steps = [
       { key: "DRAFT",          label: "Draft" },
       { key: "PENDING_REVIEW", label: "Pending Review" },
-      { key: "RETURNED",       label: "Returned" },
       { key: "APPROVED",       label: "Approved" },
       { key: "POSTED",         label: "Posted" },
     ];
-    steps = ws === "RETURNED" ? baseSteps : baseSteps.filter((s) => s.key !== "RETURNED");
-    // EXCEPTION / ON_HOLD aren't lifecycle steps — highlight the underlying
-    // approval stage instead so the stepper still reads correctly.
+    // ON_HOLD isn't a lifecycle step — highlight the underlying approval stage
+    // instead so the stepper still reads correctly.
     const approvalToStep = { draft: "DRAFT", review: "PENDING_REVIEW", approved: bill.je_number ? "POSTED" : "APPROVED" };
     activeKey = isBranchState ? (approvalToStep[bill.approval] || "DRAFT") : ws;
-    if (ws === "RETURNED") returnedReason = ov.returned?.reason;
   }
 
   const activeIdx = steps.findIndex((s) => s.key === activeKey);
@@ -510,11 +397,8 @@ function StatusStepper({ bill, paymentStage = "unpaid" }) {
             i < activeIdx ? "done" :
             i === activeIdx ? "active" :
             "pending";
-          // RETURNED is always rendered danger when it appears (it only does
-          // when current); the rest follow done/active/pending.
-          const tone = s.key === "RETURNED" ? "danger" : state;
           return (
-            <li key={s.key} className={`bd-step bd-step-${tone}`}>
+            <li key={s.key} className={`bd-step bd-step-${state}`}>
               <div className="bd-step-dot">
                 {state === "done" ? (
                   <svg viewBox="0 0 12 12" aria-hidden><polyline points="2 6 5 9 10 3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
@@ -527,11 +411,6 @@ function StatusStepper({ bill, paymentStage = "unpaid" }) {
           );
         })}
       </ol>
-      {returnedReason && (
-        <div className="bd-stepper-note">
-          <span className="bd-stepper-note-lbl">FM returned:</span> {returnedReason}
-        </div>
-      )}
     </div>
   );
 }
@@ -546,11 +425,12 @@ function StatusStepper({ bill, paymentStage = "unpaid" }) {
 const KLAY_NPWP = "01.234.567.8-901.000";
 const KLAY_ADDRESS = "Jl. Sudirman Kav. 52, Jakarta 12190";
 
+// MVP source documents: Invoice, PO, Faktur Pajak. GRN and Contract mocks are
+// deferred — their reference numbers still show as read-only rows, but the
+// rendered document views aren't part of the MVP cut.
 const DOC_DEFS = [
   { key: "invoice",  label: "Vendor Invoice" },
   { key: "po",       label: "Purchase Order" },
-  { key: "grn",      label: "Goods Receipt" },
-  { key: "contract", label: "Contract" },
   { key: "faktur",   label: "Faktur Pajak" },
 ];
 
@@ -560,49 +440,47 @@ function availableDocs(bill) {
   const has = {
     invoice:  true,
     po:       bill.poNo && bill.poNo !== "—",
-    grn:      !!bill.grnNo,
-    contract: !!bill.contractNo,
     faktur:   !!bill.fakturNo,
   };
   return DOC_DEFS.filter((d) => has[d.key]);
 }
 
-function SourcePanel({ bill, vendor, docView, setDocView }) {
+function SourcePanel({ bill, vendor, docView, setDocView, onDownload }) {
   const docs = availableDocs(bill);
   const active = docs.some((d) => d.key === docView) ? docView : "invoice";
-  const meta =
-    active === "invoice" ? (bill.isAI ? "OCR extraction (email ingest)" : "Manual entry") :
-    active === "po"       ? "Procurement record" :
-    active === "grn"      ? "Warehouse receipt" :
-    active === "contract" ? "Master agreement" :
-                            "DJP e-Faktur";
+  const activeLabel = (docs.find((d) => d.key === active) || docs[0])?.label || "Document";
   return (
-    <div className="bd-doc-wrap">
-      <div className="bd-doc-toolbar">
-        <span className="bd-doc-toolbar-lbl">Source Document</span>
-        <span className="bd-doc-toolbar-sep">·</span>
-        <span className="bd-doc-toolbar-meta">{meta}</span>
+    <div className="ap-doc-host">
+      {/* Preview bar (mirrors Create Bill): switcher tabs left, Download right */}
+      <div className="ap-prev-bar">
+        {docs.length > 1 ? (
+          <div className="bd-doc-switch" role="tablist">
+            {docs.map((d) => (
+              <button
+                key={d.key}
+                type="button"
+                role="tab"
+                aria-selected={active === d.key}
+                className={`bd-doc-switch-tab${active === d.key ? " active" : ""}`}
+                onClick={() => setDocView(d.key)}
+              >
+                {d.label}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="ap-prev-lbl">
+            <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/></svg>
+            {activeLabel} (A4)
+          </div>
+        )}
+        <button className="a4-download-btn" onClick={onDownload}>
+          <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Download PDF
+        </button>
       </div>
-      {docs.length > 1 && (
-        <div className="bd-doc-switch" role="tablist">
-          {docs.map((d) => (
-            <button
-              key={d.key}
-              type="button"
-              role="tab"
-              aria-selected={active === d.key}
-              className={`bd-doc-switch-tab${active === d.key ? " active" : ""}`}
-              onClick={() => setDocView(d.key)}
-            >
-              {d.label}
-            </button>
-          ))}
-        </div>
-      )}
       {active === "invoice"  && <SourceInvoice  bill={bill} vendor={vendor} />}
       {active === "po"       && <SourcePO       bill={bill} vendor={vendor} />}
-      {active === "grn"      && <SourceGRN      bill={bill} vendor={vendor} />}
-      {active === "contract" && <SourceContract bill={bill} vendor={vendor} />}
       {active === "faktur"   && <SourceFaktur   bill={bill} vendor={vendor} />}
     </div>
   );
@@ -610,123 +488,93 @@ function SourcePanel({ bill, vendor, docView, setDocView }) {
 
 function SourceInvoice({ bill, vendor }) {
   return (
-    <>
-      <div className="bd-doc-page">
-        <div className="bd-doc-letterhead">
-          <div className="bd-doc-vendor-name">{vendor?.name || bill.vendorName}</div>
-          {vendor?.address && <div className="bd-doc-vendor-meta">{vendor.address}</div>}
-          {vendor?.tax_id && (
-            <div className="bd-doc-vendor-meta">
-              NPWP <span className="bd-mono">{vendor.tax_id}</span>
-            </div>
+    <div className="a4-doc">
+      <div className="a4-head2">
+        <div className="a4-brand">
+          <div className="a4-brand-name">{vendor?.name || bill.vendorName}</div>
+          <div className="a4-brand-tag">Invoice from vendor</div>
+        </div>
+        <div className="a4-head-meta">
+          <div className="a4-head-row"><span className="a4-head-lbl">Invoice</span><span className="a4-head-val">{bill.invNo && bill.invNo !== "—" ? bill.invNo : "—"}</span></div>
+          <div className="a4-head-row"><span className="a4-head-lbl">Date</span><span className="a4-head-val">{formatDateEn(bill.date)}</span></div>
+          <div className="a4-head-row"><span className="a4-head-lbl">Due</span><span className="a4-head-val">{formatDateEn(bill.due)}</span></div>
+          {bill.poNo && bill.poNo !== "—" && <div className="a4-head-row"><span className="a4-head-lbl">PO</span><span className="a4-head-val">{bill.poNo}</span></div>}
+        </div>
+      </div>
+
+      <div className="a4-addr-grid">
+        <div className="a4-addr">
+          <div className="a4-addr-lbl">FROM VENDOR</div>
+          <div className="a4-addr-name">{vendor?.name || bill.vendorName}</div>
+          {vendor?.address && <div className="a4-addr-line">{vendor.address}</div>}
+          {vendor?.tax_id && <div className="a4-addr-line">NPWP {vendor.tax_id}</div>}
+        </div>
+        <div className="a4-addr">
+          <div className="a4-addr-lbl">BILL TO</div>
+          <div className="a4-addr-name">PT Klay Indonesia</div>
+          <div className="a4-addr-line">{KLAY_ADDRESS}</div>
+          <div className="a4-addr-line">NPWP {KLAY_NPWP}</div>
+        </div>
+        <div className="a4-addr">
+          <div className="a4-addr-lbl">TERMS</div>
+          <div className="a4-addr-name">{vendor?.payment_terms || "—"}</div>
+          <div className="a4-addr-line a4-addr-muted">Payment via bank transfer</div>
+          {vendor?.banks?.[0] && (
+            <>
+              <div className="a4-addr-line" style={{ marginTop: 6 }}>{vendor.banks[0].name} {vendor.banks[0].acc}</div>
+              <div className="a4-addr-line">a/n {vendor.banks[0].holder}</div>
+            </>
           )}
         </div>
-        <div className="bd-doc-divider" />
+      </div>
 
-        <div className="bd-doc-title">INVOICE</div>
-
-        <div className="bd-doc-header">
-          <div className="bd-doc-header-block">
-            <div className="bd-doc-lbl">Bill To</div>
-            <div className="bd-doc-val">PT Klay Indonesia</div>
-            <div className="bd-doc-val-sub">Jl. Sudirman Kav. 52, Jakarta 12190</div>
-          </div>
-          <div className="bd-doc-header-block">
-            <div className="bd-doc-lbl">Invoice No.</div>
-            <div className="bd-doc-val bd-mono">{bill.invNo && bill.invNo !== "—" ? bill.invNo : "—"}</div>
-            <div className="bd-doc-lbl bd-doc-lbl-spaced">PO Reference</div>
-            <div className="bd-doc-val bd-mono">{bill.poNo && bill.poNo !== "—" ? bill.poNo : "—"}</div>
-          </div>
-          <div className="bd-doc-header-block">
-            <div className="bd-doc-lbl">Invoice Date</div>
-            <div className="bd-doc-val">{formatDateEn(bill.date)}</div>
-            <div className="bd-doc-lbl bd-doc-lbl-spaced">Due Date</div>
-            <div className="bd-doc-val">{formatDateEn(bill.due)}</div>
-          </div>
-        </div>
-
-        <table className="bd-doc-items">
+      <div className="a4-items2">
+        <table>
           <thead>
             <tr>
-              <th className="bd-doc-items-num">#</th>
-              <th>Description</th>
-              <th className="r">Qty</th>
-              <th className="r">Price</th>
-              <th className="r">Subtotal</th>
+              <th className="a4-item-num">ITEM</th>
+              <th>DESCRIPTION</th>
+              <th className="r">QTY</th>
+              <th className="r">PRICE</th>
+              <th className="r">SUBTOTAL</th>
             </tr>
           </thead>
           <tbody>
             {bill.items.map((item, i) => (
               <tr key={i}>
-                <td className="bd-doc-items-num">{String(i + 1).padStart(2, "0")}</td>
-                <td>{item.desc}</td>
-                <td className="r bd-mono">{item.qty.toLocaleString("id-ID")}</td>
-                <td className="r bd-mono">{item.price.toLocaleString("id-ID")}</td>
-                <td className="r bd-mono">{item.subtotal.toLocaleString("id-ID")}</td>
+                <td className="a4-item-num">{String(i + 1).padStart(2, "0")}</td>
+                <td><div className="a4-item-name">{item.desc}</div></td>
+                <td className="r mono">{item.qty.toLocaleString("id-ID")}</td>
+                <td className="r mono">{item.price.toLocaleString("id-ID")}</td>
+                <td className="r mono">{item.subtotal.toLocaleString("id-ID")}</td>
               </tr>
             ))}
           </tbody>
         </table>
+      </div>
 
-        <div className="bd-doc-totals">
-          <div className="bd-doc-tr">
-            <span className="lbl">DPP</span>
-            <span className="val bd-mono">{bill.dpp.toLocaleString("id-ID")}</span>
-          </div>
-          <div className="bd-doc-tr">
-            <span className="lbl">PPN 11%</span>
-            <span className="val bd-mono">{bill.ppn.toLocaleString("id-ID")}</span>
-          </div>
-          {bill.pph23 > 0 && (
-            <div className="bd-doc-tr">
-              <span className="lbl">PPh 23 (potongan)</span>
-              <span className="val bd-mono">− {bill.pph23.toLocaleString("id-ID")}</span>
-            </div>
-          )}
-          <div className="bd-doc-tr grand">
-            <span className="lbl">Total</span>
-            <span className="val bd-mono">Rp {bill.total.toLocaleString("id-ID")}</span>
-          </div>
-        </div>
-
-        <div className="bd-doc-meta-row">
-          <div className="bd-doc-meta-block">
-            <div className="bd-doc-lbl">Faktur Pajak</div>
-            <div className="bd-doc-val bd-mono">
-              {vendor?.pkp === "PKP" ? "010.000-25.12345678" : "— (Non-PKP)"}
-            </div>
-          </div>
-          <div className="bd-doc-meta-block">
-            <div className="bd-doc-lbl">Payment Terms</div>
-            <div className="bd-doc-val">{vendor?.payment_terms || "—"}</div>
-          </div>
-        </div>
-
-        {(bill.keterangan || vendor?.banks?.[0]) && (
-          <div className="bd-doc-notes">
-            {vendor?.banks?.[0] && (
-              <>
-                <div className="bd-doc-lbl">Pembayaran ke</div>
-                <div className="bd-doc-val">
-                  {vendor.banks[0].name} {vendor.banks[0].acc}
-                  <div className="bd-doc-val-sub">a/n {vendor.banks[0].holder}</div>
-                </div>
-              </>
-            )}
-            {bill.keterangan && (
-              <>
-                <div className="bd-doc-lbl bd-doc-lbl-spaced">Catatan</div>
-                <div className="bd-doc-val">{bill.keterangan}</div>
-              </>
-            )}
-          </div>
-        )}
-
-        <div className="bd-doc-footer">
-          {vendor?.email || ""} {vendor?.phone ? " · " + vendor.phone : ""}
+      <div className="a4-total">
+        <div className="a4-tb">
+          <div className="a4-tr"><span className="lbl">DPP</span><span className="val">{bill.dpp.toLocaleString("id-ID")}</span></div>
+          <div className="a4-tr"><span className="lbl">PPN 11%</span><span className="val">{(bill.ppn || 0).toLocaleString("id-ID")}</span></div>
+          {bill.pph23 > 0 && <div className="a4-tr"><span className="lbl">PPh 23 (potongan)</span><span className="val">− {bill.pph23.toLocaleString("id-ID")}</span></div>}
+          <div className="a4-tr grand"><span className="lbl">Total</span><span className="val">Rp {bill.total.toLocaleString("id-ID")}</span></div>
         </div>
       </div>
-    </>
+
+      <div className="a4-notes">
+        <div className="a4-notes-lbl">NOTES</div>
+        <div className="a4-notes-body">
+          {bill.keterangan
+            ? bill.keterangan
+            : <span className="a4-notes-empty">Please pay before the due date. Include the invoice number in the bank transfer description.</span>}
+        </div>
+      </div>
+
+      <div className="a4-footer">
+        {vendor?.email || "—"}{vendor?.phone ? " · " + vendor.phone : ""}
+      </div>
+    </div>
   );
 }
 
@@ -734,189 +582,78 @@ function SourceInvoice({ bill, vendor }) {
 function SourcePO({ bill, vendor }) {
   const ppn = bill.ppn || 0;
   return (
-    <div className="bd-doc-page">
-      <div className="bd-doc-letterhead">
-        <div className="bd-doc-vendor-name">PT Klay Indonesia</div>
-        <div className="bd-doc-vendor-meta">{KLAY_ADDRESS}</div>
-        <div className="bd-doc-vendor-meta">NPWP <span className="bd-mono">{KLAY_NPWP}</span></div>
-      </div>
-      <div className="bd-doc-divider" />
-      <div className="bd-doc-title">PURCHASE ORDER</div>
-      <div className="bd-doc-header">
-        <div className="bd-doc-header-block">
-          <div className="bd-doc-lbl">Supplier</div>
-          <div className="bd-doc-val">{vendor?.name || bill.vendorName}</div>
-          {vendor?.address && <div className="bd-doc-val-sub">{vendor.address}</div>}
+    <div className="a4-doc">
+      <div className="a4-head2">
+        <div className="a4-brand">
+          <div className="a4-brand-name">PT Klay Indonesia</div>
+          <div className="a4-brand-tag">Purchase Order</div>
         </div>
-        <div className="bd-doc-header-block">
-          <div className="bd-doc-lbl">PO No.</div>
-          <div className="bd-doc-val bd-mono">{bill.poNo}</div>
-          <div className="bd-doc-lbl bd-doc-lbl-spaced">PO Date</div>
-          <div className="bd-doc-val">{formatDateEn(bill.date)}</div>
-        </div>
-        <div className="bd-doc-header-block">
-          <div className="bd-doc-lbl">Payment Terms</div>
-          <div className="bd-doc-val">{vendor?.payment_terms || "—"}</div>
-          <div className="bd-doc-lbl bd-doc-lbl-spaced">Status</div>
-          <div className="bd-doc-val">Approved</div>
+        <div className="a4-head-meta">
+          <div className="a4-head-row"><span className="a4-head-lbl">PO No.</span><span className="a4-head-val">{bill.poNo}</span></div>
+          <div className="a4-head-row"><span className="a4-head-lbl">Date</span><span className="a4-head-val">{formatDateEn(bill.date)}</span></div>
+          <div className="a4-head-row"><span className="a4-head-lbl">Status</span><span className="a4-head-val">Approved</span></div>
         </div>
       </div>
-      <table className="bd-doc-items">
-        <thead>
-          <tr>
-            <th className="bd-doc-items-num">#</th>
-            <th>Description</th>
-            <th className="r">Qty</th>
-            <th className="r">Unit Price</th>
-            <th className="r">Amount</th>
-          </tr>
-        </thead>
-        <tbody>
-          {bill.items.map((item, i) => (
-            <tr key={i}>
-              <td className="bd-doc-items-num">{String(i + 1).padStart(2, "0")}</td>
-              <td>{item.desc}</td>
-              <td className="r bd-mono">{item.qty.toLocaleString("id-ID")}</td>
-              <td className="r bd-mono">{item.price.toLocaleString("id-ID")}</td>
-              <td className="r bd-mono">{item.subtotal.toLocaleString("id-ID")}</td>
+
+      <div className="a4-addr-grid">
+        <div className="a4-addr">
+          <div className="a4-addr-lbl">SUPPLIER</div>
+          <div className="a4-addr-name">{vendor?.name || bill.vendorName}</div>
+          {vendor?.address && <div className="a4-addr-line">{vendor.address}</div>}
+          {vendor?.tax_id && <div className="a4-addr-line">NPWP {vendor.tax_id}</div>}
+        </div>
+        <div className="a4-addr">
+          <div className="a4-addr-lbl">SHIP TO</div>
+          <div className="a4-addr-name">PT Klay Indonesia</div>
+          <div className="a4-addr-line">{KLAY_ADDRESS}</div>
+          <div className="a4-addr-line">NPWP {KLAY_NPWP}</div>
+        </div>
+        <div className="a4-addr">
+          <div className="a4-addr-lbl">TERMS</div>
+          <div className="a4-addr-name">{vendor?.payment_terms || "—"}</div>
+          <div className="a4-addr-line a4-addr-muted">Issued by Procurement</div>
+        </div>
+      </div>
+
+      <div className="a4-items2">
+        <table>
+          <thead>
+            <tr>
+              <th className="a4-item-num">ITEM</th>
+              <th>DESCRIPTION</th>
+              <th className="r">QTY</th>
+              <th className="r">UNIT PRICE</th>
+              <th className="r">AMOUNT</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-      <div className="bd-doc-totals">
-        <div className="bd-doc-tr"><span className="lbl">Subtotal (DPP)</span><span className="val bd-mono">{bill.dpp.toLocaleString("id-ID")}</span></div>
-        <div className="bd-doc-tr"><span className="lbl">PPN</span><span className="val bd-mono">{ppn.toLocaleString("id-ID")}</span></div>
-        <div className="bd-doc-tr grand"><span className="lbl">PO Total</span><span className="val bd-mono">Rp {(bill.dpp + ppn).toLocaleString("id-ID")}</span></div>
-      </div>
-      <div className="bd-doc-notes">
-        <div className="bd-doc-lbl">Authorized by</div>
-        <div className="bd-doc-val">Procurement · PT Klay Indonesia</div>
-      </div>
-      <div className="bd-doc-footer">This purchase order is issued subject to Klay standard procurement terms.</div>
-    </div>
-  );
-}
-
-// ── Goods Receipt Note ──────────────────────────────────────────────────────
-function SourceGRN({ bill, vendor }) {
-  const mismatch = bill.grn === "mismatch";
-  return (
-    <div className="bd-doc-page">
-      <div className="bd-doc-letterhead">
-        <div className="bd-doc-vendor-name">PT Klay Indonesia — Warehouse</div>
-        <div className="bd-doc-vendor-meta">{KLAY_ADDRESS}</div>
-      </div>
-      <div className="bd-doc-divider" />
-      <div className="bd-doc-title">GOODS RECEIPT NOTE</div>
-      <div className="bd-doc-header">
-        <div className="bd-doc-header-block">
-          <div className="bd-doc-lbl">GRN No.</div>
-          <div className="bd-doc-val bd-mono">{bill.grnNo}</div>
-          <div className="bd-doc-lbl bd-doc-lbl-spaced">PO Reference</div>
-          <div className="bd-doc-val bd-mono">{bill.poNo && bill.poNo !== "—" ? bill.poNo : "—"}</div>
-        </div>
-        <div className="bd-doc-header-block">
-          <div className="bd-doc-lbl">Supplier</div>
-          <div className="bd-doc-val">{vendor?.name || bill.vendorName}</div>
-          <div className="bd-doc-lbl bd-doc-lbl-spaced">Received Date</div>
-          <div className="bd-doc-val">{formatDateEn(bill.date)}</div>
-        </div>
-        <div className="bd-doc-header-block">
-          <div className="bd-doc-lbl">Match Status</div>
-          <div className={`bd-doc-val${mismatch ? " bd-doc-flag" : ""}`}>
-            {GRN_LABEL[bill.grn] || "—"}
-          </div>
-        </div>
-      </div>
-      <table className="bd-doc-items">
-        <thead>
-          <tr>
-            <th className="bd-doc-items-num">#</th>
-            <th>Description</th>
-            <th className="r">Qty Ordered</th>
-            <th className="r">Qty Received</th>
-            <th className="r">Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {bill.items.map((item, i) => {
-            const recv = mismatch && i === 0 ? Math.max(0, Math.round(item.qty * 0.9)) : item.qty;
-            const ok = recv === item.qty;
-            return (
+          </thead>
+          <tbody>
+            {bill.items.map((item, i) => (
               <tr key={i}>
-                <td className="bd-doc-items-num">{String(i + 1).padStart(2, "0")}</td>
-                <td>{item.desc}</td>
-                <td className="r bd-mono">{item.qty.toLocaleString("id-ID")}</td>
-                <td className="r bd-mono">{recv.toLocaleString("id-ID")}</td>
-                <td className={`r${ok ? "" : " bd-doc-flag"}`}>{ok ? "OK" : "Short"}</td>
+                <td className="a4-item-num">{String(i + 1).padStart(2, "0")}</td>
+                <td><div className="a4-item-name">{item.desc}</div></td>
+                <td className="r mono">{item.qty.toLocaleString("id-ID")}</td>
+                <td className="r mono">{item.price.toLocaleString("id-ID")}</td>
+                <td className="r mono">{item.subtotal.toLocaleString("id-ID")}</td>
               </tr>
-            );
-          })}
-        </tbody>
-      </table>
-      <div className="bd-doc-notes">
-        <div className="bd-doc-lbl">Received by</div>
-        <div className="bd-doc-val">Warehouse Staff · PT Klay Indonesia</div>
-        {mismatch && (
-          <>
-            <div className="bd-doc-lbl bd-doc-lbl-spaced">Note</div>
-            <div className="bd-doc-val">Quantity received does not match the invoiced quantity — flagged for AP review.</div>
-          </>
-        )}
+            ))}
+          </tbody>
+        </table>
       </div>
-      <div className="bd-doc-footer">Goods inspected and recorded at receipt.</div>
-    </div>
-  );
-}
 
-// ── Contract / Master agreement ─────────────────────────────────────────────
-function SourceContract({ bill, vendor }) {
-  return (
-    <div className="bd-doc-page">
-      <div className="bd-doc-letterhead">
-        <div className="bd-doc-vendor-name">Supply &amp; Service Agreement</div>
-        <div className="bd-doc-vendor-meta">PT Klay Indonesia &nbsp;×&nbsp; {vendor?.name || bill.vendorName}</div>
-      </div>
-      <div className="bd-doc-divider" />
-      <div className="bd-doc-title">CONTRACT</div>
-      <div className="bd-doc-header">
-        <div className="bd-doc-header-block">
-          <div className="bd-doc-lbl">Contract No.</div>
-          <div className="bd-doc-val bd-mono">{bill.contractNo}</div>
-          <div className="bd-doc-lbl bd-doc-lbl-spaced">Effective</div>
-          <div className="bd-doc-val">1 Jan 2025 – 31 Dec 2025</div>
-        </div>
-        <div className="bd-doc-header-block">
-          <div className="bd-doc-lbl">Vendor</div>
-          <div className="bd-doc-val">{vendor?.name || bill.vendorName}</div>
-          {vendor?.tax_id && <div className="bd-doc-val-sub">NPWP {vendor.tax_id}</div>}
-        </div>
-        <div className="bd-doc-header-block">
-          <div className="bd-doc-lbl">Payment Terms</div>
-          <div className="bd-doc-val">{vendor?.payment_terms || "—"}</div>
+      <div className="a4-total">
+        <div className="a4-tb">
+          <div className="a4-tr"><span className="lbl">Subtotal (DPP)</span><span className="val">{bill.dpp.toLocaleString("id-ID")}</span></div>
+          <div className="a4-tr"><span className="lbl">PPN</span><span className="val">{ppn.toLocaleString("id-ID")}</span></div>
+          <div className="a4-tr grand"><span className="lbl">PO Total</span><span className="val">Rp {(bill.dpp + ppn).toLocaleString("id-ID")}</span></div>
         </div>
       </div>
-      <div className="bd-doc-notes">
-        <div className="bd-doc-lbl">Scope of Work</div>
-        <div className="bd-doc-val">
-          {bill.keterangan || `Recurring supply of ${bill.items[0]?.acctName || "goods & services"} as per agreed schedule.`}
-        </div>
-        <div className="bd-doc-lbl bd-doc-lbl-spaced">Pricing</div>
-        <div className="bd-doc-val">As per agreed rate card. This bill draws against the contract.</div>
+
+      <div className="a4-notes">
+        <div className="a4-notes-lbl">AUTHORIZED BY</div>
+        <div className="a4-notes-body">Procurement · PT Klay Indonesia</div>
       </div>
-      <div className="bd-doc-meta-row">
-        <div className="bd-doc-meta-block">
-          <div className="bd-doc-lbl">For PT Klay Indonesia</div>
-          <div className="bd-doc-sign">Budi Santoso</div>
-          <div className="bd-doc-val-sub">Finance Manager</div>
-        </div>
-        <div className="bd-doc-meta-block">
-          <div className="bd-doc-lbl">For {vendor?.name || bill.vendorName}</div>
-          <div className="bd-doc-sign">{vendor?.contact || "Authorized Signatory"}</div>
-          <div className="bd-doc-val-sub">Authorized Signatory</div>
-        </div>
-      </div>
-      <div className="bd-doc-footer">Executed in two counterparts, each an original.</div>
+
+      <div className="a4-footer">This purchase order is issued subject to Klay standard procurement terms.</div>
     </div>
   );
 }
@@ -924,50 +661,62 @@ function SourceContract({ bill, vendor }) {
 // ── Faktur Pajak (Indonesian tax invoice) ──────────────────────────────────
 function SourceFaktur({ bill, vendor }) {
   return (
-    <div className="bd-doc-page bd-doc-faktur">
-      <div className="bd-doc-faktur-head">
-        <div>
-          <div className="bd-doc-lbl">Kode dan Nomor Seri Faktur Pajak</div>
-          <div className="bd-doc-faktur-no bd-mono">{bill.fakturNo}</div>
+    <div className="a4-doc">
+      <div className="a4-head2">
+        <div className="a4-brand">
+          <div className="a4-brand-name">Faktur Pajak</div>
+          <div className="a4-brand-tag">DJP e-Faktur</div>
         </div>
-        <div className="bd-doc-faktur-stamp">FAKTUR PAJAK</div>
+        <div className="a4-head-meta">
+          <div className="a4-head-row"><span className="a4-head-lbl">Seri</span><span className="a4-head-val">{bill.fakturNo}</span></div>
+          <div className="a4-head-row"><span className="a4-head-lbl">Masa</span><span className="a4-head-val">{bill.taxReportingPeriod || formatDateEn(bill.date)}</span></div>
+        </div>
       </div>
-      <div className="bd-doc-divider" />
-      <div className="bd-doc-faktur-party">
-        <div className="bd-doc-lbl">Pengusaha Kena Pajak</div>
-        <div className="bd-doc-val">{vendor?.name || bill.vendorName}</div>
-        {vendor?.address && <div className="bd-doc-val-sub">{vendor.address}</div>}
-        <div className="bd-doc-val-sub">NPWP : {vendor?.tax_id || "—"}</div>
+
+      <div className="a4-addr-grid">
+        <div className="a4-addr">
+          <div className="a4-addr-lbl">PENGUSAHA KENA PAJAK</div>
+          <div className="a4-addr-name">{vendor?.name || bill.vendorName}</div>
+          {vendor?.address && <div className="a4-addr-line">{vendor.address}</div>}
+          <div className="a4-addr-line">NPWP {vendor?.tax_id || "—"}</div>
+        </div>
+        <div className="a4-addr">
+          <div className="a4-addr-lbl">PEMBELI BKP / JKP</div>
+          <div className="a4-addr-name">PT Klay Indonesia</div>
+          <div className="a4-addr-line">{KLAY_ADDRESS}</div>
+          <div className="a4-addr-line">NPWP {KLAY_NPWP}</div>
+        </div>
       </div>
-      <div className="bd-doc-faktur-party">
-        <div className="bd-doc-lbl">Pembeli Barang Kena Pajak / Penerima Jasa Kena Pajak</div>
-        <div className="bd-doc-val">PT Klay Indonesia</div>
-        <div className="bd-doc-val-sub">{KLAY_ADDRESS}</div>
-        <div className="bd-doc-val-sub">NPWP : {KLAY_NPWP}</div>
-      </div>
-      <table className="bd-doc-items">
-        <thead>
-          <tr>
-            <th className="bd-doc-items-num">No.</th>
-            <th>Nama Barang Kena Pajak / Jasa Kena Pajak</th>
-            <th className="r">Harga Jual</th>
-          </tr>
-        </thead>
-        <tbody>
-          {bill.items.map((item, i) => (
-            <tr key={i}>
-              <td className="bd-doc-items-num">{String(i + 1).padStart(2, "0")}</td>
-              <td>{item.desc}</td>
-              <td className="r bd-mono">{item.subtotal.toLocaleString("id-ID")}</td>
+
+      <div className="a4-items2">
+        <table>
+          <thead>
+            <tr>
+              <th className="a4-item-num">NO.</th>
+              <th>Nama Barang / Jasa Kena Pajak</th>
+              <th className="r">HARGA JUAL</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-      <div className="bd-doc-totals">
-        <div className="bd-doc-tr"><span className="lbl">Dasar Pengenaan Pajak</span><span className="val bd-mono">{bill.dpp.toLocaleString("id-ID")}</span></div>
-        <div className="bd-doc-tr grand"><span className="lbl">PPN = 11% × DPP</span><span className="val bd-mono">{(bill.ppn || 0).toLocaleString("id-ID")}</span></div>
+          </thead>
+          <tbody>
+            {bill.items.map((item, i) => (
+              <tr key={i}>
+                <td className="a4-item-num">{String(i + 1).padStart(2, "0")}</td>
+                <td><div className="a4-item-name">{item.desc}</div></td>
+                <td className="r mono">{item.subtotal.toLocaleString("id-ID")}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
-      <div className="bd-doc-footer">
+
+      <div className="a4-total">
+        <div className="a4-tb">
+          <div className="a4-tr"><span className="lbl">Dasar Pengenaan Pajak</span><span className="val">{bill.dpp.toLocaleString("id-ID")}</span></div>
+          <div className="a4-tr grand"><span className="lbl">PPN = 11% × DPP</span><span className="val">{(bill.ppn || 0).toLocaleString("id-ID")}</span></div>
+        </div>
+      </div>
+
+      <div className="a4-footer">
         Masa Pajak {bill.taxReportingPeriod || formatDateEn(bill.date)} · Faktur Pajak ini sah sesuai ketentuan DJP.
       </div>
     </div>
@@ -984,7 +733,6 @@ function SourceFaktur({ bill, vendor }) {
 function ActionBar({ bill, onAction, onSecondary, gateReason, periodLocked, lockedPeriodLabel, onReassign, perm, note, paymentPrimaryLabel }) {
   if (!bill) return null;
   const ws = workflowStatus(bill);
-  const ov = DEMO_OVERRIDES[bill.id] || {};
   // Gate the workflow-progressing primary action (Submit / Approve / Edit &
   // resubmit) when there are unresolved YELLOW/RED fields. Per PRD: "Post is
   // active when all RED filled and all YELLOW confirmed/corrected." Other
@@ -1007,28 +755,15 @@ function ActionBar({ bill, onAction, onSecondary, gateReason, periodLocked, lock
     ? `${lockedPeriodLabel || "Period"} is closed — reassign to current open period to post`
     : null;
 
-  // Resolve sub-actions for EXCEPTION based on the seeded reason text
-  const exceptionPrimaryLabel = (() => {
-    const reason = (ov.exception?.reason || "").toLowerCase();
-    if (reason.includes("ocr") || reason.includes("confidence")) return "Verify & resubmit";
-    if (reason.includes("duplicate")) return "Mark as new";
-    if (reason.includes("vendor")) return "Confirm vendor";
-    if (reason.includes("type")) return "Classify document";
-    if (reason.includes("field")) return "Enter manually";
-    return "Resolve";
-  })();
-
   let primary = null;
   let secondaries = [];
   switch (ws) {
     case "DRAFT":          primary = "Submit for review"; secondaries = ["Edit", "Delete"]; break;
     case "PENDING_REVIEW": primary = "Approve";            secondaries = ["Put on hold", "Edit"]; break;
-    case "RETURNED":       primary = "Edit & resubmit";    secondaries = []; break;
     case "ON_HOLD":        primary = "Release hold";       secondaries = ["Edit", "Cancel bill"]; break;
     case "APPROVED":       primary = "Post";               secondaries = ["Revert to review", "Edit"]; break;
     case "POSTED":         primary = paymentPrimaryLabel;   secondaries = ["View GL entry"]; break;
     case "PAID":           primary = null;                 secondaries = ["View receipt", "Revert to unpaid"]; break;
-    case "EXCEPTION":      primary = exceptionPrimaryLabel; secondaries = ["Skip — mark for later"]; break;
     default:               primary = "Edit";               secondaries = [];
   }
 
@@ -1101,71 +836,101 @@ function ActionBar({ bill, onAction, onSecondary, gateReason, periodLocked, lock
 // FM-only "Override" clears an overridable BLOCKING flag (e.g. Tax Omitted with
 // an SKB on file). ADVISORY flags are context-only. A bill can't post until its
 // blocking flags are fixed (data corrected) or overridden.
-const SEV_META = {
-  BLOCKING: { label: "Blocking", cls: "blocking" },
-  REVIEW:   { label: "Review",   cls: "review" },
-  ADVISORY: { label: "Advisory", cls: "advisory" },
-};
-function ReviewChecklist({ items, okMessage, canReview, canOverride, onReviewed, onOverride, onConfirmField }) {
-  const rank = { BLOCKING: 0, REVIEW: 1, ADVISORY: 2 };
-  const sorted = [...(items || [])].sort((a, b) => rank[a.severity] - rank[b.severity]);
-  const openCount = sorted.filter((f) => f.status === "open" && f.severity !== SEVERITY.ADVISORY).length;
+// The attention panel — same tiered, foldable fx-panel used on Create Bill, so
+// the two surfaces read identically. Items are the merged rules-engine flags +
+// field-confidence gaps + the ON_HOLD status item; each maps to a tier by
+// severity. CTAs preserve Bill Detail's semantics: Override (FM, overridable
+// blocking) / This is correct (acknowledge or confirm) / Fix (jump to the
+// Detail tab) / Acknowledge (advisory).
+const FX_TIERS = [
+  { key: SEVERITY.BLOCKING, cls: "blocking", label: "Blocking" },
+  { key: SEVERITY.REVIEW,   cls: "review",   label: "Need Review" },
+  { key: SEVERITY.ADVISORY, cls: "advisory", label: "Advisory" },
+];
+function ReviewChecklist({ items, okMessage, canReview, canOverride, onReviewed, onOverride, onConfirmField, onFixField }) {
+  const [folded, setFolded] = useState({ [SEVERITY.BLOCKING]: false, [SEVERITY.REVIEW]: false, [SEVERITY.ADVISORY]: true });
+  const toggle = (k) => setFolded((f) => ({ ...f, [k]: !f[k] }));
 
-  if (sorted.length === 0) {
+  const all = items || [];
+  const open = all.filter((f) => f.status === "open");
+  const openActionable = open.filter((f) => f.severity !== SEVERITY.ADVISORY).length;
+  const blockingCount = open.filter((f) => f.severity === SEVERITY.BLOCKING).length;
+
+  if (all.length === 0) {
     if (!okMessage) return null;
     return (
-      <div className="bd-review-checklist">
-        <div className="bd-rc-empty">
-          <span className="bd-rc-empty-ico" aria-hidden>
-            <svg viewBox="0 0 12 12"><polyline points="2.5 6 5 8.5 9.5 4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
-          </span>
-          {okMessage}
-        </div>
+      <div className="fx-panel fx-panel-ok">
+        <span className="fx-ok-ico" aria-hidden>
+          <svg viewBox="0 0 12 12"><polyline points="2.5 6 5 8.5 9.5 4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+        </span>
+        {okMessage}
       </div>
     );
   }
 
-  // Resolve the single action affordance per item — one consistent vocabulary
-  // whether the item is a rule-engine flag or a field-confidence gap.
-  const renderAction = (f) => {
+  const actions = (f) => {
     if (f.status && f.status !== "open") {
-      return <span className="bd-rc-done">{f.status === "overridden" ? "Overridden" : "Reviewed ✓"}</span>;
+      return <span className="fx-done">{f.status === "overridden" ? "Overridden" : "Reviewed ✓"}</span>;
     }
-    if (f.severity === SEVERITY.ADVISORY) return <span className="bd-rc-info">FYI</span>;
-    if (f.source === "status") return <span className="bd-rc-info">Resolve below</span>;
-    if (f.source === "field") {
-      if (f.severity === SEVERITY.REVIEW) {
-        return canReview ? <button type="button" className="bd-rc-btn" onClick={() => onConfirmField(f.fields)}>Confirm</button> : null;
+    // ON_HOLD (and any status-sourced item) is settled from the action bar.
+    if (f.source === "status") return <span className="fx-info">Resolve below</span>;
+
+    if (f.severity === SEVERITY.BLOCKING) {
+      if (f.source === "field") {
+        return <button type="button" className="fx-btn primary" onClick={() => onFixField(f)}>Fix</button>;
       }
-      return <span className="bd-rc-blocked">Fix in Detail</span>; // RED field(s) — edit the value in the Detail tab
+      if (f.overridable && canOverride) {
+        return <button type="button" className="fx-btn override" onClick={() => onOverride(f)}>Override</button>;
+      }
+      return <span className="fx-info">Fix to clear</span>;
     }
-    // rule flag
     if (f.severity === SEVERITY.REVIEW) {
-      return canReview ? <button type="button" className="bd-rc-btn" onClick={() => onReviewed(f)}>Yes, I have reviewed</button> : null;
+      if (f.source === "field") {
+        return (
+          <>
+            {canReview && <button type="button" className="fx-btn" onClick={() => onConfirmField(f.fields)}>This is correct</button>}
+            <button type="button" className="fx-btn primary" onClick={() => onFixField(f)}>Fix</button>
+          </>
+        );
+      }
+      return canReview ? <button type="button" className="fx-btn" onClick={() => onReviewed(f)}>This is correct</button> : null;
     }
-    if (f.overridable && canOverride) {
-      return <button type="button" className="bd-rc-btn override" onClick={() => onOverride(f)}>Override</button>;
-    }
-    return <span className="bd-rc-blocked">Fix to clear</span>;
+    // ADVISORY
+    return canReview ? <button type="button" className="fx-btn" onClick={() => onReviewed(f)}>Acknowledge</button> : <span className="fx-info">FYI</span>;
   };
 
   return (
-    <div className="bd-review-checklist">
-      <div className="bd-rc-head">
-        <span className="bd-rc-title">What needs your attention</span>
-        <span className="bd-rc-sub">{openCount === 0 ? "all clear" : `${openCount} to do`}</span>
+    <div className="fx-panel">
+      <div className="fx-panel-head">
+        <span className="fx-panel-count">
+          {openActionable === 0 ? "All clear" : `${openActionable} exception${openActionable === 1 ? "" : "s"} to resolve`}
+        </span>
+        {blockingCount > 0 && <span className="fx-panel-blocking">{blockingCount} blocking</span>}
       </div>
-      {sorted.map((f) => {
-        const meta = SEV_META[f.severity];
-        const resolved = f.status && f.status !== "open";
+      {FX_TIERS.map((tier) => {
+        const rows = all.filter((f) => f.severity === tier.key);
+        if (rows.length === 0) return null;
+        const isFolded = folded[tier.key];
         return (
-          <div key={f.id} className={`bd-rc-item ${meta.cls}${resolved ? " resolved" : ""}`}>
-            <span className={`bd-rc-sev ${meta.cls}`}>{meta.label}</span>
-            <div className="bd-rc-body">
-              <div className="bd-rc-label">{f.label}</div>
-              <div className="bd-rc-msg">{f.message}</div>
-            </div>
-            <div className="bd-rc-actions">{renderAction(f)}</div>
+          <div className="fx-tier" key={tier.key}>
+            <button type="button" className="fx-tier-head" onClick={() => toggle(tier.key)} aria-expanded={!isFolded}>
+              <span className={`fx-dot ${tier.cls}`} aria-hidden />
+              <span className="fx-tier-label">{tier.label}</span>
+              <span className="fx-tier-count">{rows.length}</span>
+              <svg className={`fx-tier-chev${isFolded ? " folded" : ""}`} viewBox="0 0 24 24" aria-hidden><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            {!isFolded && rows.map((f) => {
+              const resolved = f.status && f.status !== "open";
+              return (
+                <div key={f.id} className={`fx-row${resolved ? " resolved" : ""}`}>
+                  <div className="fx-body">
+                    <div className="fx-title">{f.label}</div>
+                    <div className="fx-detail">{f.message}</div>
+                  </div>
+                  <div className="fx-actions">{actions(f)}</div>
+                </div>
+              );
+            })}
           </div>
         );
       })}
@@ -1184,7 +949,6 @@ function PlainRow({ label, value, mono, confidence, rawValue, inputType, parser,
         {value}
         <FlaggedNote confidence={confidence} rawValue={rawValue} inputType={inputType} parser={parser} onSave={onSave} />
       </div>
-      <ConfidenceIndicator confidence={confidence} />
     </div>
   );
 }
@@ -1208,13 +972,14 @@ function RefRow({ label, value, onClick, confidence, rawValue, inputType, parser
       <div className="drawer-label">{label}</div>
       <div className="drawer-value mono">
         {has ? (
-          <button type="button" className="bd-ref-link" onClick={onClick}>{value}</button>
+          onClick
+            ? <button type="button" className="bd-ref-link" onClick={onClick}>{value}</button>
+            : <span>{value}</span>
         ) : (
           <span className="bd-ref-empty">—</span>
         )}
         <FlaggedNote confidence={confidence} rawValue={rawValue} inputType={inputType} parser={parser} onSave={onSave} />
       </div>
-      <ConfidenceIndicator confidence={confidence} />
     </div>
   );
 }
@@ -1263,7 +1028,6 @@ function RateRow({ label, rate, amount, onSaveRate, canEdit = true, confidence }
         )}
         <FlaggedNote confidence={confidence} />
       </div>
-      <ConfidenceIndicator confidence={confidence} />
     </div>
   );
 }
@@ -1397,15 +1161,14 @@ export default function BillDetailPage() {
       status: "open",
     };
   });
-  // An ON_HOLD bill's hold reason becomes a review-list item (it's a real
-  // workflow state, not an anomaly). "Exception" is no longer a status — those
-  // bills' problems surface as ordinary review flags instead.
+  // ON_HOLD is a real (paused) status, so its hold reason becomes a review-list
+  // item here. Returned and Period-locked are NOT statuses — they're exceptions
+  // emitted by the rules engine (REVIEW / BLOCKING), so they arrive via `flags`
+  // and don't need a hand-rolled entry. "Exception" is no longer a status
+  // either — those bills' problems surface as ordinary review flags.
   const wsState = workflowStatus(bill);
   const ovState = DEMO_OVERRIDES[bill.id] || {};
   const statusItems = [];
-  if (ovState.returned) {
-    statusItems.push({ id: "status:returned", source: "status", severity: SEVERITY.REVIEW, label: "Returned by FM", message: ovState.returned.reason ? `Returned — ${ovState.returned.reason}` : "Returned by the Finance Manager — fix and resubmit.", status: "open" });
-  }
   if (wsState === "ON_HOLD") {
     statusItems.push({ id: "status:hold", source: "status", severity: SEVERITY.REVIEW, label: "On hold", message: ovState.onHold?.reason ? `On hold — ${ovState.onHold.reason}` : statusCause(bill), status: "open" });
   }
@@ -1614,20 +1377,6 @@ export default function BillDetailPage() {
     showToast(`Saved. This will be applied to future invoices from ${vendor?.name || bill.vendorName}.`);
   }
 
-  function confirmField(fieldName) {
-    const stamp = nowAuditStamp();
-    const resolved = new Set(bill.anomalies_resolved || []);
-    for (const idx of anomalyIndexesForField(bill, fieldName)) resolved.add(idx);
-    updateBill(bill.id, { anomalies_resolved: [...resolved] }, {
-      type:   "confirmed",
-      action: `${FIELD_LABELS[fieldName] || fieldName} confirmed despite anomaly`,
-      by:     AP_USER,
-      field:  fieldName,
-      ...stamp,
-    });
-    showToast(`Confirmed.`);
-  }
-
   // Parsers for inline edit inputs
   const parseInt0 = (v) => {
     const n = Number(String(v).replace(/[^\d-]/g, ""));
@@ -1703,29 +1452,17 @@ export default function BillDetailPage() {
         </div>
       </div>
 
-      {/* ── Two-panel body ────────────────────────────────────────── */}
+      {/* ── Status progress bar (top section, full width) ─────────────── */}
+      <div className="bd-status-band">
+        <StatusStepper bill={bill} paymentStage={paymentStage} />
+      </div>
+
+      {/* ── Two-panel body: form leads on the left, source document on the
+          right — consistent with Create New Bill. ─────────────────────── */}
       <div className="bd-main">
-        {/* Left: source document (switchable) */}
-        <div className="bd-source">
-          <SourcePanel bill={bill} vendor={vendor} docView={docView} setDocView={setDocView} />
-        </div>
-
-        {/* Right: status stepper + ONE unified "what needs your attention"
-            checklist (rule flags + field-confidence gaps) + form. */}
+        {/* Left: tabbed form. Status lives in the band above; the "what needs
+            your attention" panel lives inside the Detail tab (below). */}
         <div className="bd-form">
-          <div className="bd-form-top">
-            <StatusStepper bill={bill} paymentStage={paymentStage} />
-            <ReviewChecklist
-              items={attentionItems}
-              okMessage={attentionOk}
-              canReview={canReviewFlags}
-              canOverride={canOverrideFlags}
-              onReviewed={onMarkReviewed}
-              onOverride={onOverrideFlag}
-              onConfirmField={confirmFields}
-            />
-          </div>
-
           <div className="drawer-tabs bd-tabs">
             {[
               ["detail",  "Detail"],
@@ -1745,18 +1482,16 @@ export default function BillDetailPage() {
           <div className="bd-form-body">
             {tab === "detail" && (
               <>
-                <div className="drawer-stat-row bd-stat-row">
-                  <div className="drawer-stat-card">
-                    <div className="drawer-stat-lbl">Remaining</div>
-                    <div className={`drawer-stat-val${bill.sisa > 0 ? " danger" : " success"}`}>
-                      {bill.sisa > 0 ? formatRupiah(bill.sisa) : "Paid"}
-                    </div>
-                  </div>
-                  <div className="drawer-stat-card">
-                    <div className="drawer-stat-lbl">Approval</div>
-                    <div className="drawer-stat-val">{APPROVAL_LABEL[bill.approval]}</div>
-                  </div>
-                </div>
+                <ReviewChecklist
+                  items={attentionItems}
+                  okMessage={attentionOk}
+                  canReview={canReviewFlags}
+                  canOverride={canOverrideFlags}
+                  onReviewed={onMarkReviewed}
+                  onOverride={onOverrideFlag}
+                  onConfirmField={confirmFields}
+                  onFixField={() => setTab("detail")}
+                />
                 <div className="drawer-section">
                   <div className="drawer-section-title">Bill Information</div>
                   <div className="drawer-row">
@@ -1773,24 +1508,20 @@ export default function BillDetailPage() {
                       ) : bill.invNo
                     }
                     confidence={fields.invNo}
-                    fieldName="invNo"
                     rawValue={bill.invNo === "—" ? "" : bill.invNo}
                     inputType="text"
                     parser={parseText}
                     onSave={(v) => editField("invNo", v)}
-                    onConfirm={() => confirmField("invNo")}
                     canEdit={canEditAp}
                   />
                   <FieldRow
                     label="Invoice Date"
                     value={formatDateEn(bill.date)}
                     confidence={fields.date}
-                    fieldName="date"
                     rawValue={bill.date}
                     inputType="date"
                     parser={parseText}
                     onSave={(v) => editField("date", v)}
-                    onConfirm={() => confirmField("date")}
                     canEdit={canEditAp}
                   />
                   <PlainRow
@@ -1865,13 +1596,12 @@ export default function BillDetailPage() {
                 <div className="drawer-section">
                   <div className="drawer-section-title">References</div>
                   <RefRow label="PO #"           value={bill.poNo}       onClick={() => setDocView("po")} confidence={fields.poNo} rawValue={bill.poNo === "—" ? "" : bill.poNo} parser={parseText} onSave={(v) => editField("poNo", v)} />
-                  <RefRow label="GRN #"          value={bill.grnNo}      onClick={() => setDocView("grn")} />
-                  <RefRow label="Contract #"     value={bill.contractNo} onClick={() => setDocView("contract")} />
+                  <RefRow label="GRN #"          value={bill.grnNo} />
+                  <RefRow label="Contract #"     value={bill.contractNo} />
                   <FieldRow
                     label="Faktur Pajak"
                     value={bill.fakturNo && bill.fakturNo !== "—" ? bill.fakturNo : "—"}
                     confidence={fields.faktur}
-                    fieldName="fakturNo"
                     rawValue={bill.fakturNo === "—" ? "" : bill.fakturNo}
                     inputType="text"
                     parser={parseText}
@@ -1917,7 +1647,6 @@ export default function BillDetailPage() {
                         {formatRupiah(bill.total)}
                         <FlaggedNote confidence={fields.total} rawValue={String(bill.total)} inputType="number" parser={parseInt0} onSave={(v) => editField("total", v)} />
                       </div>
-                      <ConfidenceIndicator confidence={fields.total} />
                     </div>
                     <PlainRow label="Net Payable" value={formatRupiah(netPayable)} mono />
                   </div>
@@ -1954,6 +1683,11 @@ export default function BillDetailPage() {
               </div>
             )}
           </div>
+        </div>
+
+        {/* Right: source document (switchable A4 preview) */}
+        <div className="bd-source">
+          <SourcePanel bill={bill} vendor={vendor} docView={docView} setDocView={setDocView} onDownload={() => showToast("Preparing PDF…")} />
         </div>
       </div>
 

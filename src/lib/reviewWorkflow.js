@@ -17,7 +17,7 @@
 // ownerRole is "ap_staff" except the structural Period-Locked block (FM).
 
 import { daysSince } from "./clock";
-import { workflowStatus, isApPeriodLocked, billPeriod } from "./billStatus";
+import { workflowStatus, isApPeriodLocked, billPeriod, DEMO_OVERRIDES } from "./billStatus";
 import { VENDORS } from "../data/seed/vendors";
 
 export const SEVERITY = { BLOCKING: "BLOCKING", REVIEW: "REVIEW", ADVISORY: "ADVISORY" };
@@ -255,6 +255,18 @@ export function computeBillFlags(bill, vendorArg, opts = {}) {
   }
 
   // 8) Additional flags (parallel) --------------------------------------------
+  // Returned — the approver (FM) sent the bill back to AP to fix and resubmit.
+  // It's an EXCEPTION at the REVIEW tier, not a lifecycle status: the bill sits
+  // at Draft (back with AP) and this flag carries the return reason, floats it
+  // up the queue, and is cleared by acknowledging it. In production this reads
+  // `returned_reason` / `returned_by` columns on ap_invoices.
+  const returned = DEMO_OVERRIDES[bill.id]?.returned;
+  if (returned) {
+    push("returned", {
+      label: "Returned", severity: SEVERITY.REVIEW, category: "Workflow",
+      message: `Returned by ${returned.by === "FM" ? "the Finance Manager" : returned.by}: ${returned.reason}`,
+    });
+  }
   const ws = workflowStatus(bill);
   if (ws === "PENDING_REVIEW") {
     const inQueue = Math.max(0, daysSince(bill.audit?.[0]?.date || bill.date));

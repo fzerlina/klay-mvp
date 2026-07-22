@@ -3,6 +3,19 @@
    indicators + the review brief; Phase F replaces the HTML doc mock with the
    real BILL007 PDF + bounding-box highlight. */
 
+/* fx-panel extras used only on Bill Detail (the base fx-* styles come from
+   invoice-create.css, shared with Create Bill). These add the detail-only
+   states: FM override CTA, resolved (kept-visible) rows, static status chips,
+   and the all-clear panel. */
+.fx-btn.override { border-color: #c0392b; color: #c0392b; }
+.fx-btn.override:hover { background: rgba(192, 57, 43, .08); border-color: #c0392b; }
+.fx-row.resolved { opacity: .55; }
+.fx-done { font-size: 11px; font-weight: 600; color: #166638; white-space: nowrap; }
+.fx-info { font-size: 11px; color: var(--color-text-tertiary); white-space: nowrap; }
+.fx-panel-ok { display: flex; align-items: center; gap: 8px; padding: 11px 14px; font-size: 12px; font-weight: 600; color: #166638; }
+.fx-ok-ico { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; background: #166638; color: #fff; flex-shrink: 0; }
+.fx-ok-ico svg { width: 9px; height: 9px; }
+
 .bd-page {
   flex: 1;
   display: flex;
@@ -93,7 +106,7 @@
   flex: 1.05;
   min-width: 0;
   background: var(--color-surface-sunken);
-  border-right: 1px solid var(--color-border-default);
+  border-left: 1px solid var(--color-border-default);
   overflow-y: auto;
   padding: 18px 24px 28px;
 }
@@ -106,63 +119,14 @@
   min-height: 0;
 }
 
-.bd-form-top {
-  padding: 16px 28px 0;
-  background: var(--color-surface-raised);
+/* Status progress bar — full-width band in the top section, below the header. */
+.bd-status-band {
   flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-/* ── Review checklist (reviewWorkflow.js flags) ─────────────────────────── */
-.bd-review-checklist {
-  margin: 0 28px 14px;
-  border: 1px solid var(--color-border-default);
-  border-radius: var(--radius-md, 10px);
-  overflow: hidden;
+  padding: 14px 28px;
   background: var(--color-surface-raised);
+  border-bottom: 1px solid var(--color-border-default);
 }
-.bd-rc-head {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 8px 12px; border-bottom: 1px solid var(--color-border-subtle);
-  background: var(--color-surface-sunken);
-}
-.bd-rc-title { font-size: 12px; font-weight: 700; color: var(--color-text-primary); }
-.bd-rc-sub { font-size: 11px; color: var(--color-text-tertiary); }
-.bd-rc-item {
-  display: flex; align-items: flex-start; gap: 10px;
-  padding: 9px 12px; border-bottom: 1px solid var(--color-border-subtle);
-}
-.bd-rc-item:last-child { border-bottom: none; }
-.bd-rc-item.resolved { opacity: 0.6; }
-.bd-rc-sev {
-  flex: 0 0 auto; margin-top: 1px; font-size: 9.5px; font-weight: 700;
-  padding: 2px 6px; border-radius: var(--radius-full, 999px); border: 1px solid transparent;
-  text-transform: uppercase; letter-spacing: .03em;
-}
-.bd-rc-sev.blocking { background: #FBE9E9; color: #A32D2D; border-color: #F0C9C9; }
-.bd-rc-sev.review   { background: #FBF1E0; color: #BA7517; border-color: #EEDCBB; }
-.bd-rc-sev.advisory { background: #E9EEFB; color: #1A46C8; border-color: #CBD9F4; }
-.bd-rc-body { flex: 1 1 auto; min-width: 0; }
-.bd-rc-label { font-size: 12.5px; font-weight: 600; color: var(--color-text-primary); }
-.bd-rc-msg { font-size: 11px; color: var(--color-text-secondary); line-height: 1.4; margin-top: 1px; }
-.bd-rc-actions { flex: 0 0 auto; display: flex; align-items: center; }
-.bd-rc-btn {
-  font-family: var(--font-sans); font-size: 11px; font-weight: 600; cursor: pointer;
-  padding: 5px 10px; border-radius: var(--radius-sm, 6px);
-  border: 1px solid var(--color-action); color: var(--color-action); background: transparent;
-  white-space: nowrap; transition: background var(--transition-fast), color var(--transition-fast);
-}
-.bd-rc-btn:hover { background: var(--color-action); color: #fff; }
-.bd-rc-btn.override { border-color: #A32D2D; color: #A32D2D; }
-.bd-rc-btn.override:hover { background: #A32D2D; color: #fff; }
-.bd-rc-done { font-size: 11px; font-weight: 600; color: var(--success-text, #1F6E3F); white-space: nowrap; }
-.bd-rc-info { font-size: 10.5px; color: var(--color-text-tertiary); }
-.bd-rc-blocked { font-size: 10.5px; color: #A32D2D; font-weight: 600; white-space: nowrap; }
-.bd-rc-empty { display: flex; align-items: center; gap: 8px; padding: 10px 12px; font-size: 12px; color: var(--success-text, #1F6E3F); }
-.bd-rc-empty-ico { display: inline-flex; width: 16px; height: 16px; align-items: center; justify-content: center; border-radius: 50%; background: var(--success-surface, #E5F2EA); color: var(--success-text, #1F6E3F); }
-.bd-rc-empty-ico svg { width: 10px; height: 10px; }
+.bd-status-band .bd-stepper-wrap { margin-bottom: 0; }
 
 .bd-tabs {
   padding: 0 28px;
@@ -177,10 +141,6 @@
   padding: 20px 28px 24px;
 }
 .bd-form-body > * { max-width: 640px; }
-
-.bd-stat-row {
-  max-width: 480px;
-}
 
 /* ── Status stepper ──────────────────────────────────────────────────────── */
 
@@ -362,181 +322,6 @@
   color: #6B4F00;
 }
 
-/* ── Source document mock (left panel) ───────────────────────────────────── */
-
-.bd-doc-wrap {
-  max-width: 560px;
-  margin: 0 auto;
-}
-
-.bd-doc-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  color: var(--color-text-tertiary);
-  margin-bottom: 10px;
-  padding: 0 4px;
-}
-.bd-doc-toolbar-lbl {
-  font-weight: 700;
-  letter-spacing: .06em;
-  text-transform: uppercase;
-}
-.bd-doc-toolbar-sep { opacity: .5; }
-
-.bd-doc-page {
-  background: #FBFAF8;
-  border: 1px solid #D8CFC2;
-  border-radius: 4px;
-  padding: 28px 30px 26px;
-  font-size: 11.5px;
-  color: #2B231A;
-  box-shadow: 0 1px 0 rgba(0,0,0,.04), 0 4px 12px -6px rgba(0,0,0,.08);
-  /* Paper texture — subtle warm tint */
-  background-image:
-    radial-gradient(circle at 10% 0%, rgba(184,160,122,.05), transparent 40%),
-    radial-gradient(circle at 90% 100%, rgba(184,160,122,.05), transparent 40%);
-}
-
-.bd-doc-letterhead { margin-bottom: 6px; }
-.bd-doc-vendor-name {
-  font-size: 15px;
-  font-weight: 700;
-  color: #1F1810;
-  letter-spacing: -.01em;
-}
-.bd-doc-vendor-meta {
-  font-size: 10.5px;
-  color: #6B5E4D;
-  margin-top: 2px;
-  line-height: 1.4;
-}
-
-.bd-doc-divider {
-  height: 1px;
-  background: #D8CFC2;
-  margin: 14px 0;
-}
-
-.bd-doc-title {
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: .14em;
-  color: #1F1810;
-  margin-bottom: 14px;
-}
-
-.bd-doc-header {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 16px;
-  padding: 12px 14px;
-  background: rgba(244, 240, 235, .5);
-  border: 1px solid #E8DFD2;
-  border-radius: 3px;
-  margin-bottom: 18px;
-}
-.bd-doc-header-block { min-width: 0; }
-.bd-doc-lbl {
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: .06em;
-  text-transform: uppercase;
-  color: #8C7E6A;
-}
-.bd-doc-lbl-spaced { margin-top: 8px; }
-.bd-doc-val {
-  font-size: 12px;
-  color: #1F1810;
-  margin-top: 2px;
-  font-weight: 500;
-}
-.bd-doc-val-sub {
-  font-size: 10.5px;
-  color: #6B5E4D;
-  margin-top: 1px;
-  font-weight: 400;
-}
-
-.bd-doc-items {
-  width: 100%;
-  border-collapse: collapse;
-  margin-bottom: 14px;
-  font-size: 11.5px;
-}
-.bd-doc-items thead th {
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: .06em;
-  text-transform: uppercase;
-  color: #8C7E6A;
-  text-align: left;
-  padding: 6px 8px;
-  border-bottom: 1px solid #C8BFB2;
-}
-.bd-doc-items thead th.r { text-align: right; }
-.bd-doc-items tbody td {
-  padding: 8px;
-  border-bottom: 1px solid #E8DFD2;
-  vertical-align: top;
-  color: #1F1810;
-}
-.bd-doc-items tbody td.r { text-align: right; }
-.bd-doc-items-num {
-  width: 28px;
-  color: #8C7E6A;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-}
-
-.bd-doc-totals {
-  margin-left: auto;
-  width: 60%;
-  max-width: 280px;
-}
-.bd-doc-tr {
-  display: flex;
-  justify-content: space-between;
-  padding: 5px 0;
-  font-size: 12px;
-}
-.bd-doc-tr .lbl { color: #6B5E4D; }
-.bd-doc-tr .val { color: #1F1810; }
-.bd-doc-tr.grand {
-  margin-top: 4px;
-  padding-top: 7px;
-  border-top: 1px solid #C8BFB2;
-  font-weight: 700;
-  font-size: 13px;
-}
-
-.bd-doc-meta-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  margin-top: 16px;
-  padding-top: 14px;
-  border-top: 1px solid #E8DFD2;
-}
-.bd-doc-meta-block { min-width: 0; }
-
-.bd-doc-notes {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid #E8DFD2;
-  font-size: 11.5px;
-}
-
-.bd-doc-footer {
-  margin-top: 18px;
-  padding-top: 10px;
-  border-top: 1px solid #C8BFB2;
-  font-size: 10.5px;
-  color: #8C7E6A;
-  text-align: center;
-}
-
 /* ── Review brief ────────────────────────────────────────────────────────── */
 
 .bd-brief {
@@ -643,15 +428,7 @@
   color: #fff;
 }
 
-/* ── Field row (drawer-row + confidence indicator + hover tooltip) ───────── */
-
-.bd-field-row {
-  position: relative;
-  padding-right: 28px;          /* leave space for the indicator dot */
-  border-radius: 3px;
-  transition: background var(--transition-fast);
-}
-.bd-field-row:hover { background: rgba(184, 160, 122, .06); }
+/* ── Flagged field tint (YELLOW/RED confidence) ─────────────────────────── */
 
 .bd-field-yellow { background: rgba(255, 244, 218, .55); }
 .bd-field-yellow:hover { background: rgba(255, 244, 218, .85); }
@@ -660,73 +437,6 @@
   background: rgba(246, 224, 220, .5);
 }
 .bd-field-red:hover { background: rgba(246, 224, 220, .8); }
-
-.bd-field-indicator {
-  position: absolute;
-  right: 6px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 14px;
-  height: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.bd-field-indicator svg { width: 8px; height: 8px; color: #fff; }
-.bd-field-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-}
-
-.bd-field-ind-blue   { background: #1A46C8; color: #fff; }
-.bd-field-ind-green  { background: #166638; color: #fff; }
-.bd-field-ind-yellow { background: #B57F00; color: #fff; }
-.bd-field-ind-red    { background: var(--color-danger-text); color: #fff; }
-
-/* Field tooltip — appears on row hover. Positioned just below the row, with
-   a small overlap so the cursor can move from row to tooltip without losing
-   hover state. */
-.bd-field-tooltip {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  margin-top: 4px;
-  min-width: 220px;
-  max-width: 320px;
-  background: var(--color-surface-overlay);
-  color: #F2EDE5;
-  border-radius: var(--radius-sm);
-  padding: 8px 10px;
-  font-size: 11.5px;
-  line-height: 1.45;
-  z-index: 20;
-  box-shadow: 0 6px 24px -8px rgba(0,0,0,.4);
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(-4px);
-  transition: opacity var(--transition-fast), transform var(--transition-fast);
-}
-.bd-field-row:hover .bd-field-tooltip {
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateY(0);
-}
-.bd-field-tt-summary {
-  font-size: 11.5px;
-  font-weight: 600;
-  color: #F2EDE5;
-  margin-bottom: 3px;
-  line-height: 1.35;
-}
-.bd-field-tt-explanation {
-  font-size: 11.5px;
-  color: #C8C0B3;
-  line-height: 1.45;
-}
 
 /* ── Inline edit + confirm actions (Phase J) ─────────────────────────────── */
 
@@ -765,10 +475,6 @@
 .bd-field-action.confirm:hover {
   border-color: #166638;
   color: #166638;
-}
-
-.bd-field-editing {
-  background: #FFFDF5;
 }
 
 .bd-field-edit {
@@ -1108,15 +814,11 @@
   color: #fff;
 }
 
-/* ── Source-document switcher + extra doc bits ───────────────────────────── */
-
-.bd-doc-toolbar-meta { color: var(--color-text-tertiary); }
+/* ── Source-document switcher (in the A4 preview bar) ────────────────────── */
 
 .bd-doc-switch {
   display: flex;
   gap: 4px;
-  margin: 0 auto 12px;
-  max-width: 560px;
   padding: 3px;
   background: var(--color-surface-sunken, #efeae2);
   border: 1px solid var(--color-border);
@@ -1143,57 +845,6 @@
   color: var(--color-text);
   box-shadow: 0 1px 2px rgba(0,0,0,.06);
 }
-
-/* Mismatch / short-receipt flag inside a doc */
-.bd-doc-flag {
-  color: var(--color-danger-text, #b4231f);
-  font-weight: 700;
-}
-
-/* Contract signature line */
-.bd-doc-sign {
-  margin-top: 14px;
-  padding-top: 4px;
-  border-top: 1px solid #C8BFB2;
-  font-family: var(--font-serif, Georgia, serif);
-  font-size: 14px;
-  font-style: italic;
-  color: #1F1810;
-}
-
-/* Faktur Pajak */
-.bd-doc-faktur { background: #FCFBF7; }
-.bd-doc-faktur-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
-}
-.bd-doc-faktur-no {
-  font-size: 14px;
-  font-weight: 700;
-  color: #1F1810;
-  margin-top: 2px;
-}
-.bd-doc-faktur-stamp {
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: .12em;
-  color: #b4231f;
-  border: 1.5px solid #b4231f;
-  border-radius: 3px;
-  padding: 4px 10px;
-  text-transform: uppercase;
-  flex-shrink: 0;
-}
-.bd-doc-faktur-party {
-  margin-top: 12px;
-  padding: 10px 12px;
-  background: rgba(184,160,122,.06);
-  border: 1px solid #E8DFD2;
-  border-radius: 3px;
-}
-.bd-doc-faktur-party + .bd-doc-faktur-party { margin-top: 8px; }
 
 /* ── Detail-tab row helpers ──────────────────────────────────────────────── */
 
