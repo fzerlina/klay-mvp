@@ -134,6 +134,16 @@
 .vh-chip{display:inline-flex;align-items:center;margin-left:7px;padding:1px 7px;border-radius:100px;font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;vertical-align:middle;white-space:nowrap}
 .vh-chip.review{background:var(--color-warning-surface);color:var(--color-warning-text);border:1px solid var(--color-warning-border)}
 .vh-chip.flagged{background:var(--color-danger-surface);color:var(--color-danger-text);border:1px solid var(--color-danger-border)}
+/* Inventory grid — SKU · name · category · stock(qty+uom) · unit cost · stock value · last updated */
+.lg-card.lg-table-inventory .lg-row,
+.lg-card.lg-table-inventory .lg-col-header{grid-template-columns:96px 1fr 116px 118px 118px 140px 104px}
+/* Inventory category badges — reuse the .cat-badge base, own palette */
+.cat-badge.inv-raw_material{background:var(--ai-surface);color:var(--color-action);border-color:var(--ai-border)}
+.cat-badge.inv-finished_goods{background:var(--success-surface);color:var(--success-text);border-color:var(--success-border)}
+.cat-badge.inv-supplies{background:var(--warning-surface);color:var(--warning-text);border-color:var(--warning-border)}
+.cat-badge.inv-packaging{background:var(--color-surface-sunken);color:var(--color-text-tertiary);border-color:var(--color-border-default)}
+/* Static meta text in the filter row (e.g. "16 item · Rp …") */
+.lg-meta-static{font-size:11.5px;color:var(--color-text-secondary);white-space:nowrap}
 /* Bills table — checkbox · Bill/Invoice · Date · Vendor · Due · Journal Status · Posting Date · Payment Status · Total · kebab */
 .lg-card.bp-card .lg-row,
 .lg-card.bp-card .lg-col-header{grid-template-columns:30px 120px 84px 1fr 62px 118px 90px 96px 116px 30px}
