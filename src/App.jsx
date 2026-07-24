@@ -17,6 +17,9 @@ import VendorCreatePage from "./pages/VendorCreatePage";
 import VendorDetailPage from "./pages/VendorDetailPage";
 import CustomersPage from "./pages/CustomersPage";
 import CustomerCreatePage from "./pages/CustomerCreatePage";
+import InventoryPage from "./pages/InventoryPage";
+import InventoryCreatePage from "./pages/InventoryCreatePage";
+import InventoryDetailPage from "./pages/InventoryDetailPage";
 import GeneralLedgerPage from "./pages/GeneralLedgerPage";
 import TrialBalancePage from "./pages/TrialBalancePage";
 import ApCloseCommandCenterPage from "./pages/ApCloseCommandCenterPage";
@@ -30,6 +33,7 @@ import { BillsProvider } from "./state/BillsContext";
 import { PaymentsProvider } from "./state/PaymentsContext";
 import { VendorsProvider } from "./state/VendorsContext";
 import { CustomersProvider } from "./state/CustomersContext";
+import { InventoryProvider } from "./state/InventoryContext";
 import { JournalEntriesProvider } from "./state/JournalEntriesContext";
 import { ClosePeriodProvider } from "./state/ClosePeriodContext";
 
@@ -91,6 +95,7 @@ export default function App() {
       <BillsProvider>
         <VendorsProvider>
           <CustomersProvider>
+          <InventoryProvider>
             <JournalEntriesProvider>
             <ClosePeriodProvider>
             <PaymentsProvider>
@@ -115,6 +120,9 @@ export default function App() {
                 <Route path="/vendors/:id" element={<VendorDetailPage />} />
                 <Route path="/customers" element={<CustomersPage />} />
                 <Route path="/customers/new" element={<CustomerCreatePage />} />
+                <Route path="/inventory" element={<InventoryPage />} />
+                <Route path="/inventory/new" element={<InventoryCreatePage />} />
+                <Route path="/inventory/:id" element={<InventoryDetailPage />} />
                 <Route path="/trial-balance" element={<TrialBalancePage />} />
                 <Route path="/close" element={<ApCloseCommandCenterPage />} />
                 <Route path="/bank-reconciliation" element={<BankReconciliationPage />} />
@@ -128,6 +136,7 @@ export default function App() {
             </PaymentsProvider>
             </ClosePeriodProvider>
             </JournalEntriesProvider>
+          </InventoryProvider>
           </CustomersProvider>
         </VendorsProvider>
       </BillsProvider>
