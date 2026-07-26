@@ -43,6 +43,7 @@ export const CAPABILITIES = {
   "vendor.create": { label: "Create vendors", kind: "named", home: "ap", desc: "Onboard vendor master records" },
   "customer.create": { label: "Create customers", kind: "named", home: "ar", desc: "Onboard customer master records" },
   "vendor.classify": { label: "Classify vendors", kind: "named", home: "ap", desc: "Set a vendor's relationship tier (strategic / standard / at-risk)" },
+  "customer.classify": { label: "Classify customers", kind: "named", home: "ar", desc: "Set a customer's relationship tier (strategic / standard / at-risk)" },
   // Payment lifecycle (AP Aging) — request → approve → execute, one per role
   "payment.request": { label: "Request payment", kind: "named", home: "ap", desc: "Request payment for a posted bill (AP Staff)" },
   "payment.approve": { label: "Approve payment", kind: "named", home: "ap", desc: "Approve a payment request (Finance Manager)" },
@@ -74,7 +75,7 @@ export const ROLE_CAPS = {
   finance_manager: {
     gl: ["approve", "post"],
     ap: ["approve", "post", "payment.approve", "vendor.classify"],
-    ar: ["approve", "post"],
+    ar: ["approve", "post", "customer.classify"],
     purchasing: ["approve"],
     inventory: ["view"],
     reports: ["full"],
@@ -97,7 +98,7 @@ export const ROLE_CAPS = {
   },
   // AR Staff — the AP Staff mirror on receivables.
   ar_staff: {
-    ar: ["transact", "customer.create"],
+    ar: ["transact", "customer.create", "customer.classify"],
     reports: ["view"],
   },
   // Purchasing Staff — raises purchase orders and requests.
@@ -119,7 +120,7 @@ export const ROLE_CAPS = {
   accounting_manager: {
     gl: ["approve", "post"],
     ap: ["post", "vendor.classify"],
-    ar: ["post"],
+    ar: ["post", "customer.classify"],
     reports: ["view"],
   },
   // Finance Staff — executes the actual bank transfer (off-system, not modelled)

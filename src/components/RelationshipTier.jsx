@@ -1,22 +1,24 @@
 import { useState, useRef, useEffect } from "react";
 import { useVendors } from "../state/VendorsContext";
+import { useCustomers } from "../state/CustomersContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
 import "./relationship-tier.css";
 
-// Vendor relationship tier (PRD TP-02). The tier lives on the vendor master, so
-// this control reads/writes VendorsContext — edits made here (AP Aging) or on
-// the Vendor page update the same record and show everywhere the vendor appears.
+// Relationship tier — a master-data attribute of a VENDOR (AP) or CUSTOMER (AR).
+// The tier lives on the master record, so this control reads/writes the matching
+// context; edits made anywhere (list, detail, AP Aging) update the same record
+// and show everywhere the party appears. Pass `vendorId` OR `customerId`.
 
 export const TIER_LABEL = { strategic: "Strategic", standard: "Standard", at_risk: "At-Risk" };
 const TIERS = [
-  { key: "strategic", label: "Strategic", desc: "Relationship-sensitive — prioritize on-time payment." },
+  { key: "strategic", label: "Strategic", desc: "Relationship-sensitive — a key account to protect." },
   { key: "standard", label: "Standard", desc: "Default. No special handling." },
-  { key: "at_risk", label: "At-Risk", desc: "Disputes or slow responses — weigh when sequencing payments." },
+  { key: "at_risk", label: "At-Risk", desc: "Disputes or slow payment — weigh carefully." },
 ];
 const TOOLTIP = {
-  strategic: "Strategic vendor — relationship-sensitive. Late payment risks tightening terms, losing discounts, or price increases at renewal.",
-  at_risk: "At-Risk vendor — documented disputes, slow responses, or payment issues. Use as a signal when sequencing payments.",
-  standard: "Standard vendor — no special handling.",
+  strategic: "Strategic — a key relationship. Handle with priority (terms, responsiveness, retention).",
+  at_risk: "At-Risk — documented disputes, slow responses, or payment issues. Use as a signal.",
+  standard: "Standard — no special handling.",
 };
 
 // Display-only pill (no editing). Renders nothing for Standard.
@@ -25,13 +27,19 @@ export function TierPill({ tier }) {
   return <span className={`rt-pill ${tier}`} title={TOOLTIP[tier]}>{TIER_LABEL[tier]}</span>;
 }
 
-export default function RelationshipTierControl({ vendorId, editable }) {
-  const { vendorById, setVendorTier } = useVendors();
+export default function RelationshipTierControl({ vendorId, customerId, editable }) {
+  const vendors = useVendors();
+  const customers = useCustomers();
   const { user, hasCapability } = useCurrentUser();
-  // Tier-setting is a vendor-master capability (vendor.classify), not a
-  // generic AP verb. Callers can force display-only with editable={false}.
-  const canEdit = editable ?? hasCapability("vendor.classify");
-  const v = vendorById(vendorId);
+  // Vendor (AP) vs customer (AR) — pick the matching master record + capability.
+  const isCustomer = !!customerId;
+  const id = customerId || vendorId;
+  const getById = isCustomer ? customers.customerById : vendors.vendorById;
+  const setTier = isCustomer ? customers.setCustomerTier : vendors.setVendorTier;
+  // Tier-setting is a master-data capability (vendor.classify / customer.classify),
+  // not a generic verb. Callers can force display-only with editable={false}.
+  const canEdit = editable ?? hasCapability(isCustomer ? "customer.classify" : "vendor.classify");
+  const v = getById(id);
   const tier = v?.relationship_tier || "standard";
 
   const [open, setOpen] = useState(false);
@@ -57,7 +65,7 @@ export default function RelationshipTierControl({ vendorId, editable }) {
   function save(e) {
     e.stopPropagation();
     if (!note.trim()) return;
-    setVendorTier(vendorId, draftTier, note.trim(), user?.name);
+    setTier(id, draftTier, note.trim(), user?.name);
     setOpen(false);
   }
 
