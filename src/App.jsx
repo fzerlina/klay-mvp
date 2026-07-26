@@ -17,6 +17,7 @@ import VendorCreatePage from "./pages/VendorCreatePage";
 import VendorDetailPage from "./pages/VendorDetailPage";
 import CustomersPage from "./pages/CustomersPage";
 import CustomerCreatePage from "./pages/CustomerCreatePage";
+import CustomerDetailPage from "./pages/CustomerDetailPage";
 import InventoryPage from "./pages/InventoryPage";
 import InventoryCreatePage from "./pages/InventoryCreatePage";
 import InventoryDetailPage from "./pages/InventoryDetailPage";
@@ -119,7 +120,8 @@ export default function App() {
                 <Route path="/vendors/new" element={<RequireLevel module="ap" level="transact" action="add vendors"><VendorCreatePage /></RequireLevel>} />
                 <Route path="/vendors/:id" element={<VendorDetailPage />} />
                 <Route path="/customers" element={<CustomersPage />} />
-                <Route path="/customers/new" element={<CustomerCreatePage />} />
+                <Route path="/customers/new" element={<RequireLevel module="ar" level="transact" action="add customers"><CustomerCreatePage /></RequireLevel>} />
+                <Route path="/customers/:id" element={<CustomerDetailPage />} />
                 <Route path="/inventory" element={<InventoryPage />} />
                 <Route path="/inventory/new" element={<InventoryCreatePage />} />
                 <Route path="/inventory/:id" element={<InventoryDetailPage />} />
