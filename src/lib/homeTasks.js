@@ -26,7 +26,7 @@
 
 import { workflowStatus, isReturned, billPeriod, isApPeriodLocked } from "./billStatus";
 import { flagSummary } from "./reviewWorkflow";
-import { buildAgingLines, isDecisionQueueRow, discountPillState } from "./apAging";
+import { buildAgingLines, isDecisionQueueRow } from "./apAging";
 import { computeApCloseSummary, computeBankRecon } from "../data/seed/apClose";
 import { TODAY } from "./clock";
 
@@ -118,20 +118,6 @@ function paymentTasks(ctx) {
       severity: "action", to: "/ap-aging", cta: STAGE_META.cta });
   }
 
-  // AP Staff — capture expiring early-pay discounts before requesting.
-  if (payMode === "request") {
-    const disc = queue.filter((l) => {
-      const p = discountPillState(l);
-      return p && p.tone !== "muted" && p.tone !== "captured" && l.days_to_discount != null && l.days_to_discount <= 7;
-    });
-    if (disc.length) {
-      const hot = disc.filter((l) => discountPillState(l)?.tone === "danger").length;
-      out.push({ ...g, id: "pay:discounts", label: "Discounts expiring", count: disc.length,
-        amount: sum(disc, (l) => l.discount_amount_idr), sub: "Save if paid in time",
-        tag: hot ? { text: `${hot} closing`, tone: "danger" } : null, severity: "advisory",
-        to: "/ap-aging?card=discounts", cta: "Prioritize" });
-    }
-  }
   // Finance Staff — settle the overdue first.
   if (payMode === "execute") {
     const overdue = queue.filter((l) => l.daysOverdue > 0 && paymentStatusOf(l.id) === "approved");

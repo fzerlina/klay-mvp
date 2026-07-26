@@ -13,36 +13,11 @@
 import { BILLS } from "../data/seed/bills";
 import { VENDORS } from "../data/seed/vendors";
 import { seedTierFor } from "../data/seed/vendorTiers";
-import { TODAY, daysSince, parseDate } from "./clock";
+import { TODAY, daysSince } from "./clock";
 import { workflowStatus } from "./billStatus";
-
-// ── Deterministic per-id hash ──────────────────────────────────────────────
-// Same id → same value. Used to assign discount terms, relationship_tier, and
-// on_hold without writing it into the seed. Mulberry32 over a string hash.
-function strHash(s) {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
-}
-function rng(seed) {
-  let t = seed >>> 0;
-  return () => {
-    t = (t + 0x6D2B79F5) >>> 0;
-    let r = Math.imul(t ^ (t >>> 15), 1 | t);
-    r = (r + Math.imul(r ^ (r >>> 7), 61 | r)) ^ r;
-    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
-  };
-}
+import { ppnSortTier, ppnDaysLeft } from "./ppnWindow";
 
 // ── Constants from PRD ─────────────────────────────────────────────────────
-// CONFIDENCE_THRESHOLD_PAYMENT_TERMS_MIN — gates the discount pill (TP-03).
-// Below this, no countdown is rendered. Per the PRD: "the system does not
-// commit to a financial countdown on data it isn't confident about."
-export const CONFIDENCE_THRESHOLD_PAYMENT_TERMS_MIN = 0.70;
-
 // Age buckets — Current / 1–30 / 31–60 / 61–90 / 91–120 / >120
 export const AGE_BUCKETS = [
   { key: "current",   lbl: "Current",    min: -Infinity, max: 0,        tone: "neutral" },
@@ -69,36 +44,6 @@ export function ageBucketOf(daysOverdue) {
 // overlays via tierOf(). Default: standard.
 export function relationshipTier(vendorId) {
   return seedTierFor(vendorId);
-}
-
-// ── Discount terms — derived per-vendor, persistent at the bill level ──────
-// PRD three-tier source hierarchy (invoice override / AI extracted / vendor
-// default). Prototype simplification: per-vendor default, with confidence
-// drawn deterministically per vendor. Service vendors (pph=pph23_2) are most
-// likely to offer early-payment discounts in Indonesian SMB context.
-function vendorDiscountTerms(v) {
-  if (!v) return null;
-  const r = rng(strHash("disc:" + v.id));
-  const offerProb = v.pph === "pph23_2" ? 0.55 : v.category === "service" ? 0.45 : 0.25;
-  if (r() > offerProb) return null;
-
-  // Most common terms in Indonesian SMB B2B: 2/10 net 30, 1/10 net 30, 2/15 net 45
-  const pick = r();
-  const terms = pick < 0.45 ? { pct: 2.0, days: 10 } :
-                pick < 0.75 ? { pct: 1.0, days: 10 } :
-                pick < 0.90 ? { pct: 2.0, days: 15 } :
-                              { pct: 1.5, days: 14 };
-
-  // Confidence: vendors with PKP status confirmed lean higher
-  const baseConf = v.pkp === "PKP" ? 0.78 : 0.62;
-  const conf = Math.min(0.97, Math.max(0.45, baseConf + (r() - 0.5) * 0.30));
-
-  return {
-    discount_pct: terms.pct,
-    discount_days: terms.days,
-    payment_terms_confidence: Number(conf.toFixed(2)),
-    payment_terms_source: r() < 0.70 ? "vendor_default" : "extracted",
-  };
 }
 
 // Parse "NET 30" / "NET 7" / "NET 60" → integer net days. Falls back to 30.
@@ -175,18 +120,6 @@ export function buildAgingLines(asOfDate, bills = BILLS) {
     const ws = b.workflow_status || workflowStatus(b);  // accruals carry it explicitly
     const isAccrual = ws === "ACCRUAL_POSTED" || b.source === "ACCRUAL" || b.source === "MIGRATION_ACCRUAL";
 
-    // Discount terms — pulled from per-vendor default. Skip for accruals (no
-    // discount window on unbilled liabilities).
-    const terms = !isAccrual ? vendorDiscountTerms(v) : null;
-    const invoiceDate = parseDate(b.date);
-    const discountExpiresAt = terms && invoiceDate
-      ? new Date(invoiceDate.getTime() + terms.discount_days * 86400000)
-      : null;
-    const discountAmountIdr = terms ? Math.round(b.total * (terms.discount_pct / 100)) : 0;
-    const daysToDiscount = discountExpiresAt
-      ? Math.ceil((discountExpiresAt - TODAY) / 86400000)
-      : null;
-
     // Aging
     const daysOverdue = isAccrual ? 0 : daysSince(b.due);  // accruals never age
     const ageBucket  = isAccrual ? "current" : ageBucketOf(daysOverdue);
@@ -229,40 +162,14 @@ export function buildAgingLines(asOfDate, bills = BILLS) {
       ageBucket,
       ageDays,
 
-      // discount terms
-      has_terms: !!terms,
-      discount_pct: terms?.discount_pct || null,
-      discount_days: terms?.discount_days || null,
+      // payment terms
       net_days: netDays,
-      payment_terms_confidence: terms?.payment_terms_confidence || null,
-      payment_terms_source: terms?.payment_terms_source || (terms ? "vendor_default" : null),
-      discount_expires_at: discountExpiresAt,
-      discount_amount_idr: discountAmountIdr,
-      days_to_discount: daysToDiscount,
-      discount_captured: false,
 
       // raw fallback
       raw: b,
       vendorRaw: v,
     };
   });
-}
-
-// ── Discount pill state — drives TP-03 rendering ──────────────────────────
-// Per PRD: pill only renders when payment_terms_confidence ≥ threshold AND
-// the discount window hasn't expired. States: green (>5d) / amber (3–5d) /
-// red (today or tomorrow) / muted (expired, not captured) / captured.
-export function discountPillState(line) {
-  if (!line.has_terms) return null;
-  if (line.discount_captured) return { tone: "captured", text: "Captured", days: null };
-  const conf = line.payment_terms_confidence ?? 0;
-  if (conf < CONFIDENCE_THRESHOLD_PAYMENT_TERMS_MIN) return null;  // PRD gate
-  const d = line.days_to_discount;
-  if (d == null) return null;
-  if (d < 0) return { tone: "muted", text: "Expired", days: d };
-  if (d <= 1) return { tone: "danger", text: d === 0 ? "Expires today" : "1 day left",  days: d };
-  if (d <= 5) return { tone: "warn",   text: `${d} days left`, days: d };
-  return         { tone: "ok",         text: `${d} days left`, days: d };
 }
 
 // ── Decision Queue filter ─────────────────────────────────────────────────
@@ -289,40 +196,89 @@ export function isAgingTableRow(line) {
   return line.workflow_status === "POSTED" || line.is_accrual;
 }
 
-// ── Urgency for Decision Queue ────────────────────────────────────────────
-// PRD ordering:
-//   (1) discount expires today/tomorrow
-//   (2) discount expires in 3–5 days
-//   (3) overdue > 90
-//   (4) overdue 61–90
-//   (5) overdue 31–60
-//   (6) overdue 1–30
-//   (7) current with discount
-//   (8) current no discount
-// Returns a tier (lower = more urgent). Within a tier, more-overdue / larger
-// amounts surface first.
-export function decisionQueueTier(line) {
-  const pill = discountPillState(line);
-  if (pill?.tone === "danger") return 1;  // expires today / 1 day left
-  if (pill?.tone === "warn")   return 2;  // 3–5 days
-  const d = line.daysOverdue;
-  if (d > 90) return 3;
-  if (d > 60) return 4;
-  if (d > 30) return 5;
-  if (d > 0)  return 6;
-  if (pill)   return 7;                    // current with discount
-  return 8;                                // current no discount
+// ── Urgency for Decision Queue — role-aware ───────────────────────────────
+// "Urgency" is not one global ranking: each persona works a different payment
+// stage, so the risk they are uniquely positioned to prevent differs. The
+// comparator is therefore parameterised by payMode (the capability-scoped stage
+// the queue is showing). All modes fall back to overdue-depth, so a row without
+// stage timestamps still sorts sensibly.
+//
+//   request (AP Staff)     — a posted bill drifting overdue with no request
+//                            raised → OVERDUE DEPTH first, then balance.
+//   approve (Finance Mgr)  — being the bottleneck / rubber-stamping big
+//                            payments → OLDEST REQUEST first (time waiting on
+//                            me), then overdue depth, then balance.
+//   execute (Finance Staff)— an approved payment slipping past due → DUE/
+//                            OVERDUE first, then time-since-approved.
+//   view (read-only)       — analytical → overdue depth, then balance.
+
+// Age of a payment at its current stage, in days (higher = waited longer).
+// detailOf() carries requestedAt / approvedAt; missing → 0 (sorts last).
+function stageWaitDays(line, stampKey, detailOf) {
+  const d = detailOf?.(line.id);
+  const stamp = d?.[stampKey];
+  return stamp ? Math.max(0, daysSince(stamp)) : 0;
 }
 
-export function decisionQueueSort(a, b) {
-  const ta = decisionQueueTier(a);
-  const tb = decisionQueueTier(b);
-  if (ta !== tb) return ta - tb;
-  // Within a tier: discount-tier rows rank by days-to-discount asc;
-  // overdue rows by days-overdue desc; current rows by amount desc.
-  if (ta <= 2) return (a.days_to_discount ?? 99) - (b.days_to_discount ?? 99);
-  if (ta <= 6) return b.daysOverdue - a.daysOverdue;
-  return b.remaining - a.remaining;
+// Overdue-depth tier: >90 → 61–90 → 31–60 → 1–30 → current (lower = worse).
+function overdueTier(line) {
+  const d = line.daysOverdue;
+  if (d > 90) return 1;
+  if (d > 60) return 2;
+  if (d > 30) return 3;
+  if (d > 0)  return 4;
+  return 5;
+}
+
+// Returns a comparator for the given payMode. detailOf (from PaymentsContext)
+// is optional — passed for the stages whose urgency depends on stage-wait time.
+export function decisionQueueSort(payMode = "view", detailOf) {
+  const byOverdueThenAmount = (a, b) => {
+    const ta = overdueTier(a), tb = overdueTier(b);
+    if (ta !== tb) return ta - tb;
+    if (a.daysOverdue !== b.daysOverdue) return b.daysOverdue - a.daysOverdue;
+    return b.remaining - a.remaining;
+  };
+
+  let roleCmp;
+  if (payMode === "approve") {
+    // Oldest waiting request first, then overdue depth, then balance.
+    roleCmp = (a, b) => {
+      const wa = stageWaitDays(a, "requestedAt", detailOf);
+      const wb = stageWaitDays(b, "requestedAt", detailOf);
+      if (wa !== wb) return wb - wa;
+      return byOverdueThenAmount(a, b);
+    };
+  } else if (payMode === "execute") {
+    // Due/overdue first, then longest-approved first (don't sit on approvals).
+    roleCmp = (a, b) => {
+      if (a.daysOverdue !== b.daysOverdue) return b.daysOverdue - a.daysOverdue;
+      const wa = stageWaitDays(a, "approvedAt", detailOf);
+      const wb = stageWaitDays(b, "approvedAt", detailOf);
+      if (wa !== wb) return wb - wa;
+      return b.remaining - a.remaining;
+    };
+  } else {
+    // request + view — overdue depth, then balance.
+    roleCmp = byOverdueThenAmount;
+  }
+
+  // Faktur-pajak (input-VAT) crediting window is Priority 1 for EVERY role
+  // (expert: Pak Hadi) — a hard tax deadline. Bills still inside the window and
+  // closing (≤ 7 days, then ≤ 14 days) float above the role-specific ordering,
+  // soonest-to-expire first. Already-expired bills are NOT urgent (the credit is
+  // gone) and fall through to the normal role comparator.
+  return (a, b) => {
+    const pa = ppnSortTier(a.invoiceDate);
+    const pb = ppnSortTier(b.invoiceDate);
+    if (pa !== pb) return pa - pb;
+    if (pa < 2) {
+      const da = ppnDaysLeft(a.invoiceDate) ?? 999;
+      const db = ppnDaysLeft(b.invoiceDate) ?? 999;
+      if (da !== db) return da - db;
+    }
+    return roleCmp(a, b);
+  };
 }
 
 // ── KPI snapshot — feeds the 5-tile command bar + recon badge ─────────────
@@ -333,8 +289,6 @@ export function buildSnapshot(lines, asOfDate = TODAY) {
   let apOutstanding = 0;
   let accruedLiabilities = 0;
   let dueIn7Days = 0;
-  let discountsThisWeekIdr = 0;
-  let discountsTodayIdr = 0;
   let totalSinceJan = 0;
   let paidSinceJan = 0;
 
@@ -361,17 +315,6 @@ export function buildSnapshot(lines, asOfDate = TODAY) {
     // Due in next 7 days — based on due date, regardless of overdue state
     const dueDays = -daysSince(l.dueDate);  // positive = future
     if (dueDays >= 0 && dueDays <= 7) dueIn7Days += l.remaining;
-
-    // Discount aggregates — PRD: discounts expiring within 7d, gated by conf
-    const pill = discountPillState(l);
-    if (pill && pill.tone !== "muted" && pill.tone !== "captured") {
-      if (pill.days != null && pill.days >= 0 && pill.days <= 7) {
-        discountsThisWeekIdr += l.discount_amount_idr;
-      }
-      if (pill.days != null && pill.days <= 1) {
-        discountsTodayIdr += l.discount_amount_idr;
-      }
-    }
   }
 
   // DPO — simple approximation: avg age across open invoices weighted by
@@ -391,8 +334,6 @@ export function buildSnapshot(lines, asOfDate = TODAY) {
     accruedLiabilities,
     dpoDays,
     dueIn7Days,
-    discountsThisWeekIdr,
-    discountsTodayIdr,
     bucketTotals,
     reconciliation: {
       // Gate 3a / 3b per PRD — both deltas Rp 0 = green. In production this

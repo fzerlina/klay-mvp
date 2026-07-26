@@ -18,7 +18,7 @@
 //     tone,       // "neutral" | "positive" | "warning"
 //     to, cta }   // deep-link into the source module
 
-import { buildSnapshot, discountPillState } from "./apAging";
+import { buildSnapshot } from "./apAging";
 import { formatRupiah, formatDateEn } from "./format";
 import { TODAY, daysSince } from "./clock";
 
@@ -53,20 +53,7 @@ function payablesInsights(ctx) {
       tone: concentrationPct >= 60 ? "warning" : "neutral", to: "/ap-aging", cta: "View AP Aging" });
   }
 
-  // Early-pay discounts still on the table (confidence-gated by the pill).
   const snapshot = buildSnapshot(agingLines);
-  const discAvailable = agingLines.reduce((s, l) => {
-    if (l.is_accrual || l.remaining <= 0) return s;
-    const p = discountPillState(l);
-    return p && p.tone !== "muted" && p.tone !== "captured" ? s + (l.discount_amount_idr || 0) : s;
-  }, 0);
-  const discThisWeek = snapshot.discountsThisWeekIdr || 0;
-  if (discAvailable > 0) {
-    out.push({ ...g, id: "pay:discounts", headline: formatRupiah(discAvailable),
-      label: "Early-pay discounts available",
-      detail: `Paying every in-window bill on time saves ${formatRupiah(discAvailable)}${discThisWeek ? ` — ${formatRupiah(discThisWeek)} of it expires this week` : ""}.`,
-      tone: "positive", to: "/ap-aging?card=discounts", cta: "View discounts" });
-  }
 
   // Overdue share of the payables balance + DPO.
   const overdue = sum(

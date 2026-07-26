@@ -57,18 +57,7 @@
 .apa-fchip.active{background:var(--color-action-wash);border-color:var(--color-action-subtle);color:var(--color-action);font-weight:600}
 .apa-filter-foot{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-top:1px solid var(--color-border-default)}
 
-/* ── Discount-expiring banner (between head and table card) ──────────── */
-.apa-discount-banner{display:flex;align-items:center;gap:12px;padding:12px 18px;margin:14px 24px 0;background:var(--color-warning-surface);border:1px solid var(--color-warning-border);border-radius:10px;font-size:12.5px;color:var(--color-warning-text)}
-.apa-discount-banner svg.apa-banner-icon{width:16px;height:16px;flex-shrink:0;color:var(--color-warning-text)}
-.apa-discount-banner-body{flex:1;min-width:0}
-.apa-discount-banner-body strong{font-weight:700}
-.apa-discount-banner-dismiss{background:transparent;border:none;padding:4px;cursor:pointer;color:var(--color-warning-text);opacity:.7;display:inline-flex;align-items:center;justify-content:center;border-radius:4px}
-.apa-discount-banner-dismiss:hover{opacity:1;background:rgba(0,0,0,.04)}
-.apa-discount-banner-dismiss svg{width:13px;height:13px}
-
-/* ── Sort label (inside table card lg-filter-row) ─────────────────────── */
-.apa-sort-label{font-size:12px;color:var(--color-text-tertiary);display:inline-flex;align-items:center;gap:5px;cursor:default}
-.apa-sort-label strong{color:var(--color-text-secondary);font-weight:600}
+/* ── Sort hint icon (inside table card lg-filter-row) ─────────────────── */
 .apa-info{width:13px;height:13px;border-radius:50%;background:var(--color-surface-sunken);color:var(--color-text-tertiary);display:inline-flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;cursor:help;margin-left:3px}
 
 /* ── Pinned amber section above Decision Queue (RETURNED) ──────────── */
@@ -76,8 +65,8 @@
 .apa-pinned svg{width:13px;height:13px;flex-shrink:0}
 .apa-pinned-count{font-family:var(--font-mono);background:var(--color-warning-border);color:var(--color-warning-text);padding:1px 7px;border-radius:9999px;font-weight:800;font-size:10.5px}
 
-/* ── Decision Queue grid (9 cols, no avatar) ──────────────────────────── */
-.apa-dq-row,.apa-dq-header{display:grid;grid-template-columns:28px minmax(150px,1.4fr) minmax(84px,0.9fr) 100px 118px 96px 98px 54px 96px;align-items:center;gap:10px;padding:11px 18px;font-size:12.5px;border-bottom:1px solid var(--color-border-subtle)}
+/* ── Decision Queue grid (8 cols, no avatar) ──────────────────────────── */
+.apa-dq-row,.apa-dq-header{display:grid;grid-template-columns:28px minmax(150px,1.4fr) minmax(84px,0.9fr) 100px 96px 98px 54px 150px;align-items:center;gap:10px;padding:11px 18px;font-size:12.5px;border-bottom:1px solid var(--color-border-subtle)}
 .apa-dq-header{background:var(--color-surface-sunken);font-family:var(--font-sans);font-size:9.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--color-text-tertiary);padding:9px 18px;border-bottom:.5px solid var(--color-border-default);border-top:.5px solid var(--color-border-default)}
 
 /* Role-scoped queue mode header */
@@ -90,6 +79,8 @@
 .apa-pay-pill.tone-review{background:#FBF1E0;color:#BA7517;border-color:#EEDCBB}
 .apa-pay-pill.tone-action{background:#E9EEFB;color:#1A46C8;border-color:#CBD9F4}
 .apa-pay-pill.tone-success{background:var(--success-surface,#E5F2EA);color:var(--success-text,#1F6E3F);border-color:var(--success-border,#BFE0CB)}
+/* partial — part paid, balance still open. Dashed border = "partway there". */
+.apa-pay-pill.tone-partial{background:#EAF4EE;color:#2E7D44;border-color:#9FCFB0;border-style:dashed}
 .apa-dq-row{cursor:pointer;transition:background var(--transition-fast)}
 .apa-dq-row:hover{background:var(--color-surface-sunken)}
 .apa-dq-row:last-child{border-bottom:none}
@@ -98,8 +89,11 @@
 .apa-dq-row.selected{background:var(--color-action-wash)}
 .apa-dq-row.selected:hover{background:var(--color-action-subtle)}
 /* Per-row payment action (Request / Approve / Mark paid) */
+.apa-row-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px;justify-self:end}
 .apa-row-action{font-family:var(--font-sans);font-size:11px;font-weight:600;cursor:pointer;padding:5px 10px;border-radius:var(--radius-sm,6px);border:1px solid var(--color-action);color:var(--color-action);background:transparent;white-space:nowrap;justify-self:end;transition:background var(--transition-fast),color var(--transition-fast)}
 .apa-row-action:hover{background:var(--color-action);color:#fff}
+.apa-row-action.ghost{border-color:var(--color-border-strong);color:var(--color-text-secondary)}
+.apa-row-action.ghost:hover{background:var(--color-surface-sunken);color:var(--color-text-primary);border-color:var(--color-text-tertiary)}
 
 .apa-checkbox{width:16px;height:16px;border:1.5px solid var(--color-border-strong);border-radius:4px;background:var(--color-surface-raised);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;transition:background var(--transition-fast),border-color var(--transition-fast)}
 .apa-checkbox.checked{background:var(--color-action);border-color:var(--color-action)}
@@ -127,17 +121,6 @@
 /* Money */
 .apa-money{font-family:var(--font-mono);font-size:12px;color:var(--color-text-primary);font-weight:600;text-align:right;white-space:nowrap}
 .apa-money-sub{font-family:var(--font-mono);font-size:10.5px;color:var(--color-text-tertiary);text-align:right;margin-top:1px;font-weight:500}
-
-/* Discount pill (TP-03) */
-.apa-disc-pill{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:9999px;font-size:10.5px;font-weight:700;border:1px solid;font-family:var(--font-mono);letter-spacing:.02em;white-space:nowrap}
-.apa-disc-pill svg{width:9px;height:9px}
-.apa-disc-pill.ok{background:var(--color-success-surface);color:var(--color-success-text);border-color:var(--color-success-border)}
-.apa-disc-pill.warn{background:var(--color-warning-surface);color:var(--color-warning-text);border-color:var(--color-warning-border)}
-.apa-disc-pill.danger{background:var(--color-danger-surface);color:var(--color-danger-text);border-color:var(--color-danger-border)}
-.apa-disc-pill.captured{background:#d8efe2;color:#0c5631;border-color:#a8d9bc}
-.apa-disc-pill.muted{background:var(--color-surface-sunken);color:var(--color-text-tertiary);border-color:var(--color-border-strong)}
-.apa-disc-pill{cursor:help}
-.apa-disc-amt{font-size:9.5px;color:var(--color-text-tertiary);margin-top:2px;font-family:var(--font-mono);text-align:left}
 
 /* Status pill — workflow_status only. Cause sentences belong on Bills List
    (its review-driven "Pending Review · opened 2d ago · 3 fields flagged"
@@ -179,6 +162,33 @@
 .apa-action-bar-btn.primary:hover{background:var(--color-brand-hover);border-color:var(--color-brand-hover)}
 .apa-action-bar-btn svg{width:12px;height:12px}
 
+/* ── Partial-payment modal ────────────────────────────────────────────── */
+.apa-modal-scrim{position:fixed;inset:0;background:rgba(17,24,39,.45);display:flex;align-items:center;justify-content:center;z-index:60;padding:20px}
+.apa-modal{width:100%;max-width:400px;background:var(--color-surface-raised);border:1px solid var(--color-border-default);border-radius:12px;box-shadow:var(--shadow-lg,0 12px 40px rgba(0,0,0,.22));overflow:hidden;animation:apa-slide-up .14s ease}
+.apa-modal-head{display:flex;align-items:center;justify-content:space-between;padding:15px 18px;border-bottom:1px solid var(--color-border-subtle)}
+.apa-modal-head h3{margin:0;font-size:14px;font-weight:700;color:var(--color-text-primary)}
+.apa-modal-x{border:none;background:none;font-size:20px;line-height:1;color:var(--color-text-tertiary);cursor:pointer;padding:0 2px}
+.apa-modal-x:hover{color:var(--color-text-primary)}
+.apa-modal-body{padding:16px 18px;display:flex;flex-direction:column;gap:10px}
+.apa-modal-row{display:flex;align-items:center;justify-content:space-between;font-size:12px;color:var(--color-text-tertiary)}
+.apa-modal-row strong{color:var(--color-text-primary);font-weight:600;font-family:var(--font-mono)}
+.apa-modal-field{display:flex;flex-direction:column;gap:5px;margin-top:4px}
+.apa-modal-field>span{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:var(--color-text-tertiary)}
+.apa-modal-input-wrap{display:flex;align-items:center;gap:6px;border:1px solid var(--color-border-default);border-radius:8px;padding:8px 11px;background:var(--color-surface-base)}
+.apa-modal-input-wrap:focus-within{border-color:var(--color-action);box-shadow:0 0 0 3px rgba(26,70,200,.08)}
+.apa-modal-prefix{font-size:12px;color:var(--color-text-tertiary);font-family:var(--font-mono)}
+.apa-modal-input-wrap input{flex:1;min-width:0;border:none;outline:none;background:transparent;font-family:var(--font-mono);font-size:14px;font-weight:600;color:var(--color-text-primary)}
+.apa-modal-helpers{display:flex;gap:6px}
+.apa-modal-helpers button{font-size:11px;font-weight:600;padding:4px 10px;border-radius:9999px;border:1px solid var(--color-border-default);background:transparent;color:var(--color-text-secondary);cursor:pointer}
+.apa-modal-helpers button:hover{border-color:var(--color-text-tertiary);color:var(--color-text-primary)}
+.apa-modal-note{font-size:11.5px;color:var(--color-text-tertiary);line-height:1.4}
+.apa-modal-foot{display:flex;justify-content:flex-end;gap:8px;padding:13px 18px;border-top:1px solid var(--color-border-subtle);background:var(--color-surface-sunken)}
+.apa-modal-btn{font-family:var(--font-sans);font-size:12.5px;font-weight:600;padding:8px 15px;border-radius:7px;cursor:pointer;border:1px solid var(--color-border-default);background:transparent;color:var(--color-text-secondary)}
+.apa-modal-btn:hover{background:var(--color-surface-raised);color:var(--color-text-primary)}
+.apa-modal-btn.primary{background:var(--color-action);border-color:var(--color-action);color:#fff}
+.apa-modal-btn.primary:hover{background:var(--color-action-hover,#1740b8)}
+.apa-modal-btn.primary:disabled{opacity:.5;cursor:not-allowed}
+
 /* ── Aging Table view (vendor pivot, no avatar) ───────────────────────── */
 .apa-at-header,.apa-at-vendor{display:grid;grid-template-columns:minmax(220px,1.6fr) repeat(6,minmax(80px,1fr)) 110px 130px;gap:8px;align-items:center;padding:11px 18px;font-size:12px;border-bottom:1px solid var(--color-border-subtle)}
 .apa-at-header{background:var(--color-surface-sunken);font-family:var(--font-sans);font-size:9.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--color-text-tertiary);padding:9px 18px;border-top:.5px solid var(--color-border-default);border-bottom:.5px solid var(--color-border-default)}
@@ -202,6 +212,8 @@
    the same aging-bucket column as the header (Current / 1-30 / 31-60 / …). */
 .apa-at-expand .apa-at-inv{display:grid;grid-template-columns:minmax(220px,1.6fr) repeat(6,minmax(80px,1fr)) 110px 130px;gap:8px;align-items:center;padding:8px 18px;border-bottom:1px solid var(--color-border-subtle)}
 .apa-at-inv:last-child{border-bottom:none}
+.apa-at-inv.clickable{cursor:pointer;transition:background var(--transition-fast)}
+.apa-at-inv.clickable:hover{background:var(--color-surface-sunken)}
 .apa-at-inv > div{text-align:right;font-family:var(--font-mono);font-size:11.5px;color:var(--color-text-secondary)}
 .apa-at-inv .apa-at-cell-zero{color:var(--color-text-tertiary);opacity:.45}
 .apa-at-inv .apa-at-cell-accrual{color:var(--color-action);font-weight:600}
@@ -215,8 +227,8 @@
 .apa-at-chevron{width:12px;height:12px;color:var(--color-text-tertiary);transition:transform var(--transition-fast);flex-shrink:0;margin-right:2px}
 .apa-at-vendor.expanded .apa-at-chevron{transform:rotate(90deg);color:var(--color-action)}
 
-.apa-at-grand{display:grid;grid-template-columns:minmax(220px,1.6fr) repeat(6,minmax(80px,1fr)) 110px 130px;gap:8px;align-items:center;padding:12px 18px;font-size:12.5px;font-weight:800;background:var(--color-surface-sunken);border-top:2px solid var(--color-border-strong);font-family:var(--font-mono)}
-.apa-at-grand > div{text-align:right;color:var(--color-text-primary)}
+.apa-at-grand{position:sticky;bottom:0;z-index:10;display:grid;grid-template-columns:minmax(220px,1.6fr) repeat(6,minmax(80px,1fr)) 110px 130px;gap:8px;align-items:center;padding:13px 18px;font-size:12.5px;font-weight:800;background:var(--color-surface-deep);color:#fff;border-top:1px solid rgba(255,255,255,.15);font-family:var(--font-mono);box-shadow:0 -6px 16px rgba(0,0,0,.12)}
+.apa-at-grand > div{text-align:right;color:#fff}
 .apa-at-grand > div:first-child{text-align:left;font-family:var(--font-display);font-size:13.5px;letter-spacing:-.005em}
 
 /* ── Empty state ──────────────────────────────────────────────────────── */
@@ -246,5 +258,5 @@
 
 /* ── Responsive ───────────────────────────────────────────────────────── */
 @media (max-width: 900px){
-  .apa-dq-row,.apa-dq-header{grid-template-columns:28px 1.1fr 80px 90px 104px 84px 88px 46px 84px;gap:8px}
+  .apa-dq-row,.apa-dq-header{grid-template-columns:28px 1.1fr 80px 90px 84px 88px 46px 132px;gap:8px}
 }

@@ -5,6 +5,10 @@
 //   unpaid → requested (AP Staff) → approved (Finance Manager) → paid (Finance
 //   Staff, executed off-system) → [reconciled — stubbed for now]
 //
+// A payment run can also settle only PART of the balance — status "partial".
+// A partial bill still carries an open remaining balance, so it re-enters
+// AP Staff's request queue (alongside "unpaid") for the rest to be requested.
+//
 // Per the 2026-07-11 MoM: request off AP Aging → FM approval → bank owner pays.
 // Prototype: local state, no backend. Reconciliation (bank-statement upload /
 // auto-match) is a later pass; "paid" is the terminal state here.
@@ -17,10 +21,16 @@ const PaymentsContext = createContext(null);
 
 const TODAY_ISO = TODAY.toISOString().slice(0, 10);
 
+// ISO date N days before the demo clock — used to stagger request/approval
+// timestamps so the role-scoped urgency sorts (FM "oldest waiting first",
+// Finance Staff "time since approved") have something real to order on.
+const isoDaysAgo = (n) => new Date(TODAY.getTime() - n * 86400000).toISOString().slice(0, 10);
+
 // A posted, unpaid bill is payable. Seed a realistic spread across the lifecycle
 // so every persona's Decision Queue has something to act on out of the box:
-// a couple already approved (Finance Staff executes), several requested (FM
-// approves), the rest unpaid (AP Staff requests).
+// a couple partially paid, a few approved (Finance Staff executes), several
+// requested (FM approves), the rest unpaid (AP Staff requests). Timestamps are
+// staggered so per-role urgency ordering is visible in the demo.
 function seedPayments() {
   const payable = BILLS
     .filter((b) => b.je_number && b.pay !== "paid")
@@ -28,10 +38,28 @@ function seedPayments() {
     .sort();
   const m = {};
   payable.forEach((id, i) => {
-    if (i < 3) {
-      m[id] = { status: "approved", requestedBy: "Budi Santoso", requestedAt: TODAY_ISO, approvedBy: "Sari Dewanti", approvedAt: TODAY_ISO };
-    } else if (i < 11) {
-      m[id] = { status: "requested", requestedBy: "Budi Santoso", requestedAt: TODAY_ISO };
+    if (i < 2) {
+      // Partially paid — an earlier run covered part of the balance; the
+      // remainder is still open and re-enters AP Staff's request queue.
+      m[id] = {
+        status: "partial",
+        requestedBy: "Budi Santoso", requestedAt: isoDaysAgo(9 + i),
+        approvedBy: "Sari Dewanti",  approvedAt: isoDaysAgo(7 + i),
+        paidBy: "Andi Pratama",      paidAt: isoDaysAgo(5 + i),
+      };
+    } else if (i < 5) {
+      // Approved, awaiting execution — stagger approvedAt (1–3 days back).
+      m[id] = {
+        status: "approved",
+        requestedBy: "Budi Santoso", requestedAt: isoDaysAgo(4 + (i % 3)),
+        approvedBy: "Sari Dewanti",  approvedAt: isoDaysAgo(1 + (i % 3)),
+      };
+    } else if (i < 13) {
+      // Requested, awaiting FM approval — stagger requestedAt (1–6 days back).
+      m[id] = {
+        status: "requested",
+        requestedBy: "Budi Santoso", requestedAt: isoDaysAgo(((i - 5) % 6) + 1),
+      };
     }
     // rest: unpaid (absent from the map)
   });
@@ -69,6 +97,21 @@ export function PaymentsProvider({ children }) {
     });
   }, []);
 
+  // Settle only part of an approved payment. The bill keeps an open balance
+  // (reduced by the caller via the ledger), so it re-enters the request queue.
+  const markPartial = useCallback((ids, by, amount) => {
+    setPayments((prev) => {
+      const next = { ...prev };
+      for (const id of ids) {
+        if (next[id]?.status === "approved") {
+          const prior = next[id]?.partialPaid || 0;
+          next[id] = { ...next[id], status: "partial", paidBy: by, paidAt: TODAY_ISO, partialPaid: prior + (amount || 0) };
+        }
+      }
+      return next;
+    });
+  }, []);
+
   // Send a requested payment back to AP (e.g. FM rejects) — clears the request.
   const returnPayment = useCallback((ids) => {
     setPayments((prev) => {
@@ -85,8 +128,9 @@ export function PaymentsProvider({ children }) {
     requestPayment,
     approvePayment,
     markPaid,
+    markPartial,
     returnPayment,
-  }), [payments, requestPayment, approvePayment, markPaid, returnPayment]);
+  }), [payments, requestPayment, approvePayment, markPaid, markPartial, returnPayment]);
 
   return <PaymentsContext.Provider value={value}>{children}</PaymentsContext.Provider>;
 }
@@ -95,7 +139,7 @@ export function usePayments() {
   const ctx = useContext(PaymentsContext);
   if (!ctx) {
     // Tolerate consumers rendered outside the provider (HMR/tests).
-    return { payments: {}, statusOf: () => "unpaid", detailOf: () => null, requestPayment: () => {}, approvePayment: () => {}, markPaid: () => {}, returnPayment: () => {} };
+    return { payments: {}, statusOf: () => "unpaid", detailOf: () => null, requestPayment: () => {}, approvePayment: () => {}, markPaid: () => {}, markPartial: () => {}, returnPayment: () => {} };
   }
   return ctx;
 }
@@ -105,6 +149,7 @@ export const PAYMENT_STATUS_META = {
   unpaid:    { label: "Unpaid",    tone: "muted" },
   requested: { label: "Requested", tone: "review" },
   approved:  { label: "Approved",  tone: "action" },
+  partial:   { label: "Partial",   tone: "partial" },
   paid:      { label: "Paid",      tone: "success" },
   reconciled:{ label: "Reconciled", tone: "success" },
 };

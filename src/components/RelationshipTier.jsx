@@ -27,8 +27,10 @@ export function TierPill({ tier }) {
 
 export default function RelationshipTierControl({ vendorId, editable }) {
   const { vendorById, setVendorTier } = useVendors();
-  const { user, hasLevel } = useCurrentUser();
-  const canEdit = editable ?? hasLevel("ap", "transact");
+  const { user, hasCapability } = useCurrentUser();
+  // Tier-setting is a vendor-master capability (vendor.classify), not a
+  // generic AP verb. Callers can force display-only with editable={false}.
+  const canEdit = editable ?? hasCapability("vendor.classify");
   const v = vendorById(vendorId);
   const tier = v?.relationship_tier || "standard";
 

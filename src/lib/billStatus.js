@@ -9,6 +9,7 @@
 
 import { daysSince } from "./clock";
 import { formatDateEn } from "./format";
+import { ppnDaysLeft } from "./ppnWindow";
 
 // Demo-only overrides — adds states that aren't expressible from the
 // two-dimensional (approval × pay) seed: RETURNED, ON_HOLD, EXCEPTION, plus
@@ -67,9 +68,10 @@ export function billPeriod(b) {
 export function workflowStatus(b) {
   const ov = DEMO_OVERRIDES[b.id];
   // Status = the journal lifecycle stage only (Draft / Pending Review / Approved
-  // / Posted / Paid). "Exception" and "Returned" are NOT statuses — they're
-  // labels reflecting review/approval outcomes. A returned bill is back with AP
-  // as a Draft (carrying a "Returned" label). ON_HOLD stays a real state.
+  // / Posted / Paid) plus ON_HOLD, which is a real (paused) status. "Returned"
+  // and "Exception" are NOT statuses — "Returned" is a REVIEW-tier exception in
+  // the flag engine (reviewWorkflow.js): a returned bill is back with AP as a
+  // Draft and the return reason surfaces as a flag, not a status.
   if (ov?.state === "ON_HOLD") return "ON_HOLD";
   if (ov?.returned) return "DRAFT";
   if (b.approval === "draft") return "DRAFT";
@@ -202,6 +204,20 @@ export function urgencyScore(b, flags) {
   //    the flag summary (openAdvisory), NOT the raw anomalies array — anomalies
   //    now flow through the engine as advisory flags (one attention model).
   if (flags) s += (flags.openAdvisory || 0) * 4;
+
+  // 6) Faktur-pajak (PPN) crediting window — a hard tax deadline (Pak Hadi's
+  //    Priority 1). On a not-yet-posted bill, a window still open and closing is
+  //    the strongest NON-exception signal: it floats the bill toward posting
+  //    before the input-VAT credit lapses. Kept below the exception tiers (a
+  //    blocked bill can't post regardless). Expired = credit already lost, no
+  //    longer urgent, so it adds nothing.
+  if (ws !== "POSTED" && ws !== "PAID") {
+    const pd = ppnDaysLeft(b.date);
+    if (pd != null && pd >= 0) {
+      if (pd <= 7) s += 300;
+      else if (pd <= 14) s += 150;
+    }
+  }
 
   return s;
 }

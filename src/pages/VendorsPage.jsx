@@ -9,6 +9,7 @@ import { formatDate } from "../lib/format";
 import AiChatDrawer from "./AiChatDrawer";
 import SummaryDrawer from "./SummaryDrawer";
 import { computeVendorsInsights, makeVendorsAiContext } from "./ai-vendors-context";
+import { TierPill } from "../components/RelationshipTier";
 import "./modules.css";
 import "./invoices-ledger.css";
 
@@ -47,6 +48,7 @@ function VendorRow({ r, onClick, onKebab, isSelected, isAlt, showKebab = true })
           <div className="lg-cell-customer-name">
             <span className="vh-name">{r.name}</span>
             {chip && <span className={`vh-chip ${chip.cls}`} title={`Health: ${chip.lbl}`}>{chip.lbl}</span>}
+            <TierPill tier={r.relationship_tier} />
           </div>
           <div className="lg-cell-customer-addr">{r.contact} · {r.email}</div>
         </div>
@@ -181,6 +183,12 @@ const HEALTH_FILTER_OPTIONS = [
   { k: "flagged", lbl: "Flagged" },
 ];
 
+const TIER_FILTER_OPTIONS = [
+  { k: "strategic", lbl: "Strategic" },
+  { k: "standard",  lbl: "Standard" },
+  { k: "at_risk",   lbl: "At-Risk" },
+];
+
 function FilterPopover({ values, onChange, onClose }) {
   const ref = useRef(null);
   useClickOutside(ref, onClose);
@@ -192,11 +200,11 @@ function FilterPopover({ values, onChange, onClose }) {
     return { ...d, [key]: next };
   });
 
-  const reset = () => setDraft({ categories: new Set(), terms: new Set(), pph: new Set(), health: new Set() });
+  const reset = () => setDraft({ categories: new Set(), terms: new Set(), pph: new Set(), health: new Set(), tier: new Set() });
   const apply = () => { onChange(draft); onClose(); };
 
   const categories = ["inventory", "service", "expense", "cooperative", "individual"];
-  const allTerms = ["NET 7", "NET 15", "NET 30", "NET 45", "NET 60"];
+  const allTerms = ["NET 7", "NET 14", "NET 15", "NET 30", "NET 45", "NET 60"];
   const pphKeys = ["none", "pph23_2", "pph23_15", "pph4_final", "pph21"];
 
   const summary = (set) => (set.size > 0 ? `${set.size} selected` : "all");
@@ -247,6 +255,17 @@ function FilterPopover({ values, onChange, onClose }) {
             ))}
           </div>
         </div>
+
+        <div className="lg-filter-fld">
+          <div className="lg-filter-fld-lbl">Relationship ({summary(draft.tier)})</div>
+          <div className="lg-toggle-row">
+            {TIER_FILTER_OPTIONS.map((t) => (
+              <button key={t.k} className={`lg-toggle${draft.tier.has(t.k) ? " on" : ""}`} onClick={() => toggleIn("tier", t.k)}>
+                {t.lbl}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
       <div className="lg-filter-foot">
         <button className="lg-filter-reset" onClick={reset}>Reset</button>
@@ -285,7 +304,7 @@ export default function VendorsPage() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState({ kind: "tab", value: "active" });
   const [sortChoice, setSortChoice] = useState(null);
-  const emptyFilters = { categories: new Set(), terms: new Set(), pph: new Set(), health: new Set() };
+  const emptyFilters = { categories: new Set(), terms: new Set(), pph: new Set(), health: new Set(), tier: new Set() };
   const [filterValues, setFilterValues] = useState(emptyFilters);
 
   const [menuOpenFor, setMenuOpenFor] = useState(null);
@@ -338,6 +357,7 @@ export default function VendorsPage() {
     filterValues.terms.size > 0 ||
     filterValues.pph.size > 0 ||
     filterValues.health.size > 0 ||
+    filterValues.tier.size > 0 ||
     sortChoice !== null
   ), [filterValues, sortChoice]);
 
@@ -347,6 +367,7 @@ export default function VendorsPage() {
     if (filterValues.terms.size > 0) n++;
     if (filterValues.pph.size > 0) n++;
     if (filterValues.health.size > 0) n++;
+    if (filterValues.tier.size > 0) n++;
     return n;
   }, [filterValues]);
 
@@ -357,6 +378,7 @@ export default function VendorsPage() {
     if (filterValues.terms.size > 0) list = list.filter((v) => filterValues.terms.has(v.payment_terms));
     if (filterValues.pph.size > 0) list = list.filter((v) => filterValues.pph.has(v.pph || "none"));
     if (filterValues.health.size > 0) list = list.filter((v) => filterValues.health.has(v.health || "healthy"));
+    if (filterValues.tier.size > 0) list = list.filter((v) => filterValues.tier.has(v.relationship_tier || "standard"));
 
     const q = search.toLowerCase().trim();
     const qDigits = q.replace(/\D/g, "");
@@ -380,6 +402,7 @@ export default function VendorsPage() {
       type: v.type,
       status: v.status,
       health: v.health,
+      relationship_tier: v.relationship_tier,
       pph: v.pph,
       tax_id: v.tax_id,
       banks: v.banks,

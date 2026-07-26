@@ -15,12 +15,11 @@ import {
   isDecisionQueueRow,
   isAgingTableRow,
   decisionQueueSort,
-  discountPillState,
-  ageBucketOf,
   AGE_BUCKETS,
   RELATIONSHIP_LABEL,
-  CONFIDENCE_THRESHOLD_PAYMENT_TERMS_MIN,
 } from "../lib/apAging";
+import { ppnFilterKey, ppnRollupState } from "../lib/ppnWindow";
+import PpnChip from "../components/PpnChip";
 import "./modules.css";
 import "./ap-aging.css";
 
@@ -32,7 +31,7 @@ const AGE_COLOR = { current: "#2E7D44", b1_30: "#C99A2E", b31_60: "#B8770F", b61
 const QUEUE_MODE = {
   request: { title: "Bills to pay", sub: "Posted bills ready to pay — request payment per bill, or select several.", action: "Request payment", rowAction: "Request", emptyTitle: "Nothing to request", emptySub: "Every posted bill already has a payment request in flight." },
   approve: { title: "Payment requests to approve", sub: "AP Staff requested these payments — review and approve.", action: "Approve payment", rowAction: "Approve", emptyTitle: "No requests awaiting approval", emptySub: "Payment requests from AP Staff will appear here." },
-  execute: { title: "Approved — ready to pay", sub: "Approved payments to execute, then mark as paid.", action: "Mark as paid", rowAction: "Mark paid", emptyTitle: "Nothing to pay right now", emptySub: "Approved payments ready to execute will appear here." },
+  execute: { title: "Approved — ready to pay", sub: "Approved payments to execute — pay in full, or record a partial payment.", action: "Mark as paid", rowAction: "Mark paid", partialAction: "Partial", emptyTitle: "Nothing to pay right now", emptySub: "Approved payments ready to execute will appear here." },
   view:    { title: "Payments", sub: "Posted payables and their payment status.", action: null, rowAction: null, emptyTitle: "No posted payables", emptySub: "Posted bills awaiting payment will appear here." },
 };
 
@@ -89,35 +88,6 @@ function reconBadgeContent(recon) {
   }
   return { cls: "unavailable", icon: I.alert, text: "Verification unavailable", delta: "" };
 }
-
-// ── Discount pill (TP-03) ──────────────────────────────────────────────────
-const DISCOUNT_TONE_EXPLAIN = {
-  ok:       "Early-payment discount available — plenty of time. Pay before the window closes to capture the savings.",
-  warn:     "Early-payment discount window closing soon (3–5 days). Move this up the payment queue.",
-  danger:   "Early-payment discount expires today or tomorrow. Last chance to capture savings.",
-  captured: "Discount already captured on this bill.",
-  muted:    "Discount window has expired — no longer capturable.",
-};
-function DiscountPill({ line }) {
-  const pill = discountPillState(line);
-  if (!pill) {
-    // Sub-threshold OR no discount terms — render dash so columns align
-    return <span style={{ color: "var(--color-text-tertiary)", fontSize: 11 }} title="No early-payment discount terms on file for this vendor (or system confidence in extracted terms is below 70%).">—</span>;
-  }
-  const title = `${line.discount_pct}% / ${line.discount_days} days · expires ${formatDateEn(line.discount_expires_at)}\n\n${DISCOUNT_TONE_EXPLAIN[pill.tone]}`;
-  return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 1 }}>
-      <span className={`apa-disc-pill ${pill.tone}`} title={title}>
-        {pill.tone === "captured" && I.check}
-        {pill.text}
-      </span>
-      {pill.tone !== "captured" && pill.tone !== "muted" && (
-        <span className="apa-disc-amt">Save Rp {line.discount_amount_idr.toLocaleString("id-ID")}</span>
-      )}
-    </div>
-  );
-}
-
 
 // ── Status pill — workflow_status with hover explanation (incl. TP-05) ────
 // Hover surfaces (a) what the status means, and (b) the TP-05 "why is this
@@ -206,7 +176,7 @@ function PaymentPill({ status }) {
 }
 
 // ── Decision Queue row ────────────────────────────────────────────────────
-function DecisionQueueRow({ line, paymentStatus, actionLabel, onAction, selected, onToggleSelect, onClick, canSelect = true }) {
+function DecisionQueueRow({ line, paymentStatus, actionLabel, onAction, secondaryLabel, onSecondary, selected, onToggleSelect, onClick, canSelect = true }) {
   return (
     <div
       className={`apa-dq-row${selected ? " selected" : ""}`}
@@ -235,11 +205,10 @@ function DecisionQueueRow({ line, paymentStatus, actionLabel, onAction, selected
       <div className="apa-inv-cell">
         <span className="apa-inv-no">{line.invNo}</span>
         <span className="apa-inv-date">{formatDateEn(line.invoiceDate)}</span>
+        <PpnChip invoiceDate={line.invoiceDate} />
       </div>
 
       <div className="apa-money" title={formatRupiah(line.remaining)}>{formatRupiah(line.remaining)}</div>
-
-      <DiscountPill line={line} />
 
       <DueCell line={line} />
 
@@ -248,7 +217,12 @@ function DecisionQueueRow({ line, paymentStatus, actionLabel, onAction, selected
       <div className="apa-money" style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>{line.net_days}d net</div>
 
       {actionLabel && canSelect ? (
-        <button className="apa-row-action" onClick={(e) => { e.stopPropagation(); onAction(line.id); }}>{actionLabel}</button>
+        <div className="apa-row-actions">
+          {secondaryLabel && (
+            <button className="apa-row-action ghost" onClick={(e) => { e.stopPropagation(); onSecondary(line.id); }}>{secondaryLabel}</button>
+          )}
+          <button className="apa-row-action" onClick={(e) => { e.stopPropagation(); onAction(line.id); }}>{actionLabel}</button>
+        </div>
       ) : (
         <span aria-hidden />
       )}
@@ -276,7 +250,7 @@ function invAgingMeta(inv) {
 }
 
 // ── Aging Table vendor row ─────────────────────────────────────────────────
-function AgingTableVendorRow({ row, expanded, onToggle, accrualHighlight }) {
+function AgingTableVendorRow({ row, expanded, onToggle, accrualHighlight, onOpenBill }) {
   const buckets = row.buckets;
   const renderBucket = (key) => {
     const v = buckets[key];
@@ -284,6 +258,9 @@ function AgingTableVendorRow({ row, expanded, onToggle, accrualHighlight }) {
     return <div>{formatRupiah(v)}</div>;
   };
   const isDimmed = accrualHighlight && row.accrual === 0;
+  // Roll-up of the faktur-pajak (PPN) window across this vendor's real bills, so
+  // the collapsed row surfaces the soonest-expiring one without expanding.
+  const ppnRoll = ppnRollupState((row.invoices || []).filter((i) => !i.is_accrual).map((i) => i.invoiceDate));
   return (
     <>
       <div className={`apa-at-vendor${expanded ? " expanded" : ""}${isDimmed ? " dimmed" : ""}${accrualHighlight && row.accrual > 0 ? " accrual-active" : ""}`} onClick={onToggle}>
@@ -291,8 +268,9 @@ function AgingTableVendorRow({ row, expanded, onToggle, accrualHighlight }) {
           <span className="apa-at-chevron">{I.chev}</span>
           <div className="apa-vendor-name">
             {row.vendorName}
-            <RelationshipTierControl vendorId={row.vendorId} />
+            <RelationshipTierControl vendorId={row.vendorId} editable={false} />
             <span className="apa-vendor-count">{row.invoices.length} bill{row.invoices.length === 1 ? "" : "s"}</span>
+            {ppnRoll && <span className={`ppn-pill ${ppnRoll.tone}`} title="Soonest faktur-pajak (PPN) window among this vendor's bills — expand to see which">{ppnRoll.text}</span>}
           </div>
         </div>
         {renderBucket("current")}
@@ -309,11 +287,16 @@ function AgingTableVendorRow({ row, expanded, onToggle, accrualHighlight }) {
       {expanded && (
         <div className="apa-at-expand">
           {row.invoices.map((inv) => (
-            <div key={inv.id} className="apa-at-inv">
+            <div
+              key={inv.id}
+              className={`apa-at-inv${inv.is_accrual ? "" : " clickable"}`}
+              onClick={inv.is_accrual ? undefined : () => onOpenBill(inv.id)}
+            >
               <div className="apa-at-inv-label">
                 <span className="apa-at-inv-top">
                   <span className="apa-at-inv-no">{inv.invNo}</span>
                   {inv.is_accrual && <span className="apa-inv-accrual">ACCRUAL</span>}
+                  {!inv.is_accrual && <PpnChip invoiceDate={inv.invoiceDate} />}
                 </span>
                 <span className="apa-at-inv-meta">{invAgingMeta(inv)}</span>
               </div>
@@ -400,18 +383,122 @@ function ApAgingFilterPopover({ view, filters, onToggle, onClear, onClose }) {
             {AGE_BUCKETS.map((b) => <Chip key={b.key} dim="bucket" val={b.key} label={b.lbl} />)}
           </div>
         </div>
-        <div className="lg-filter-fld">
-          <div className="lg-filter-fld-lbl">Other</div>
-          <div className="apa-fchips">
-            {view === "queue"
-              ? <Chip dim="special" val="discount" label="Has early-pay discount" />
-              : <Chip dim="special" val="accrual" label="Has accrual" />}
+        {view === "queue" && (
+          <div className="lg-filter-fld">
+            <div className="lg-filter-fld-lbl">Tax — faktur pajak (PPN) window</div>
+            <div className="apa-fchips">
+              <Chip dim="ppn" val="d7" label="≤ 7 days" />
+              <Chip dim="ppn" val="d14" label="8–14 days" />
+            </div>
           </div>
-        </div>
+        )}
+        {view === "table" && (
+          <div className="lg-filter-fld">
+            <div className="lg-filter-fld-lbl">Other</div>
+            <div className="apa-fchips">
+              <Chip dim="special" val="accrual" label="Has accrual" />
+            </div>
+          </div>
+        )}
       </div>
       <div className="apa-filter-foot">
         <button type="button" className="lg-filter-reset" onClick={onClear}>Clear all</button>
         <button type="button" className="lg-filter-apply" onClick={onClose}>Done</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Decision Queue sort ──────────────────────────────────────────────────
+// "Urgency" is the role-aware default (see decisionQueueSort — AP Staff ranks
+// by overdue depth, FM by oldest-waiting request, Finance Staff by due date).
+// The rest are role-agnostic overrides anyone can pick.
+const QUEUE_SORT_LABELS = {
+  urgency:        "Urgency",
+  "due-asc":      "Due date (soonest)",
+  "balance-desc": "Balance (largest)",
+  "vendor-asc":   "Vendor A–Z",
+};
+// What "Urgency" means depends on the capability-scoped stage being worked.
+// Priority 1 for every role: a bill whose faktur-pajak (PPN) crediting window is
+// still open and closing (≤14d, soonest first) floats to the very top.
+const URGENCY_HINT = {
+  request: "Faktur-pajak (PPN) window closing floats first. Then AP Staff: most overdue first (a posted bill drifting late with no request raised), then largest balance.",
+  approve: "Faktur-pajak (PPN) window closing floats first. Then Finance Manager: longest-waiting requests first (don't be the bottleneck), then overdue depth, then balance.",
+  execute: "Faktur-pajak (PPN) window closing floats first. Then Finance Staff: soonest due / most overdue first, then longest-approved (don't sit on approvals).",
+  view:    "Faktur-pajak (PPN) window closing floats first. Then overdue depth, then largest balance.",
+};
+function QueueSortPopover({ value, onPick, onClose }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [onClose]);
+  return (
+    <div className="lg-popover" ref={ref}>
+      <div className="lg-popover-list">
+        {Object.entries(QUEUE_SORT_LABELS).map(([k, lbl]) => (
+          <button key={k} className={`lg-popover-item${value === k ? " selected" : ""}`} onClick={() => onPick(k)}>
+            {lbl}
+            {value === k && <svg className="lg-popover-check" viewBox="0 0 12 12"><polyline points="2 6 5 9 10 3" /></svg>}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Partial-payment modal ────────────────────────────────────────────────
+// Finance Staff records how much of an approved bill was actually paid. Entering
+// the full balance settles it (Paid); anything less reduces the balance and the
+// bill re-enters the request queue as Partial.
+function PartialPayModal({ line, onConfirm, onClose }) {
+  const [raw, setRaw] = useState(String(line.remaining));
+  const num = Number(String(raw).replace(/[^\d]/g, "")) || 0;
+  const invalid = num <= 0 || num > line.remaining;
+  const isFull = num >= line.remaining;
+  return (
+    <div className="apa-modal-scrim" onClick={onClose}>
+      <div className="apa-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="apa-modal-head">
+          <h3>Record payment</h3>
+          <button type="button" className="apa-modal-x" onClick={onClose} aria-label="Close">×</button>
+        </div>
+        <div className="apa-modal-body">
+          <div className="apa-modal-row"><span>Vendor</span><strong>{line.vendorName}</strong></div>
+          <div className="apa-modal-row"><span>Invoice</span><strong>{line.invNo}</strong></div>
+          <div className="apa-modal-row"><span>Balance due</span><strong>{formatRupiah(line.remaining)}</strong></div>
+          <label className="apa-modal-field">
+            <span>Amount paid</span>
+            <div className="apa-modal-input-wrap">
+              <span className="apa-modal-prefix">Rp</span>
+              <input
+                inputMode="numeric"
+                autoFocus
+                value={num ? num.toLocaleString("id-ID") : ""}
+                onChange={(e) => setRaw(e.target.value)}
+              />
+            </div>
+          </label>
+          <div className="apa-modal-helpers">
+            <button type="button" onClick={() => setRaw(String(Math.round(line.remaining / 2)))}>50%</button>
+            <button type="button" onClick={() => setRaw(String(line.remaining))}>Full balance</button>
+          </div>
+          <div className="apa-modal-note">
+            {invalid
+              ? "Enter an amount between Rp 1 and the balance due."
+              : isFull
+              ? "Full amount — this settles the bill and marks it Paid."
+              : `Remaining after this payment: ${formatRupiah(line.remaining - num)}. Re-enters the request queue as Partial.`}
+          </div>
+        </div>
+        <div className="apa-modal-foot">
+          <button type="button" className="apa-modal-btn" onClick={onClose}>Cancel</button>
+          <button type="button" className="apa-modal-btn primary" disabled={invalid} onClick={() => onConfirm(line.id, num)}>
+            {isFull ? "Mark as paid" : "Mark partial"}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -425,7 +512,7 @@ export default function ApAgingPage() {
   // View Only sees the full analytical surface but not these controls.
   const { hasLevel, hasCapability, user } = useCurrentUser();
   const { bills, updateBill } = useBills();
-  const { statusOf, requestPayment, approvePayment, markPaid } = usePayments();
+  const { statusOf, detailOf, requestPayment, approvePayment, markPaid, markPartial } = usePayments();
   // Role-scoped payment queue: each role works the stage it owns, keyed off the
   // explicit payment capabilities (see roles.js → visible in User access
   // settings). FM approves, AP Staff requests, Finance Staff executes.
@@ -438,21 +525,25 @@ export default function ApAgingPage() {
   const [view, setView] = useState("queue");   // "queue" | "table"
   const [selected, setSelected] = useState(new Set());
   const [expandedVendor, setExpandedVendor] = useState(null);
-  const [cardFilter, setCardFilter] = useState(null);  // null | "discounts" | "due7d" | "accruals"
+  const [cardFilter, setCardFilter] = useState(null);  // null | "due7d" | "accruals" | "overdue" | "age:*"
   const [tableSearch, setTableSearch] = useState("");  // Aging Table vendor/invoice search
+  const [queueSearch, setQueueSearch] = useState("");  // Decision Queue vendor/invoice search
+  const [queueSort, setQueueSort] = useState("urgency");  // Decision Queue sort key
+  const [sortOpen, setSortOpen] = useState(false);
+  const [partialFor, setPartialFor] = useState(null);  // line being partially paid (execute mode)
 
   // Explicit table filters (separate from KPI-card quick filters). Multi-select
   // within a dimension = OR; across dimensions = AND. Dimensions shown depend on
   // the active view (queue vs table).
   const [filterOpen, setFilterOpen] = useState(false);
-  const [filters, setFilters] = useState({ status: new Set(), tier: new Set(), bucket: new Set(), special: new Set() });
-  const filterCount = filters.status.size + filters.tier.size + filters.bucket.size + filters.special.size;
+  const [filters, setFilters] = useState({ status: new Set(), tier: new Set(), bucket: new Set(), special: new Set(), ppn: new Set() });
+  const filterCount = filters.status.size + filters.tier.size + filters.bucket.size + filters.special.size + filters.ppn.size;
   const toggleFilter = (dim, val) => setFilters((f) => {
     const next = new Set(f[dim]);
     next.has(val) ? next.delete(val) : next.add(val);
     return { ...f, [dim]: next };
   });
-  const clearFilters = () => setFilters({ status: new Set(), tier: new Set(), bucket: new Set(), special: new Set() });
+  const clearFilters = () => setFilters({ status: new Set(), tier: new Set(), bucket: new Set(), special: new Set(), ppn: new Set() });
 
   // Selecting a KPI card filters the table. Re-selecting the same card clears.
   // Accruals filter additionally switches the view to Aging Table since accruals
@@ -467,7 +558,7 @@ export default function ApAgingPage() {
     else setView("queue");
   };
 
-  // Deep-link focus from the Home task hub: /ap-aging?card=discounts.
+  // Deep-link focus from the Home task hub: /ap-aging?card=overdue.
   const [focusParams, setFocusParams] = useSearchParams();
   useEffect(() => {
     const card = focusParams.get("card");
@@ -484,21 +575,17 @@ export default function ApAgingPage() {
 
   // Decision Queue rows — filtered + sorted, then narrowed by an active KPI filter
   const dqRows = useMemo(() => {
-    let rows = allLines.filter(isDecisionQueueRow).sort(decisionQueueSort);
+    let rows = allLines.filter(isDecisionQueueRow);
     // Role-scoped payment stage: show only the bills this persona acts on.
+    // Partial bills carry an open balance, so they re-enter the request queue.
     rows = rows.filter((l) => {
       const ps = statusOf(l.id);
-      if (payMode === "request") return ps === "unpaid";
+      if (payMode === "request") return ps === "unpaid" || ps === "partial";
       if (payMode === "approve") return ps === "requested";
       if (payMode === "execute") return ps === "approved";
       return true; // view — everything
     });
-    if (cardFilter === "discounts") {
-      rows = rows.filter((l) => {
-        const p = discountPillState(l);
-        return p && p.tone !== "muted" && p.tone !== "captured" && l.days_to_discount != null && l.days_to_discount <= 7;
-      });
-    } else if (cardFilter === "due7d") {
+    if (cardFilter === "due7d") {
       rows = rows.filter((l) => {
         const dueDays = -daysSince(l.dueDate);  // positive = future
         return dueDays >= 0 && dueDays <= 7;
@@ -515,9 +602,18 @@ export default function ApAgingPage() {
     if (filters.status.size) rows = rows.filter((l) => filters.status.has(l.workflow_status));
     if (filters.tier.size)   rows = rows.filter((l) => filters.tier.has(tierOf(l.vendorId)));
     if (filters.bucket.size) rows = rows.filter((l) => filters.bucket.has(l.ageBucket));
-    if (filters.special.has("discount")) rows = rows.filter((l) => l.has_terms);
+    if (filters.ppn.size) rows = rows.filter((l) => filters.ppn.has(ppnFilterKey(l.invoiceDate)));
+    // Free-text search — vendor name or invoice number
+    const q = queueSearch.trim().toLowerCase();
+    if (q) rows = rows.filter((l) =>
+      l.vendorName.toLowerCase().includes(q) || (l.invNo || "").toLowerCase().includes(q));
+    // Sort — "urgency" is role-aware (per capability); the rest are overrides.
+    if (queueSort === "urgency")            rows = [...rows].sort(decisionQueueSort(payMode, detailOf));
+    else if (queueSort === "due-asc")       rows = [...rows].sort((a, b) => (a.dueDate || "").localeCompare(b.dueDate || ""));
+    else if (queueSort === "balance-desc")  rows = [...rows].sort((a, b) => b.remaining - a.remaining);
+    else if (queueSort === "vendor-asc")    rows = [...rows].sort((a, b) => a.vendorName.localeCompare(b.vendorName));
     return rows;
-  }, [allLines, cardFilter, filters, tierOf, payMode, statusOf]);
+  }, [allLines, cardFilter, filters, tierOf, payMode, statusOf, detailOf, queueSearch, queueSort]);
 
   // Aging Table — vendor pivot
   const pivot = useMemo(() => {
@@ -549,6 +645,24 @@ export default function ApAgingPage() {
   const runQueueAction = () => { runPaymentAction([...selected]); setSelected(new Set()); };
   const runRowAction = (id) => runPaymentAction([id]);
 
+  // Partial payment (execute mode). Full amount → settle & mark Paid; less than
+  // the balance → reduce the ledger balance and mark Partial (re-enters queue).
+  const confirmPartial = (id, amount) => {
+    const line = dqRows.find((r) => r.id === id);
+    const by = user?.name || "Finance Staff";
+    const dateISO = TODAY.toISOString().slice(0, 10);
+    if (line && amount > 0 && amount < line.remaining) {
+      markPartial([id], by, amount);
+      updateBill(id, { sisa: line.remaining - amount }, { type: "paid", action: `Partial payment executed — ${formatRupiah(amount)}`, by, date: dateISO, time: "" });
+    } else if (line) {
+      // Full (or over) — settle in full.
+      markPaid([id], by);
+      updateBill(id, { pay: "paid", sisa: 0 }, { type: "paid", action: "Payment executed & marked paid", by, date: dateISO, time: "" });
+    }
+    setPartialFor(null);
+    setSelected((prev) => { const n = new Set(prev); n.delete(id); return n; });
+  };
+
   // Selection helpers
   const toggleSelect = (id) => {
     setSelected((prev) => {
@@ -564,18 +678,6 @@ export default function ApAgingPage() {
     for (const r of dqRows) if (selected.has(r.id)) sum += r.remaining;
     return sum;
   }, [selected, dqRows]);
-  const selectedDiscount = useMemo(() => {
-    let sum = 0;
-    for (const r of dqRows) {
-      if (!selected.has(r.id)) continue;
-      const pill = discountPillState(r);
-      if (pill && pill.tone !== "muted" && pill.tone !== "captured" && r.discount_amount_idr) {
-        sum += r.discount_amount_idr;
-      }
-    }
-    return sum;
-  }, [selected, dqRows]);
-
 
   // Grand totals for Aging Table footer
   const grandTotals = useMemo(() => {
@@ -615,9 +717,9 @@ export default function ApAgingPage() {
           </button>
         </div>
 
-        {/* ── AP Outstanding · by age (Decision Queue view). Your Tasks moved to
-             /dashboard; the overdue/discount Insights moved to /insights. ── */}
-        {view === "queue" && (
+        {/* ── AP Outstanding · by age — the aging report's summary, shown on the
+             Aging Table tab. Age buckets toggle the table's bucket filter. ── */}
+        {view === "table" && (
         <div className="bp-cc">
           <div className="bp-cc-apo bp-cc-apo-solo">
               <div className="bp-cc-apo-head">
@@ -631,7 +733,7 @@ export default function ApAgingPage() {
               </div>
               <div className="apa-age-grid">
                 {AGE_BUCKETS.map((b) => (
-                  <button key={b.key} type="button" className={`apa-age${cardFilter === "age:" + b.key ? " active" : ""}`} onClick={() => selectCard("age:" + b.key)}>
+                  <button key={b.key} type="button" className={`apa-age${filters.bucket.has(b.key) ? " active" : ""}`} onClick={() => toggleFilter("bucket", b.key)}>
                     <span className="apa-age-top"><i style={{ background: AGE_COLOR[b.key] }} />{b.lbl}</span>
                     <span className="apa-age-amt">{formatRupiah(snapshot.bucketTotals[b.key])}</span>
                   </button>
@@ -652,9 +754,17 @@ export default function ApAgingPage() {
         <div className="lg-card bp-card">
           <div className="lg-filter-row">
             {view === "queue" && (
-              <div className="apa-sort-label">
-                Sorted by <strong>urgency</strong>
-                <span className="apa-info" title="Discount-expiring &gt; deep overdue &gt; shallow overdue &gt; current. Discount windows have a hard calendar deadline; missing one captures less cash.">?</span>
+              <div className="apa-search">
+                <svg viewBox="0 0 16 16" aria-hidden><circle cx="7" cy="7" r="5" /><path d="M11 11l3 3" /></svg>
+                <input
+                  className="apa-search-input"
+                  placeholder="Search vendor or invoice…"
+                  value={queueSearch}
+                  onChange={(e) => setQueueSearch(e.target.value)}
+                />
+                {queueSearch && (
+                  <button type="button" className="apa-search-clear" onClick={() => setQueueSearch("")} aria-label="Clear search">×</button>
+                )}
               </div>
             )}
             {view === "table" && (
@@ -675,7 +785,6 @@ export default function ApAgingPage() {
               <div className="apa-active-filter">
                 <span className="apa-active-filter-dot" />
                 Filtered: <strong>{
-                  cardFilter === "discounts" ? "Discounts expiring this week" :
                   cardFilter === "due7d"     ? "Due in next 7 days" :
                   cardFilter === "accruals"  ? "Accrued liabilities only" :
                   cardFilter === "overdue"   ? "Overdue bills" :
@@ -689,8 +798,26 @@ export default function ApAgingPage() {
               {filterCount > 0 && (
                 <button type="button" className="lg-filter-reset" onClick={clearFilters}>Clear filters</button>
               )}
+              {view === "queue" && (
+                <div className="lg-meta-btn-wrap">
+                  <button type="button" className="lg-meta-btn" onClick={() => { setSortOpen((o) => !o); setFilterOpen(false); }}>
+                    <span className="meta-lbl">Sort:</span>
+                    <span className="meta-val">{QUEUE_SORT_LABELS[queueSort]}</span>
+                  </button>
+                  {queueSort === "urgency" && (
+                    <span className="apa-info" title={URGENCY_HINT[payMode]}>?</span>
+                  )}
+                  {sortOpen && (
+                    <QueueSortPopover
+                      value={queueSort}
+                      onPick={(v) => { setQueueSort(v); setSortOpen(false); }}
+                      onClose={() => setSortOpen(false)}
+                    />
+                  )}
+                </div>
+              )}
               <div className="lg-meta-btn-wrap">
-                <button type="button" className={`lg-meta-btn${filterCount > 0 ? " active" : ""}`} onClick={() => setFilterOpen((o) => !o)}>
+                <button type="button" className={`lg-meta-btn${filterCount > 0 ? " active" : ""}`} onClick={() => { setFilterOpen((o) => !o); setSortOpen(false); }}>
                   <svg viewBox="0 0 12 12"><path d="M1 2.5h10l-4 4.5V11L5 9.5V7L1 2.5z" /></svg>
                   Filter
                   {filterCount > 0 && <span className="lg-filter-badge">{filterCount}</span>}
@@ -721,7 +848,6 @@ export default function ApAgingPage() {
                     <div>Vendor</div>
                     <div>Invoice</div>
                     <div style={{ textAlign: "right" }}>Balance</div>
-                    <div>Discount</div>
                     <div>Due</div>
                     <div>Payment</div>
                     <div>Terms</div>
@@ -734,6 +860,8 @@ export default function ApAgingPage() {
                       paymentStatus={statusOf(line.id)}
                       actionLabel={QUEUE_MODE[payMode].rowAction}
                       onAction={runRowAction}
+                      secondaryLabel={QUEUE_MODE[payMode].partialAction}
+                      onSecondary={(id) => setPartialFor(dqRows.find((r) => r.id === id) || null)}
                       selected={selected.has(line.id)}
                       onToggleSelect={toggleSelect}
                       onClick={() => navigate(`/bills/${line.id}`)}
@@ -784,6 +912,7 @@ export default function ApAgingPage() {
                     expanded={expandedVendor === row.vendorId}
                     onToggle={() => setExpandedVendor(expandedVendor === row.vendorId ? null : row.vendorId)}
                     accrualHighlight={cardFilter === "accruals"}
+                    onOpenBill={(id) => navigate(`/bills/${id}`)}
                   />
                 ))}
                 <div className="apa-at-grand">
@@ -794,7 +923,7 @@ export default function ApAgingPage() {
                   <div>{formatRupiah(grandTotals.b61_90)}</div>
                   <div>{formatRupiah(grandTotals.b91_120)}</div>
                   <div>{formatRupiah(grandTotals.b_gt120)}</div>
-                  <div style={{ color: grandTotals.accrual > 0 ? "var(--color-action)" : "var(--color-text-tertiary)" }}>
+                  <div style={{ color: grandTotals.accrual > 0 ? "#9FCFFF" : "rgba(255,255,255,.4)" }}>
                     {grandTotals.accrual > 0 ? formatRupiah(grandTotals.accrual) : "—"}
                   </div>
                   <div>{formatRupiah(grandTotals.total)}</div>
@@ -813,14 +942,6 @@ export default function ApAgingPage() {
           <div className="apa-action-bar-info">
             <span className="apa-action-bar-count">{selected.size} selected</span>
             <span className="apa-action-bar-total">Total <strong>{formatRupiah(selectedTotal)}</strong></span>
-            {selectedDiscount > 0 && (
-              <span className="apa-action-bar-total" style={{ color: "rgba(255, 200, 100, 0.95)", display: "inline-flex", alignItems: "center", gap: 6 }}>
-                <svg viewBox="0 0 24 24" fill="currentColor" style={{ width: 13, height: 13, flexShrink: 0 }}>
-                  <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-                </svg>
-                Captures <strong>{formatRupiah(selectedDiscount)}</strong> in discounts
-              </span>
-            )}
           </div>
           <div className="apa-action-bar-actions">
             <button className="apa-action-bar-btn" onClick={clearSelection}>Clear</button>
@@ -830,6 +951,14 @@ export default function ApAgingPage() {
             </button>
           </div>
         </div>
+      )}
+
+      {partialFor && (
+        <PartialPayModal
+          line={partialFor}
+          onConfirm={confirmPartial}
+          onClose={() => setPartialFor(null)}
+        />
       )}
 
     </div>

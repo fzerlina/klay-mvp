@@ -31,7 +31,7 @@ const TYPE_OPTIONS = [
   { v: "government", label: "Government entity" },
 ];
 
-const TERM_OPTIONS = ["NET 7", "NET 15", "NET 30", "NET 45", "NET 60"];
+const TERM_OPTIONS = ["NET 7", "NET 14", "NET 15", "NET 30", "NET 45", "NET 60"];
 
 const PPH_OPTIONS = [
   { v: "none", label: "No withholding" },
@@ -93,6 +93,9 @@ export default function VendorCreatePage() {
   // Financial authority (Tier 2/3). FM holds ap.approve; AP Staff does not — so
   // on this AP-Staff create surface the bank section stays locked.
   const canFinancial = hasCapability("ap.approve");
+  // Relationship tier is a vendor-master classification (vendor.classify) —
+  // AP Staff (the creator) holds it, so it can be set at onboarding.
+  const canClassify = hasCapability("vendor.classify");
 
   const [code, setCode] = useState("");
   const [category, setCategory] = useState("");
@@ -118,6 +121,8 @@ export default function VendorCreatePage() {
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [notes, setNotes] = useState("");
+  const [tier, setTier] = useState("standard");
+  const [tierNote, setTierNote] = useState("");
 
   const [toast, setToast] = useState("");
   const toastTmr = useRef(null);
@@ -175,6 +180,7 @@ export default function VendorCreatePage() {
     if (pkp !== "PKP" && pkp !== "NON_PKP") { showToast("Set the PKP status"); return; }
     if (!term || !currency || !recon) { showToast("Complete the payment details"); return; }
     if (!contact.trim() || !email.trim() || !phone.trim()) { showToast("Primary contact name, email, and phone are required"); return; }
+    if (tier !== "standard" && !tierNote.trim()) { showToast("Add a reason for the relationship tier"); return; }
 
     const validBanks = canFinancial ? banks.filter((b) => b.name && b.acc) : [];
     addVendor({
@@ -197,6 +203,8 @@ export default function VendorCreatePage() {
       phone: phone.trim(),
       email: email.trim(),
       notes: notes.trim(),
+      relationship_tier: tier,
+      relationship_tier_note: tier !== "standard" ? tierNote.trim() : "",
       source: "MANUAL",
     });
     showToast("Draft created — pending Finance Manager confirmation ✓");
@@ -493,6 +501,46 @@ export default function VendorCreatePage() {
               <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Contract terms, special handling, context for whoever confirms this vendor…" rows={3} />
             </div>
           </div>
+
+          {/* 7 — Relationship tier (vendor.classify) */}
+          {canClassify && (
+            <div className="form-sec card">
+              <div className="form-sec-title">Relationship tier</div>
+              <div className="form-fld" style={{ marginBottom: 0 }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: tier !== "standard" ? 10 : 0 }}>
+                  {[
+                    { k: "strategic", lbl: "Strategic", desc: "Relationship-sensitive — prioritize on-time payment." },
+                    { k: "standard",  lbl: "Standard",  desc: "Default. No special handling." },
+                    { k: "at_risk",   lbl: "At-Risk",   desc: "Disputes or slow responses — weigh when sequencing payments." },
+                  ].map((t) => (
+                    <button
+                      type="button"
+                      key={t.k}
+                      onClick={() => setTier(t.k)}
+                      title={t.desc}
+                      style={{
+                        padding: "6px 12px", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 600,
+                        border: tier === t.k ? "1px solid var(--color-action)" : "1px solid var(--color-border-default)",
+                        background: tier === t.k ? "var(--color-action-wash)" : "transparent",
+                        color: tier === t.k ? "var(--color-action)" : "var(--color-text-secondary)",
+                      }}
+                    >
+                      {t.lbl}
+                    </button>
+                  ))}
+                </div>
+                {tier !== "standard" && (
+                  <textarea
+                    value={tierNote}
+                    onChange={(e) => setTierNote(e.target.value)}
+                    maxLength={200}
+                    rows={2}
+                    placeholder="Reason for this tier (required) — e.g. renewal leverage, repeated disputes"
+                  />
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

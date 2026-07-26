@@ -7,6 +7,7 @@ import { usePayments, PAYMENT_STATUS_META } from "../state/PaymentsContext";
 import { workflowStatus, STATUS_LABEL } from "../lib/billStatus";
 import { CAT_LABELS, PPH_LABELS, ACCT_LABELS } from "../data/labels";
 import { formatRupiah, formatDate } from "../lib/format";
+import RelationshipTierControl, { TIER_LABEL } from "../components/RelationshipTier";
 import "./vendor-detail.css";
 
 // ── Vendor Detail (Vendor Master PRD — detail / confirmation screen) ─────────
@@ -142,6 +143,7 @@ export default function VendorDetailPage() {
               <span className="vd-title">{vendor.name}</span>
               {vendor.status !== "active" && <span className={`vd-status ${st.cls}`}>{st.lbl}</span>}
               {HEALTH[vendor.health] && <span className={`vd-hchip ${vendor.health}`}>{HEALTH[vendor.health]}</span>}
+              <RelationshipTierControl vendorId={vendor.id} />
             </div>
             <div className="vd-sub">
               <span>{vendor.code}</span>
@@ -227,6 +229,7 @@ export default function VendorDetailPage() {
                 <Row l="Vendor code" v={vendor.code} mono />
                 <Row l="Entity type" v={TYPE_LABEL[vendor.type] || vendor.type} />
                 <Row l="Category" v={CAT_LABELS[vendor.category] || vendor.category} />
+                <Row l="Relationship tier" v={TIER_LABEL[vendor.relationship_tier] || "Standard"} />
                 <Row l="Address" v={vendor.address || "—"} />
               </div>
 

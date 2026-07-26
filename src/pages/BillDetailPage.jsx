@@ -5,6 +5,7 @@ import { useBills } from "../state/BillsContext";
 import { usePayments, PAYMENT_STATUS_META } from "../state/PaymentsContext";
 import { useJournalEntries } from "../state/JournalEntriesContext";
 import { formatRupiah, formatDateEn, initials } from "../lib/format";
+import { ppnCreditLabel } from "../lib/ppnWindow";
 import {
   workflowStatus,
   statusCause,
@@ -1608,6 +1609,7 @@ export default function BillDetailPage() {
                     onSave={(v) => editField("fakturNo", v)}
                     canEdit={canEditAp}
                   />
+                  <PlainRow label="Faktur pajak (PPN) window" value={ppnCreditLabel(bill.date)} />
                 </div>
 
                 <div className="drawer-section">
