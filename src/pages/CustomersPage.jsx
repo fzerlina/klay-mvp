@@ -1,90 +1,72 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { INVOICES as invoices } from "../data/seed/invoices";
-import { TODAY, daysSince } from "../lib/clock";
-import { formatRupiah, formatDate, initials } from "../lib/format";
 import { useCustomers } from "../state/CustomersContext";
+import { useCurrentUser } from "../state/CurrentUserContext";
+import { TODAY, daysSince } from "../lib/clock";
+import { formatDate } from "../lib/format";
 import AiChatDrawer from "./AiChatDrawer";
 import SummaryDrawer from "./SummaryDrawer";
 import { computeCustomersInsights, makeCustomersAiContext } from "./ai-customers-context";
+import { TierPill } from "../components/RelationshipTier";
 import "./modules.css";
 import "./invoices-ledger.css";
+
+const HEALTH_CHIP = {
+  review:  { cls: "review",  lbl: "Review" },
+  flagged: { cls: "flagged", lbl: "Flagged" },
+};
 
 function fmtRp(n) {
   if (n == null) return "—";
   return n.toLocaleString("id-ID", { maximumFractionDigits: 0 });
 }
 
-function SparkleIcon({ size = 11 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M6 1.5l1.1 2.7L9.8 5l-2.7 0.8L6 8.5l-1.1-2.7L2.2 5l2.7-0.8L6 1.5z" />
-      <path d="M10 8.5l0.4 1L11.5 10l-1.1 0.4L10 11.5l-0.4-1.1L8.5 10l1.1-0.5L10 8.5z" />
-    </svg>
-  );
+// NPWP display — mask the prefix, reveal the last 6 digits (mirrors Vendor List).
+function maskNpwp(taxId) {
+  if (!taxId) return null;
+  const digits = taxId.replace(/\D/g, "");
+  if (digits.length < 6) return taxId;
+  const last6 = digits.slice(-6);
+  return `••• ${last6.slice(0, 3)}.${last6.slice(3)}`;
 }
 
-function AiSubtitle({ insights, onOpenSummary, onOpenChat, chatActive, summaryActive }) {
-  const [idx, setIdx] = useState(0);
-  const [fading, setFading] = useState(false);
-  useEffect(() => {
-    if (insights.length <= 1) return;
-    const id = setInterval(() => {
-      setFading(true);
-      setTimeout(() => {
-        setIdx((i) => (i + 1) % insights.length);
-        setFading(false);
-      }, 220);
-    }, 7000);
-    return () => clearInterval(id);
-  }, [insights.length]);
-  useEffect(() => { if (idx >= insights.length) setIdx(0); }, [insights.length, idx]);
-
-  const current = insights[idx] || insights[0];
-  return (
-    <div className={`lg-ai-subtitle${summaryActive || chatActive ? " active" : ""}`}>
-      <p className={`lg-ai-text${fading ? " fading" : ""}`}>
-        <span className="lg-ai-sparkle"><SparkleIcon /></span>
-        {current?.node}
-      </p>
-      <div className="lg-ai-ctas">
-        <button type="button" className={`lg-ai-cta-primary${summaryActive ? " active" : ""}`} onClick={onOpenSummary}>
-          <SparkleIcon /> Summary
-        </button>
-        <button type="button" className={`lg-ai-cta-secondary${chatActive ? " active" : ""}`} onClick={onOpenChat}>
-          {chatActive ? "Continue chat" : "Ask Klay AI"} →
-        </button>
-        {insights.length > 1 && (
-          <div className="lg-ai-dots" aria-hidden>
-            {insights.map((_, i) => <span key={i} className={`lg-ai-dot${i === idx ? " on" : ""}`} />)}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function CustomerRow({ r, isChecked, onCheck, onClick, onKebab, isSelected, isAlt }) {
-  const stale = r.lastInv && daysSince(r.lastInv) >= 60 && r.active;
+function CustomerRow({ r, onClick, onKebab, isAlt, showKebab = true }) {
+  const stale = r.lastInv && daysSince(r.lastInv) >= 60 && r.status === "active";
   const overLimit = r.creditLimit > 0 && r.ar > r.creditLimit;
-  const dotTone = !r.active ? "muted" : (overLimit || r.arOverdue) ? "" : stale ? "warn" : (r.ar > 0 ? "" : "success");
+  const chip = HEALTH_CHIP[r.health];
+  const npwp = maskNpwp(r.npwp);
   return (
-    <div className={`lg-row${isSelected ? " selected" : ""}${isAlt ? " alt" : ""}`} onClick={onClick}>
-      <div onClick={(e) => e.stopPropagation()}>
-        <input type="checkbox" className="lg-row-check" checked={isChecked} onChange={() => onCheck(r.id)} />
-      </div>
+    <div className={`lg-row${isAlt ? " alt" : ""}`} onClick={onClick}>
       <div className="lg-cell-no">{r.code}</div>
       <div className="lg-cell-customer">
-        <span className={`lg-cell-customer-dot${dotTone ? " " + dotTone : ""}`} />
         <div className="lg-cell-customer-body">
-          <div className="lg-cell-customer-name">{r.name}</div>
+          <div className="lg-cell-customer-name">
+            <span className="vh-name">{r.name}</span>
+            {chip && <span className={`vh-chip ${chip.cls}`} title={`Health: ${chip.lbl}`}>{chip.lbl}</span>}
+            <TierPill tier={r.relationship_tier} />
+          </div>
           <div className="lg-cell-customer-addr">{r.contact}{r.email ? ` · ${r.email}` : ""}</div>
         </div>
       </div>
       <div>
         <span className={`type-badge ${r.type}`}>{r.type === "perusahaan" ? "Company" : "Individual"}</span>
       </div>
+      <div className="lg-cell-date">{npwp || <span className="lg-cell-em-dash">—</span>}</div>
       <div className="lg-cell-date">{r.top}</div>
+      <div style={{ fontSize: 11, color: "var(--color-text-secondary)", textAlign: "right" }}>
+        {r.creditLimit > 0 ? (
+          <><span style={{ color: "var(--color-text-tertiary)", marginRight: 2 }}>Rp</span>{fmtRp(r.creditLimit)}</>
+        ) : (
+          <span className="lg-cell-em-dash">—</span>
+        )}
+      </div>
+      <div className="lg-cell-total" style={(r.arOverdue || overLimit) ? { color: "var(--color-danger-text)" } : undefined}>
+        {r.ar > 0 ? (
+          <><span className="lg-cell-total-rp">Rp</span>{fmtRp(r.ar)}</>
+        ) : (
+          <span className="lg-cell-em-dash">—</span>
+        )}
+      </div>
       <div style={{ fontSize: 11, color: stale ? "var(--color-warning-text)" : "var(--color-text-tertiary)", fontWeight: stale ? 600 : 400 }}>
         {r.lastInv ? (
           <>
@@ -95,28 +77,18 @@ function CustomerRow({ r, isChecked, onCheck, onClick, onKebab, isSelected, isAl
           <span className="lg-cell-em-dash">—</span>
         )}
       </div>
-      <div className="lg-cell-total" style={(r.arOverdue || overLimit) ? { color: "var(--color-danger-text)" } : undefined}>
-        {r.ar > 0 ? (
-          <>
-            <span className="lg-cell-total-rp">Rp</span>{fmtRp(r.ar)}
-          </>
-        ) : (
-          <span className="lg-cell-em-dash">—</span>
-        )}
-      </div>
-      <div>
-        <span className={`status-badge ${r.active ? "active" : "inactive"}`}>{r.active ? "Active" : "Inactive"}</span>
-      </div>
       <div className="lg-cell-kebab" onClick={(e) => e.stopPropagation()}>
-        <button className="lg-kebab" onClick={() => onKebab(r.id)}>
-          <svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>
-        </button>
+        {showKebab && (
+          <button className="lg-kebab" onClick={() => onKebab(r.id)}>
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>
+          </button>
+        )}
       </div>
     </div>
   );
 }
 
-function RowMenu({ customer, onClose, onAction }) {
+function RowMenu({ customer, onClose, onAction, canTransact = true, canApprove = false }) {
   const ref = useRef(null);
   useEffect(() => {
     const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
@@ -125,34 +97,59 @@ function RowMenu({ customer, onClose, onAction }) {
   }, [onClose]);
   return (
     <div className="row-menu" ref={ref} onClick={(e) => e.stopPropagation()}>
-      <div className="row-menu-item" onClick={() => onAction("edit", customer)}>
-        <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-        Edit
-      </div>
-      <div className="row-menu-item" onClick={() => onAction("newInvoice", customer)}>
-        <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-        New Invoice
-      </div>
-      <div className="row-menu-item" onClick={() => onAction("reminder", customer)}>
-        <svg viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/><polyline points="4 4 12 13 20 4"/></svg>
-        Send Reminder
-      </div>
-      <div className="row-menu-sep" />
-      {customer.active ? (
-        <div className="row-menu-item" onClick={() => onAction("deactivate", customer)}>
-          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
-          Deactivate
-        </div>
-      ) : (
-        <div className="row-menu-item" onClick={() => onAction("activate", customer)}>
-          <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
-          Reactivate
-        </div>
+      {canTransact && (
+        <>
+          <div className="row-menu-item" onClick={() => onAction("edit", customer)}>
+            <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            Edit
+          </div>
+          <div className="row-menu-item" onClick={() => onAction("newInvoice", customer)}>
+            <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            New Invoice
+          </div>
+          <div className="row-menu-item" onClick={() => onAction("duplicate", customer)}>
+            <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+            Duplicate
+          </div>
+          <div className="row-menu-sep" />
+          {customer.status === "active" && (
+            <>
+              <div className="row-menu-item" onClick={() => onAction("deactivate", customer)}>
+                <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+                Deactivate
+              </div>
+              {canApprove && (
+                <div className="row-menu-item" onClick={() => onAction("block", customer)}>
+                  <svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                  Credit hold
+                </div>
+              )}
+            </>
+          )}
+          {customer.status === "pending" && canApprove && (
+            <div className="row-menu-item" onClick={() => onAction("approve", customer)}>
+              <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              Approve
+            </div>
+          )}
+          {customer.status === "inactive" && (
+            <div className="row-menu-item" onClick={() => onAction("activate", customer)}>
+              <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              Reactivate
+            </div>
+          )}
+          {customer.status === "blocked" && canApprove && (
+            <div className="row-menu-item" onClick={() => onAction("unblock", customer)}>
+              <svg viewBox="0 0 24 24"><path d="M7 11V7a5 5 0 0 1 9.9-1"/><rect x="4" y="11" width="16" height="10" rx="2"/></svg>
+              Release hold
+            </div>
+          )}
+          <div className="row-menu-item danger" onClick={() => onAction("archive", customer)}>
+            <svg viewBox="0 0 24 24"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
+            Archive
+          </div>
+        </>
       )}
-      <div className="row-menu-item danger" onClick={() => onAction("archive", customer)}>
-        <svg viewBox="0 0 24 24"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
-        Archive
-      </div>
     </div>
   );
 }
@@ -160,18 +157,12 @@ function RowMenu({ customer, onClose, onAction }) {
 const SORT_LABELS = {
   "name-asc":     "Name A-Z",
   "name-desc":    "Name Z-A",
-  "ar-desc":      "AR Balance highest ↓",
-  "ar-asc":       "AR Balance lowest ↑",
-  "limit-desc":   "Credit Limit highest ↓",
-  "limit-asc":    "Credit Limit lowest ↑",
-  "lastinv-desc": "Invoice newest ↓",
-  "lastinv-asc":  "Invoice oldest ↑",
   "code-asc":     "Code A-Z",
-};
-const GROUP_LABELS = {
-  "none":   "—",
-  "type":   "Type",
-  "status": "Status",
+  "ar-desc":      "AR balance highest ↓",
+  "ar-asc":       "AR balance lowest ↑",
+  "limit-desc":   "Credit limit highest ↓",
+  "lastinv-desc": "Last invoice newest ↓",
+  "lastinv-asc":  "Last invoice oldest ↑",
 };
 
 function useClickOutside(ref, onClose) {
@@ -199,27 +190,18 @@ function SortPopover({ value, onPick, onClose }) {
   );
 }
 
-function GroupPopover({ value, onPick, onClose }) {
-  const ref = useRef(null);
-  useClickOutside(ref, onClose);
-  const items = [
-    { k: "none",   lbl: "Not grouped" },
-    { k: "type",   lbl: "Type (Company / Individualal)" },
-    { k: "status", lbl: "Status" },
-  ];
-  return (
-    <div className="lg-popover" ref={ref}>
-      <div className="lg-popover-list">
-        {items.map((it) => (
-          <button key={it.k} className={`lg-popover-item${value === it.k ? " selected" : ""}`} onClick={() => onPick(it.k)}>
-            {it.lbl}
-            {value === it.k && <svg className="lg-popover-check" viewBox="0 0 12 12"><polyline points="2 6 5 9 10 3"/></svg>}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
+const TYPE_FILTER_OPTIONS = [["perusahaan", "Company"], ["individu", "Individual"]];
+const HEALTH_FILTER_OPTIONS = [
+  { k: "healthy", lbl: "Healthy" },
+  { k: "review",  lbl: "Review" },
+  { k: "flagged", lbl: "Flagged" },
+];
+const TIER_FILTER_OPTIONS = [
+  { k: "strategic", lbl: "Strategic" },
+  { k: "standard",  lbl: "Standard" },
+  { k: "at_risk",   lbl: "At-Risk" },
+];
+const ALL_TERMS = ["COD", "NET 7", "NET 14", "NET 15", "NET 21", "NET 30", "NET 45", "NET 60"];
 
 function FilterPopover({ values, onChange, onClose }) {
   const ref = useRef(null);
@@ -227,31 +209,25 @@ function FilterPopover({ values, onChange, onClose }) {
   const [draft, setDraft] = useState(values);
 
   const update = (patch) => setDraft((d) => ({ ...d, ...patch }));
-  const toggleType = (t) => setDraft((d) => {
-    const next = new Set(d.types);
-    next.has(t) ? next.delete(t) : next.add(t);
-    return { ...d, types: next };
-  });
-  const toggleTerm = (t) => setDraft((d) => {
-    const next = new Set(d.terms);
-    next.has(t) ? next.delete(t) : next.add(t);
-    return { ...d, terms: next };
+  const toggleIn = (key, v) => setDraft((d) => {
+    const next = new Set(d[key]);
+    next.has(v) ? next.delete(v) : next.add(v);
+    return { ...d, [key]: next };
   });
 
-  const reset = () => setDraft({ types: new Set(), terms: new Set(), minAr: "", maxAr: "" });
+  const reset = () => setDraft({ types: new Set(), terms: new Set(), health: new Set(), tier: new Set(), minAr: "", maxAr: "" });
   const apply = () => { onChange(draft); onClose(); };
 
-  const types = [["perusahaan", "Company"], ["individu", "Individual"]];
-  const allTerms = ["COD", "NET 7", "NET 14", "NET 15", "NET 21", "NET 30", "NET 45", "NET 60"];
+  const summary = (set) => (set.size > 0 ? `${set.size} selected` : "all");
 
   return (
     <div className="lg-popover lg-filter-pop" ref={ref}>
       <div className="lg-filter-body">
         <div className="lg-filter-fld">
-          <div className="lg-filter-fld-lbl">Type ({draft.types.size > 0 ? `${draft.types.size} selected` : "semua"})</div>
+          <div className="lg-filter-fld-lbl">Type ({summary(draft.types)})</div>
           <div className="lg-toggle-row">
-            {types.map(([v, lbl]) => (
-              <button key={v} className={`lg-toggle${draft.types.has(v) ? " on" : ""}`} onClick={() => toggleType(v)}>
+            {TYPE_FILTER_OPTIONS.map(([v, lbl]) => (
+              <button key={v} className={`lg-toggle${draft.types.has(v) ? " on" : ""}`} onClick={() => toggleIn("types", v)}>
                 {lbl}
               </button>
             ))}
@@ -259,10 +235,10 @@ function FilterPopover({ values, onChange, onClose }) {
         </div>
 
         <div className="lg-filter-fld">
-          <div className="lg-filter-fld-lbl">Payment Terms ({draft.terms.size > 0 ? `${draft.terms.size} selected` : "semua"})</div>
+          <div className="lg-filter-fld-lbl">Payment Terms ({summary(draft.terms)})</div>
           <div className="lg-toggle-row">
-            {allTerms.map((t) => (
-              <button key={t} className={`lg-toggle${draft.terms.has(t) ? " on" : ""}`} onClick={() => toggleTerm(t)}>
+            {ALL_TERMS.map((t) => (
+              <button key={t} className={`lg-toggle${draft.terms.has(t) ? " on" : ""}`} onClick={() => toggleIn("terms", t)}>
                 {t}
               </button>
             ))}
@@ -270,7 +246,29 @@ function FilterPopover({ values, onChange, onClose }) {
         </div>
 
         <div className="lg-filter-fld">
-          <div className="lg-filter-fld-lbl">Range AR Balance (Rp)</div>
+          <div className="lg-filter-fld-lbl">Health ({summary(draft.health)})</div>
+          <div className="lg-toggle-row">
+            {HEALTH_FILTER_OPTIONS.map((h) => (
+              <button key={h.k} className={`lg-toggle${draft.health.has(h.k) ? " on" : ""}`} onClick={() => toggleIn("health", h.k)}>
+                {h.lbl}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="lg-filter-fld">
+          <div className="lg-filter-fld-lbl">Relationship ({summary(draft.tier)})</div>
+          <div className="lg-toggle-row">
+            {TIER_FILTER_OPTIONS.map((t) => (
+              <button key={t.k} className={`lg-toggle${draft.tier.has(t.k) ? " on" : ""}`} onClick={() => toggleIn("tier", t.k)}>
+                {t.lbl}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="lg-filter-fld">
+          <div className="lg-filter-fld-lbl">AR Balance range (Rp)</div>
           <div className="lg-filter-row2">
             <input type="number" className="lg-filter-input" placeholder="Min" value={draft.minAr} onChange={(e) => update({ minAr: e.target.value })} />
             <span style={{ color: "var(--color-text-tertiary)", fontSize: 11 }}>—</span>
@@ -290,22 +288,24 @@ function FilterPopover({ values, onChange, onClose }) {
 
 export default function CustomersPage() {
   const navigate = useNavigate();
-  const { customers } = useCustomers();
+  const { hasLevel, hasCapability } = useCurrentUser();
+  const canCreate = hasLevel("ar", "transact");
+  // Onboarding a customer is a discrete capability (roles.js): AR Staff holds it.
+  const canCreateCustomer = hasCapability("customer.create");
+  // Approving a pending customer, placing/releasing a credit hold is an approver
+  // control action — SoD-separated from creating it. Gate on ar.post, which the
+  // Finance Manager and Accounting Manager hold (AR Staff / Finance Staff do not).
+  const canApprove = hasCapability("ar.post");
+  const { customers, setCustomerStatus } = useCustomers();
+
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState({ kind: "tab", value: "semua" });
+  const [filter, setFilter] = useState({ kind: "tab", value: "active" });
   const [sortChoice, setSortChoice] = useState(null);
-  const [groupChoice, setGroupChoice] = useState(null);
-  const emptyFilters = { types: new Set(), terms: new Set(), minAr: "", maxAr: "" };
+  const emptyFilters = { types: new Set(), terms: new Set(), health: new Set(), tier: new Set(), minAr: "", maxAr: "" };
   const [filterValues, setFilterValues] = useState(emptyFilters);
 
-  const [selectedId, setSelectedId] = useState(null);
-  const [drawerTab, setDrawerTab] = useState("detail");
-  const [checked, setChecked] = useState(() => new Set());
   const [menuOpenFor, setMenuOpenFor] = useState(null);
-  const [collapsedGroups, setCollapsedGroups] = useState(() => new Set());
-
   const [sortPopOpen, setSortPopOpen] = useState(false);
-  const [groupPopOpen, setGroupPopOpen] = useState(false);
   const [filterPopOpen, setFilterPopOpen] = useState(false);
 
   const [aiOpen, setAiOpen] = useState(false);
@@ -329,62 +329,41 @@ export default function CustomersPage() {
     setAiOpen(true);
   }
 
-  // ── KPIs ───────────────────────────────────────────────────────────────
-  const totalAr = customers.reduce((s, c) => s + (c.ar || 0), 0);
-  const arCusts = customers.filter((c) => (c.ar || 0) > 0);
-  const overdueCusts = customers.filter((c) => c.arOverdue && c.active);
-  const inactiveCusts = customers.filter((c) => !c.active);
-  const activeCount = customers.filter((c) => c.active).length;
-
-  const kpis = [
-    { lbl: "Total Customers",   card: "all",      val: String(customers.length),      sub: `${activeCount} active`,           tone: "primary" },
-    { lbl: "Outstanding AR",   card: "ar",       val: "Rp " + fmtRp(totalAr),        sub: `${arCusts.length} customer`,     tone: "danger"  },
-    { lbl: "Overdue",      card: "overdue",  val: String(overdueCusts.length),   sub: "with late invoices",              tone: "danger"  },
-    { lbl: "Inactive",        card: "inactive", val: String(inactiveCusts.length),  sub: "needs review",                tone: "primary" },
-  ];
-
-  // ── Tab counts ─────────────────────────────────────────────────────────
-  const tabCounts = useMemo(() => ({
-    semua:    customers.length,
-    active:    activeCount,
-    ar:       arCusts.length,
-    overdue:  overdueCusts.length,
-    inactive: inactiveCusts.length,
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), []);
+  // ── Tab counts (by lifecycle status) ─────────────────────────────────────
+  const statusCounts = useMemo(() => {
+    const c = { active: 0, pending: 0, inactive: 0, blocked: 0 };
+    for (const cust of customers) if (c[cust.status] != null) c[cust.status]++;
+    return c;
+  }, [customers]);
   const tabs = [
-    { k: "semua",    lbl: "All",       count: tabCounts.semua },
-    { k: "active",    lbl: "Active",       count: tabCounts.active },
-    { k: "ar",       lbl: "With AR",    count: tabCounts.ar },
-    { k: "overdue",  lbl: "Overdue", count: tabCounts.overdue },
-    { k: "inactive", lbl: "Inactive",   count: tabCounts.inactive },
+    { k: "active",   lbl: "Active",   count: statusCounts.active },
+    { k: "pending",  lbl: "Pending",  count: statusCounts.pending },
+    { k: "inactive", lbl: "Inactive", count: statusCounts.inactive },
+    { k: "blocked",  lbl: "Blocked",  count: statusCounts.blocked },
   ];
 
-  // ── Corpus ─────────────────────────────────────────────────────────────
+  // ── Corpus — tabs map 1:1 to lifecycle status ───────────────────────────
   const corpus = useMemo(() => {
-    let list = customers;
-    if (filter.kind === "tab") {
-      if (filter.value === "active")        list = list.filter((c) => c.active);
-      else if (filter.value === "ar")      list = list.filter((c) => (c.ar || 0) > 0);
-      else if (filter.value === "overdue") list = list.filter((c) => c.arOverdue && c.active);
-      else if (filter.value === "inactive")list = list.filter((c) => !c.active);
-    }
-    return list;
-  }, [filter]);
+    if (filter.kind === "tab") return customers.filter((c) => c.status === filter.value);
+    return customers;
+  }, [filter, customers]);
 
   const hasActiveFilters = useMemo(() => (
     filterValues.types.size > 0 ||
     filterValues.terms.size > 0 ||
+    filterValues.health.size > 0 ||
+    filterValues.tier.size > 0 ||
     filterValues.minAr !== "" ||
     filterValues.maxAr !== "" ||
-    sortChoice !== null ||
-    groupChoice !== null
-  ), [filterValues, sortChoice, groupChoice]);
+    sortChoice !== null
+  ), [filterValues, sortChoice]);
 
   const activeFilterCount = useMemo(() => {
     let n = 0;
     if (filterValues.types.size > 0) n++;
     if (filterValues.terms.size > 0) n++;
+    if (filterValues.health.size > 0) n++;
+    if (filterValues.tier.size > 0) n++;
     if (filterValues.minAr !== "" || filterValues.maxAr !== "") n++;
     return n;
   }, [filterValues]);
@@ -394,16 +373,20 @@ export default function CustomersPage() {
     let list = corpus;
     if (filterValues.types.size > 0) list = list.filter((c) => filterValues.types.has(c.type));
     if (filterValues.terms.size > 0) list = list.filter((c) => filterValues.terms.has(c.top));
+    if (filterValues.health.size > 0) list = list.filter((c) => filterValues.health.has(c.health || "healthy"));
+    if (filterValues.tier.size > 0) list = list.filter((c) => filterValues.tier.has(c.relationship_tier || "standard"));
     const min = filterValues.minAr === "" ? null : Number(filterValues.minAr);
     const max = filterValues.maxAr === "" ? null : Number(filterValues.maxAr);
     if (min != null && !isNaN(min)) list = list.filter((c) => (c.ar || 0) >= min);
     if (max != null && !isNaN(max)) list = list.filter((c) => (c.ar || 0) <= max);
 
     const q = search.toLowerCase().trim();
+    const qDigits = q.replace(/\D/g, "");
     if (q) list = list.filter((c) =>
       c.name.toLowerCase().includes(q) ||
       c.code.toLowerCase().includes(q) ||
-      (c.contacts?.[0]?.name && c.contacts[0].name.toLowerCase().includes(q)),
+      (c.contacts?.[0]?.name && c.contacts[0].name.toLowerCase().includes(q)) ||
+      (c.npwp && (c.npwp.toLowerCase().includes(q) || (qDigits && c.npwp.replace(/\D/g, "").includes(qDigits)))),
     );
     return list.map((c) => ({
       id: c.id,
@@ -411,117 +394,57 @@ export default function CustomersPage() {
       name: c.name,
       contact: c.contacts?.[0]?.name || "—",
       email: c.contacts?.[0]?.email || "",
-      address: c.address,
       type: c.type,
-      active: c.active,
+      status: c.status,
+      health: c.health,
+      relationship_tier: c.relationship_tier,
+      npwp: c.npwp,
       top: c.top,
-      lastInv: c.lastInv,
+      creditLimit: c.creditLimit || 0,
       ar: c.ar || 0,
       arOverdue: c.arOverdue,
-      creditLimit: c.creditLimit || 0,
+      lastInv: c.lastInv,
       raw: c,
     }));
   }, [corpus, filterValues, search]);
 
-  // ── Sort + Group ───────────────────────────────────────────────────────
+  // ── Sort ─────────────────────────────────────────────────────────────
   const effectiveSort = sortChoice || "name-asc";
-  const effectiveGroup = groupChoice || "none";
-
   const sortedRows = useMemo(() => {
     const arr = [...filteredRows];
     switch (effectiveSort) {
       case "name-asc":     arr.sort((a, b) => a.name.localeCompare(b.name)); break;
       case "name-desc":    arr.sort((a, b) => b.name.localeCompare(a.name)); break;
+      case "code-asc":     arr.sort((a, b) => a.code.localeCompare(b.code)); break;
       case "ar-desc":      arr.sort((a, b) => b.ar - a.ar); break;
       case "ar-asc":       arr.sort((a, b) => a.ar - b.ar); break;
       case "limit-desc":   arr.sort((a, b) => b.creditLimit - a.creditLimit); break;
-      case "limit-asc":    arr.sort((a, b) => a.creditLimit - b.creditLimit); break;
       case "lastinv-desc": arr.sort((a, b) => (b.lastInv || "").localeCompare(a.lastInv || "")); break;
       case "lastinv-asc":  arr.sort((a, b) => (a.lastInv || "").localeCompare(b.lastInv || "")); break;
-      case "code-asc":     arr.sort((a, b) => a.code.localeCompare(b.code)); break;
       default: break;
     }
     return arr;
   }, [filteredRows, effectiveSort]);
 
-  const groups = useMemo(() => {
-    if (effectiveGroup === "none") return null;
-    const keyFn = (r) => {
-      if (effectiveGroup === "type") return r.type === "perusahaan" ? "Company" : "Individual";
-      if (effectiveGroup === "status") return r.active ? "Active" : "Inactive";
-      return "—";
-    };
-    const map = new Map();
-    for (const r of sortedRows) {
-      const k = keyFn(r);
-      if (!map.has(k)) map.set(k, []);
-      map.get(k).push(r);
-    }
-    return Array.from(map.entries()).map(([k, rows]) => ({
-      key: k,
-      label: k,
-      rows,
-      sum: rows.reduce((s, r) => s + r.ar, 0),
-      tone: "muted",
-      kind: effectiveGroup,
-    }));
-  }, [effectiveGroup, sortedRows]);
-
-  const selected = customers.find((c) => c.id === selectedId);
-  const custInvoices = selected ? (invoices || []).filter((inv) => inv.customer === selected.id) : [];
-
-  const pageTotal = filteredRows.reduce((s, r) => s + r.ar, 0);
-  const selectedTotal = filteredRows.filter((r) => checked.has(r.id)).reduce((s, r) => s + r.ar, 0);
-
   // ── Handlers ───────────────────────────────────────────────────────────
-  function toggleRow(id) {
-    setChecked((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  }
-  function toggleGroup(key) {
-    setCollapsedGroups((prev) => {
-      const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
-      return next;
-    });
-  }
-  function clearChecks() { setChecked(new Set()); }
-  function selectTab(t) { setFilter({ kind: "tab", value: t }); clearChecks(); }
-  function selectCard(c) {
-    if (c === null || c === "all") setFilter({ kind: "tab", value: "semua" });
-    else if (c === "ar")           setFilter({ kind: "tab", value: "ar" });
-    else if (c === "overdue")      setFilter({ kind: "tab", value: "overdue" });
-    else if (c === "inactive")     setFilter({ kind: "tab", value: "inactive" });
-    clearChecks();
-  }
-  const isTabActive  = (t) => filter.kind === "tab" && filter.value === t;
-  const isCardActive = (c) => {
-    if (c === "all") return filter.value === "semua";
-    if (c === "ar") return filter.value === "ar";
-    if (c === "overdue") return filter.value === "overdue";
-    if (c === "inactive") return filter.value === "inactive";
-    return false;
-  };
+  function selectTab(t) { setFilter({ kind: "tab", value: t }); }
+  const isTabActive = (t) => filter.kind === "tab" && filter.value === t;
 
   function resetAll() {
     setSortChoice(null);
-    setGroupChoice(null);
     setFilterValues(emptyFilters);
     setSearch("");
   }
 
   function exportCsv() {
-    const headers = ["Code", "Name", "Type", "PIC", "Email", "Address", "NPWP", "Terms", "Credit Limit", "AR Balance", "Status", "Last Invoice"];
+    const headers = ["Code", "Name", "Type", "PIC", "Email", "NPWP", "Terms", "Credit Limit", "AR Balance", "Status", "Last Invoice"];
     const esc = (v) => {
       const s = String(v == null ? "" : v);
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
     const lines = [headers.join(",")];
     for (const r of sortedRows) {
-      lines.push([r.code, r.name, r.type, r.contact, r.email, r.address, r.raw.npwp || "", r.top, r.creditLimit, r.ar, r.active ? "active" : "inactive", r.lastInv || ""].map(esc).join(","));
+      lines.push([r.code, r.name, r.type, r.contact, r.email, r.npwp || "", r.top, r.creditLimit, r.ar, r.status, r.lastInv || ""].map(esc).join(","));
     }
     const blob = new Blob(["﻿" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -539,57 +462,36 @@ export default function CustomersPage() {
   function onRowAction(action, c) {
     setMenuOpenFor(null);
     if (action === "edit") showToast(`Edit ${c.name} (demo)`);
-    else if (action === "newInvoice") showToast(`Create Invoice baru for ${c.name}`);
-    else if (action === "reminder") showToast(`Reminder sent to ${c.name}`);
-    else if (action === "activate") showToast(`${c.name} diactivekan kembali`);
-    else if (action === "deactivate") showToast(`${c.name} di-nonactivekan`);
-    else if (action === "archive") showToast(`${c.name} diarsipkan`);
-  }
-  function onBulk(action) {
-    const count = checked.size;
-    if (action === "reminder") showToast(`Reminder sent to ${count} customer`);
-    else if (action === "archive") showToast(`${count} customer diarsipkan`);
-    clearChecks();
+    else if (action === "newInvoice") showToast(`New invoice for ${c.name} (demo)`);
+    else if (action === "duplicate") showToast(`Duplicated ${c.name} (demo)`);
+    else if (action === "approve") { setCustomerStatus(c.id, "active", { event: "Customer approved" }); showToast(`${c.name} approved — now active`); }
+    else if (action === "activate") { setCustomerStatus(c.id, "active", { event: "Reactivated" }); showToast(`${c.name} reactivated`); }
+    else if (action === "block") { setCustomerStatus(c.id, "blocked", { event: "Credit hold" }); showToast(`${c.name} placed on credit hold`); }
+    else if (action === "unblock") { setCustomerStatus(c.id, "active", { event: "Credit hold released" }); showToast(`${c.name} released — now active`); }
+    else if (action === "deactivate") { setCustomerStatus(c.id, "inactive", { event: "Deactivated" }); showToast(`${c.name} set to inactive`); }
+    else if (action === "archive") showToast(`${c.name} archived (demo)`);
   }
 
   return (
     <div className="lg-page">
       <div className="lg-scroll-container">
         {/* ── Editorial header ──────────────────────────────────────── */}
-        <div className="lg-head">
+        <div className="lg-head lg-head-plain">
           <div className="lg-head-top">
             <div style={{ flex: 1, minWidth: 0 }}>
               <h1 className="lg-title">Customers</h1>
-              <AiSubtitle
-                insights={insights}
-                onOpenSummary={() => setSummaryOpen(true)}
-                onOpenChat={() => setAiOpen(true)}
-                chatActive={aiOpen}
-                summaryActive={summaryOpen}
-              />
             </div>
             <div className="lg-head-actions">
-              <button className="lg-btn-brand" onClick={() => navigate("/customers/new")}>
+              <button
+                className="lg-btn-brand"
+                disabled={!canCreateCustomer}
+                title={canCreateCustomer ? undefined : "Requires the Create Customers capability (AR Staff)"}
+                onClick={() => canCreateCustomer && navigate("/customers/new")}
+              >
                 <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                 Add Customer
               </button>
             </div>
-          </div>
-
-          <div className="lg-kpi-strip">
-            {kpis.map((k) => (
-              <button
-                type="button"
-                className={`lg-kpi-cell${isCardActive(k.card) ? " active" : ""}`}
-                key={k.lbl}
-                onClick={() => selectCard(isCardActive(k.card) ? null : k.card)}
-                aria-pressed={isCardActive(k.card)}
-              >
-                <div className="lg-kpi-lbl">{k.lbl}</div>
-                <div className={`lg-kpi-val${k.tone === "danger" ? " danger" : k.tone === "warn" ? " warn" : ""}`}>{k.val}</div>
-                <div className="lg-kpi-sub">{k.sub}</div>
-              </button>
-            ))}
           </div>
         </div>
 
@@ -608,11 +510,11 @@ export default function CustomersPage() {
             <div className="lg-filter-row">
               <div className="lg-search">
                 <svg viewBox="0 0 14 14"><circle cx="6" cy="6" r="3.5"/><path d="M9 9l3 3" strokeLinecap="round"/></svg>
-                <input placeholder="Search customer name, code, or contact…" value={search} onChange={(e) => setSearch(e.target.value)} />
+                <input placeholder="Search customer name, NPWP, code, or contact…" value={search} onChange={(e) => setSearch(e.target.value)} />
               </div>
               <div className="lg-filter-meta">
                 <div className="lg-meta-btn-wrap">
-                  <button className={`lg-meta-btn${activeFilterCount > 0 ? " active" : ""}`} onClick={() => { setFilterPopOpen(!filterPopOpen); setSortPopOpen(false); setGroupPopOpen(false); }}>
+                  <button className={`lg-meta-btn${activeFilterCount > 0 ? " active" : ""}`} onClick={() => { setFilterPopOpen(!filterPopOpen); setSortPopOpen(false); }}>
                     <svg viewBox="0 0 12 12"><path d="M2 3h8M3 6h6M4 9h4" strokeLinecap="round"/></svg>
                     Filter
                     {activeFilterCount > 0 && <span className="lg-filter-badge">{activeFilterCount}</span>}
@@ -620,18 +522,11 @@ export default function CustomersPage() {
                   {filterPopOpen && <FilterPopover values={filterValues} onChange={setFilterValues} onClose={() => setFilterPopOpen(false)} />}
                 </div>
                 <div className="lg-meta-btn-wrap">
-                  <button className="lg-meta-btn" onClick={() => { setSortPopOpen(!sortPopOpen); setFilterPopOpen(false); setGroupPopOpen(false); }}>
+                  <button className="lg-meta-btn" onClick={() => { setSortPopOpen(!sortPopOpen); setFilterPopOpen(false); }}>
                     <span className="meta-lbl">Sort:</span>
                     <span className="meta-val">{SORT_LABELS[effectiveSort]}</span>
                   </button>
                   {sortPopOpen && <SortPopover value={effectiveSort} onPick={(v) => { setSortChoice(v); setSortPopOpen(false); }} onClose={() => setSortPopOpen(false)} />}
-                </div>
-                <div className="lg-meta-btn-wrap">
-                  <button className="lg-meta-btn" onClick={() => { setGroupPopOpen(!groupPopOpen); setSortPopOpen(false); setFilterPopOpen(false); }}>
-                    <span className="meta-lbl">Group:</span>
-                    <span className="meta-val">{GROUP_LABELS[effectiveGroup]}</span>
-                  </button>
-                  {groupPopOpen && <GroupPopover value={effectiveGroup} onPick={(v) => { setGroupChoice(v); setGroupPopOpen(false); }} onClose={() => setGroupPopOpen(false)} />}
                 </div>
                 <button className="lg-filter-export" onClick={exportCsv}>
                   <svg viewBox="0 0 12 12"><path d="M6 2v6M3 6l3 3 3-3M2 10.5h8" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -642,264 +537,39 @@ export default function CustomersPage() {
             </div>
 
             <div className="lg-col-header">
-              <div><input type="checkbox" className="lg-row-check" disabled /></div>
               <div>Code</div>
               <div>Customer</div>
               <div>Type</div>
+              <div>NPWP</div>
               <div>Terms</div>
-              <div>Last Invoice</div>
+              <div style={{ textAlign: "right" }}>Credit Limit</div>
               <div style={{ textAlign: "right" }}>AR Balance</div>
-              <div>Status</div>
+              <div>Last Invoice</div>
               <div />
             </div>
 
             <div>
-              {groups ? (
-                groups.map((g) => {
-                  const isCollapsed = collapsedGroups.has(g.key);
-                  return (
-                    <div key={g.key}>
-                      <div className="lg-group-head muted" onClick={() => toggleGroup(g.key)}>
-                        <div className="lg-group-left">
-                          <svg className={`lg-group-chevron${isCollapsed ? " closed" : ""}`} viewBox="0 0 9 9"><path d="M2 3l2.5 3L7 3"/></svg>
-                          <span className="lg-group-lbl">{g.label}</span>
-                          <span className="lg-group-count">{g.rows.length}</span>
-                        </div>
-                        {g.sum > 0 && (
-                          <div className="lg-group-subtotal">
-                            <span className="lg-group-subtotal-lbl">Outstanding</span>
-                            Rp {fmtRp(g.sum)}
-                          </div>
-                        )}
-                      </div>
-                      {!isCollapsed && g.rows.map((r, i) => (
-                        <div key={r.id} style={{ position: "relative" }}>
-                          <CustomerRow
-                            r={r}
-                            isChecked={checked.has(r.id)}
-                            onCheck={toggleRow}
-                            onClick={() => { setSelectedId(r.id); setDrawerTab("detail"); }}
-                            onKebab={(id) => setMenuOpenFor(menuOpenFor === id ? null : id)}
-                            isSelected={selectedId === r.id}
-                            isAlt={i % 2 === 1}
-                          />
-                          {menuOpenFor === r.id && (
-                            <div style={{ position: "absolute", right: 32, top: 32, zIndex: 5 }}>
-                              <RowMenu customer={r.raw} onClose={() => setMenuOpenFor(null)} onAction={onRowAction} />
-                            </div>
-                          )}
-                        </div>
-                      ))}
+              {sortedRows.length === 0 && <div className="lg-empty">No customer matching</div>}
+              {sortedRows.map((r, i) => (
+                <div key={r.id} style={{ position: "relative" }}>
+                  <CustomerRow
+                    r={r}
+                    onClick={() => navigate(`/customers/${r.id}`)}
+                    onKebab={(id) => setMenuOpenFor(menuOpenFor === id ? null : id)}
+                    isAlt={i % 2 === 1}
+                    showKebab={canCreate}
+                  />
+                  {menuOpenFor === r.id && (
+                    <div style={{ position: "absolute", right: 32, top: 32, zIndex: 5 }}>
+                      <RowMenu customer={r.raw} onClose={() => setMenuOpenFor(null)} onAction={onRowAction} canTransact={canCreate} canApprove={canApprove} />
                     </div>
-                  );
-                })
-              ) : (
-                <>
-                  {sortedRows.length === 0 && <div className="lg-empty">None customer matching</div>}
-                  {sortedRows.map((r, i) => (
-                    <div key={r.id} style={{ position: "relative" }}>
-                      <CustomerRow
-                        r={r}
-                        isChecked={checked.has(r.id)}
-                        onCheck={toggleRow}
-                        onClick={() => { setSelectedId(r.id); setDrawerTab("detail"); }}
-                        onKebab={(id) => setMenuOpenFor(menuOpenFor === id ? null : id)}
-                        isSelected={selectedId === r.id}
-                        isAlt={i % 2 === 1}
-                      />
-                      {menuOpenFor === r.id && (
-                        <div style={{ position: "absolute", right: 32, top: 32, zIndex: 5 }}>
-                          <RowMenu customer={r.raw} onClose={() => setMenuOpenFor(null)} onAction={onRowAction} />
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </>
-              )}
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         </div>
       </div>{/* /lg-scroll-container */}
-
-      {/* ── Sticky footer ──────────────────────────────────────────── */}
-      <div className="lg-footer">
-        <div className="lg-footer-left">
-          <span><span className="lg-footer-num">{checked.size}</span> selected</span>
-          {checked.size > 0 ? (
-            <>
-              <button className="lg-footer-bulk-btn" onClick={() => onBulk("reminder")}>Send Reminder</button>
-              <button className="lg-footer-bulk-btn" onClick={() => onBulk("archive")}>Archive</button>
-              <button className="lg-footer-clear" onClick={clearChecks}>Clear selection</button>
-            </>
-          ) : (
-            <>
-              <span className="lg-footer-sep">·</span>
-              <span>Showing <span className="lg-footer-num">{filteredRows.length}</span> customers</span>
-            </>
-          )}
-        </div>
-        <div className="lg-footer-right">
-          <span className="lg-footer-lbl">{checked.size > 0 ? "Outstanding (selected)" : "Outstanding (page)"}</span>
-          <span className="lg-footer-total">Rp {fmtRp(checked.size > 0 ? selectedTotal : pageTotal)}</span>
-        </div>
-      </div>
-
-      {/* ── Side drawer (customer detail) ─────────────────────────── */}
-      {selected && (
-        <>
-          <div className="drawer-overlay" onClick={() => setSelectedId(null)} />
-          <div className="drawer">
-            <div className="drawer-head">
-              <div className={`drawer-av ${selected.type}`}>{initials(selected.name)}</div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div className="drawer-title">{selected.name}</div>
-                <div className="drawer-sub" style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  {selected.code}
-                  <span className={`type-badge ${selected.type}`}>{selected.type === "perusahaan" ? "Company" : "Individual"}</span>
-                </div>
-              </div>
-              <button className="drawer-close" onClick={() => setSelectedId(null)}>
-                <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
-            </div>
-            <div className="drawer-tabs">
-              {[["detail", "Detail"], ["contacts", "Contact"], ["invoices", "Invoice"], ["ai", "AI Insight"]].map(([t, label]) => (
-                <div key={t} className={`drawer-tab${drawerTab === t ? " active" : ""}`} onClick={() => setDrawerTab(t)}>
-                  {t === "ai" && <span style={{ marginRight: 4, color: "var(--color-action)" }}>✦</span>}
-                  {label}
-                </div>
-              ))}
-            </div>
-            <div className="drawer-body">
-              {drawerTab === "detail" && (
-                <>
-                  <div className="drawer-stat-row">
-                    <div className="drawer-stat-card">
-                      <div className="drawer-stat-lbl">AR Active</div>
-                      <div className={`drawer-stat-val${selected.arOverdue ? " danger" : ""}`}>{formatRupiah(selected.ar)}</div>
-                    </div>
-                    <div className="drawer-stat-card">
-                      <div className="drawer-stat-lbl">Total Invoices</div>
-                      <div className="drawer-stat-val">{selected.totalInv}</div>
-                    </div>
-                  </div>
-                  <div className="drawer-section">
-                    <div className="drawer-section-title">Customer Information</div>
-                    {[
-                      ["Legal Name", selected.legalName || selected.name],
-                      ["Code", selected.code],
-                      ["NPWP", selected.npwp || "—"],
-                      ["Address", selected.address],
-                      ["Terms", selected.top],
-                      ["Credit Limit", selected.creditLimit > 0 ? formatRupiah(selected.creditLimit) : "—"],
-                      ["Last Invoice", selected.lastInv ? formatDate(selected.lastInv) : "—"],
-                    ].map(([label, value]) => (
-                      <div key={label} className="drawer-row">
-                        <div className="drawer-label">{label}</div>
-                        <div className="drawer-value">{value}</div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="drawer-section">
-                    <div className="drawer-section-title">Pengaturan Invoice</div>
-                    {[
-                      ["Invoice Mode", selected.invMode === "auto" ? "Automatic" : "Manual"],
-                      ["Channel", selected.invCh?.length > 0 ? selected.invCh.join(", ") : "—"],
-                    ].map(([label, value]) => (
-                      <div key={label} className="drawer-row">
-                        <div className="drawer-label">{label}</div>
-                        <div className="drawer-value">{value}</div>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              )}
-              {drawerTab === "contacts" && (
-                <div className="drawer-section">
-                  <div className="drawer-section-title">Contact</div>
-                  {selected.contacts.map((ct, i) => (
-                    <div key={i} style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-default)", borderRadius: "var(--radius-md)", padding: "12px 14px", marginBottom: 8 }}>
-                      {ct.primary && <div style={{ fontSize: 10, fontWeight: 700, color: "var(--color-action)", marginBottom: 4, textTransform: "uppercase", letterSpacing: ".06em" }}>Primary PIC</div>}
-                      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2 }}>{ct.name}</div>
-                      <div style={{ fontSize: 11, color: "var(--color-text-tertiary)", marginBottom: 6 }}>{ct.title}</div>
-                      <div style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>{ct.phone}</div>
-                      {ct.email && <div style={{ fontSize: 12, color: "var(--color-action)" }}>{ct.email}</div>}
-                    </div>
-                  ))}
-                </div>
-              )}
-              {drawerTab === "invoices" && (
-                <div className="drawer-section">
-                  <div className="drawer-section-title">Invoice</div>
-                  {custInvoices.length === 0
-                    ? <div style={{ color: "var(--color-text-tertiary)", fontSize: 12, padding: "12px 0" }}>Not yet there is invoice.</div>
-                    : custInvoices.map((inv) => (
-                      <div key={inv.id} style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-default)", borderRadius: "var(--radius-md)", padding: "10px 12px", marginBottom: 8 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-                          <div>
-                            <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-action)" }}>{inv.invNo}</div>
-                            <div style={{ fontSize: 12, fontWeight: 600, marginTop: 2 }}>{inv.items?.[0]?.desc}</div>
-                            <div style={{ fontSize: 11, color: "var(--color-text-tertiary)", marginTop: 2 }}>Jatuh tempo: {inv.due}</div>
-                          </div>
-                          <div style={{ textAlign: "right", flexShrink: 0 }}>
-                            <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 700 }}>{formatRupiah(inv.total)}</div>
-                            <span className={`badge badge-${inv.payStatus}`} style={{ marginTop: 4, display: "inline-flex" }}>
-                              {inv.payStatus === "lunas" ? "Paid" : inv.payStatus === "overdue" ? "Overdue" : inv.payStatus === "belumbayar" ? "Unpaid" : inv.payStatus}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  }
-                </div>
-              )}
-              {drawerTab === "ai" && (
-                <div className="drawer-section">
-                  <div className="drawer-section-title">AI Insight</div>
-                  <div style={{ padding: 12, background: "var(--ai-surface)", border: "1px solid var(--ai-border)", borderRadius: "var(--radius-md)", marginBottom: 10 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-action)", textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 4 }}>✦ Customer Profile</div>
-                    <div style={{ fontSize: 12, color: "var(--color-text-secondary)", lineHeight: 1.55 }}>
-                      Klay AI mevalue customer ini as <strong>{selected.arOverdue ? "berisiko" : selected.active ? "sehat" : "needs reactivation"}</strong> berdasarkan pattern payment & frekuensi order.
-                    </div>
-                  </div>
-                  {selected.arOverdue && (
-                    <div style={{ padding: 12, background: "var(--color-danger-surface)", border: "1px solid var(--color-danger-border)", borderRadius: "var(--radius-md)", marginBottom: 10 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-danger-text)", textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 4 }}>⚠ AR Overdue</div>
-                      <div style={{ fontSize: 12, color: "var(--color-text-secondary)", lineHeight: 1.55 }}>
-                        Customer have invoices that already lewat due total <strong>{formatRupiah(selected.ar)}</strong>. Perteambangkan reminder, follow-up call, atau hold order baru.
-                      </div>
-                    </div>
-                  )}
-                  {selected.creditLimit > 0 && selected.ar > selected.creditLimit && (
-                    <div style={{ padding: 12, background: "var(--color-warning-surface)", border: "1px solid var(--color-warning-border)", borderRadius: "var(--radius-md)", marginBottom: 10 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-warning-text)", textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 4 }}>Credit Limit Terlampaui</div>
-                      <div style={{ fontSize: 12, color: "var(--color-text-secondary)", lineHeight: 1.55 }}>
-                        AR <strong>{formatRupiah(selected.ar)}</strong> exceeds limit <strong>{formatRupiah(selected.creditLimit)}</strong>. Hold order baru atau request top-up limit.
-                      </div>
-                    </div>
-                  )}
-                  <div style={{ padding: 12, background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-default)", borderRadius: "var(--radius-md)" }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 4 }}>Recommendation</div>
-                    <div style={{ fontSize: 12, color: "var(--color-text-secondary)", lineHeight: 1.55 }}>
-                      Total <strong>{selected.totalInv} invoice</strong> selong relasi. Setting invoice: <strong>{selected.invMode === "auto" ? "Automatic" : "Manual"}</strong>{selected.invCh?.length > 0 ? ` via ${selected.invCh.join(", ")}` : ""}.
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="drawer-footer">
-              <button className="drawer-btn ghost">
-                <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                Edit
-              </button>
-              <button className="drawer-btn primary">
-                <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                Create Invoice
-              </button>
-            </div>
-          </div>
-        </>
-      )}
 
       {/* ── Klay AI drawers ────────────────────────────────────────── */}
       <div
