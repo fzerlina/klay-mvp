@@ -27,20 +27,6 @@ const ENTITY_FORMS = [
   { v: "Cooperative", label: "Cooperative (Koperasi)" },
   { v: "BUMN", label: "BUMN / Government entity" },
 ];
-const SCHEDULE_OPTIONS = [
-  { v: "h0", label: "Same day (D+0)" },
-  { v: "h1", label: "Next day (D+1)" },
-  { v: "h2", label: "2 days after creation" },
-  { v: "eom", label: "End of month" },
-  { v: "manual", label: "Choose a custom date & time…" },
-];
-const REMINDER_OPTIONS = [
-  { v: "none", label: "None" },
-  { v: "h3", label: "3 days before due" },
-  { v: "h7", label: "7 days before due" },
-  { v: "h3h1", label: "D-3 and D-1 before due" },
-];
-
 function blankContact(primary = false) {
   return { name: "", title: "", phone: "", waSame: false, email: "", emailFin: "", primary };
 }
@@ -89,17 +75,6 @@ export default function CustomerCreatePage() {
   // Contacts
   const [contacts, setContacts] = useState([blankContact(true)]);
 
-  // Invoice delivery
-  const [invMode, setInvMode] = useState("manual");
-  const [chEmail, setChEmail] = useState(false);
-  const [chWa, setChWa] = useState(false);
-  const [destEmail, setDestEmail] = useState("");
-  const [destWa, setDestWa] = useState("");
-  const [schWhen, setSchWhen] = useState("h0");
-  const [schTime, setSchTime] = useState("08:00");
-  const [schManualDate, setSchManualDate] = useState("");
-  const [reminder, setReminder] = useState("none");
-
   const [notes, setNotes] = useState("");
   const [tier, setTier] = useState("standard");
   const [tierNote, setTierNote] = useState("");
@@ -136,26 +111,16 @@ export default function CustomerCreatePage() {
     setCode(""); setName(""); setLegalName(""); setEntityForm("PT"); setNpwp(""); setAddress(""); setDedupDismissed(false);
     setTop("NET 30"); setCreditLimit(""); setCurrency("IDR");
     setContacts([blankContact(true)]);
-    setInvMode("manual"); setChEmail(false); setChWa(false);
-    setDestEmail(""); setDestWa(""); setSchWhen("h0"); setSchTime("08:00"); setSchManualDate("");
-    setReminder("none"); setNotes(""); setTier("standard"); setTierNote("");
+    setNotes(""); setTier("standard"); setTierNote("");
   }
   function backToStep0() { setEntityType(null); resetForm(); }
 
   const isCompany = entityType === "perusahaan";
 
-  const channels = useMemo(() => {
-    const ch = [];
-    if (chEmail) ch.push("Email");
-    if (chWa) ch.push("WhatsApp");
-    return ch;
-  }, [chEmail, chWa]);
-
   const primary = contacts[0];
   const canSubmit =
     name.trim() && address.trim() &&
     primary?.name.trim() && primary?.phone.trim() && primary?.email.trim() &&
-    !(invMode === "auto" && channels.length === 0) &&
     !(tier !== "standard" && !tierNote.trim()) &&
     !npwpMatch;
 
@@ -167,7 +132,6 @@ export default function CustomerCreatePage() {
       showToast("Primary contact name, phone, and email are required"); return;
     }
     if (npwpMatch) { showToast("This NPWP already exists — resolve the duplicate first"); return; }
-    if (invMode === "auto" && channels.length === 0) { showToast("Pick at least one delivery channel"); return; }
     if (tier !== "standard" && !tierNote.trim()) { showToast("Add a reason for the relationship tier"); return; }
 
     addCustomer({
@@ -182,10 +146,6 @@ export default function CustomerCreatePage() {
       creditLimit: parseInt(String(creditLimit).replace(/[^\d]/g, ""), 10) || 0,
       currency,
       contacts: contacts.filter((c) => c.name.trim()),
-      invMode,
-      invCh: channels,
-      invSch: invMode === "auto" ? (schWhen === "manual" ? `Manual ${schManualDate} ${schTime}` : `${schWhen} ${schTime}`) : "",
-      reminder: invMode === "auto" && reminder !== "none" ? reminder : "",
       notes: notes.trim(),
       relationship_tier: tier,
       relationship_tier_note: tier !== "standard" ? tierNote.trim() : "",
@@ -442,87 +402,6 @@ export default function CustomerCreatePage() {
                 <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                 Add Contact
               </button>
-            )}
-          </div>
-
-          {/* Invoice Delivery */}
-          <div className="form-sec card">
-            <div className="form-sec-title">Invoice Delivery</div>
-            <div className="inv-opts">
-              <div className={`inv-opt${invMode === "manual" ? " sel" : ""}`} onClick={() => setInvMode("manual")}>
-                <div className="inv-opt-title">
-                  <div className="inv-opt-icon">
-                    <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                  </div>
-                  Manual
-                </div>
-                <div className="inv-opt-sub">Finance sends manually from the Invoices menu</div>
-              </div>
-              <div className={`inv-opt${invMode === "auto" ? " sel" : ""}`} onClick={() => setInvMode("auto")}>
-                <div className="inv-opt-title">
-                  <div className="inv-opt-icon">
-                    <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-                  </div>
-                  Automatic
-                </div>
-                <div className="inv-opt-sub">System sends per schedule &amp; channel</div>
-              </div>
-            </div>
-
-            {invMode === "auto" && (
-              <div className="auto-fields">
-                <div style={{ marginBottom: 12, marginTop: 14 }}>
-                  <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--color-text-tertiary)", marginBottom: 6 }}>Send via</div>
-                  <div className="ch-chips">
-                    <div className={`ch-chip${chEmail ? " on" : ""}`} onClick={() => setChEmail(!chEmail)}>
-                      <svg viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22 6 12 13 2 6"/></svg>
-                      Email
-                    </div>
-                    <div className={`ch-chip${chWa ? " on" : ""}`} onClick={() => setChWa(!chWa)}>
-                      <svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>
-                      WhatsApp
-                    </div>
-                  </div>
-                </div>
-                {chEmail && (
-                  <div className="form-fld" style={{ marginBottom: 10 }}>
-                    <label>Recipient Email <span className="vc-req">*</span></label>
-                    <input type="text" value={destEmail} onChange={(e) => setDestEmail(e.target.value)} placeholder="finance@company.co.id" />
-                    <span className="vc-hint">Separate multiple with commas</span>
-                  </div>
-                )}
-                {chWa && (
-                  <div className="form-fld" style={{ marginBottom: 10 }}>
-                    <label>Destination WhatsApp No. <span className="vc-req">*</span></label>
-                    <input type="tel" value={destWa} onChange={(e) => setDestWa(e.target.value)} placeholder="+62 812-3456-7890" style={{ fontFamily: "var(--font-mono)" }} />
-                  </div>
-                )}
-                <div className="fg2">
-                  <div className="form-fld">
-                    <label>Send on</label>
-                    <select value={schWhen} onChange={(e) => setSchWhen(e.target.value)}>
-                      {SCHEDULE_OPTIONS.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
-                    </select>
-                  </div>
-                  <div className="form-fld">
-                    <label>Send time</label>
-                    <input type="time" value={schTime} onChange={(e) => setSchTime(e.target.value)} style={{ fontFamily: "var(--font-mono)" }} />
-                  </div>
-                </div>
-                {schWhen === "manual" && (
-                  <div className="form-fld" style={{ marginTop: 10 }}>
-                    <label>Send date <span className="vc-req">*</span></label>
-                    <input type="date" value={schManualDate} onChange={(e) => setSchManualDate(e.target.value)} style={{ fontFamily: "var(--font-mono)" }} />
-                    <span className="vc-hint">The invoice will be sent on the chosen date and time</span>
-                  </div>
-                )}
-                <div className="form-fld" style={{ marginTop: 10, marginBottom: 0 }}>
-                  <label>Due reminder</label>
-                  <select value={reminder} onChange={(e) => setReminder(e.target.value)}>
-                    {REMINDER_OPTIONS.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
-                  </select>
-                </div>
-              </div>
             )}
           </div>
 
