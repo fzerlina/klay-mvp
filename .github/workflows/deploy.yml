@@ -1,22 +1,23 @@
 name: Deploy to GitHub Pages
 
-# Builds the Vite app and publishes dist/ to GitHub Pages on every push to main.
-# Replaces the manual `npm run deploy` (gh-pages npm package) flow.
+# Builds the Vite app and publishes dist/ to the `gh-pages` branch on every push
+# to main. The repo's Pages source is "Deploy from a branch: gh-pages", so
+# pushing the built output to that branch is what makes the live site update.
 #
-# One-time setup: in repo Settings → Pages, set Source to "GitHub Actions"
-# (instead of "Deploy from branch: gh-pages"). The legacy gh-pages branch can
-# stay for history but is no longer the source of truth.
+# This replaces the earlier actions/deploy-pages flow, which required the Pages
+# source to be set to "GitHub Actions" in repo settings — that was never enabled,
+# so every deploy failed while the build succeeded. Publishing to the branch
+# needs no repo-settings change and only the default token's contents:write.
 
 on:
   push:
     branches: [main]
   workflow_dispatch:  # allows manual trigger from the Actions tab
 
-# Grant the workflow permission to publish the Pages artifact.
+# The gh-pages publish pushes a commit to the gh-pages branch, so the workflow
+# token needs write access to repo contents.
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 # Cancel in-progress runs when a new commit lands — no point deploying a
 # version that's already superseded.
@@ -25,7 +26,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -43,21 +44,14 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
+      # SPA fallback: GitHub Pages serves 404.html for unknown paths. Copying
+      # index.html to 404.html lets client-side routes (e.g. /klay-mvp/customers)
+      # survive a hard refresh / deep link instead of returning a 404.
+      - name: SPA 404 fallback
+        run: cp dist/index.html dist/404.html
 
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+      - name: Publish to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          path: ./dist
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
