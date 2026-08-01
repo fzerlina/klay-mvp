@@ -1,0 +1,62 @@
+/* ── Inventory (product master + on-hand stock) ───────────────────────── */
+.iv-lede { margin-top: 6px; font-size: 13px; color: var(--color-text-secondary); max-width: 640px; }
+
+.iv-scroll { overflow-x: auto; }
+.iv-inner { min-width: 940px; }
+
+.iv-col-header, .iv-row {
+  display: grid;
+  grid-template-columns: 30px 96px minmax(200px, 1fr) 124px 124px 176px 118px 128px;
+  gap: 10px;
+  align-items: center;
+  padding: 11px 18px;
+}
+.iv-col-header {
+  background: var(--color-surface-sunken);
+  font-size: 9.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--color-text-tertiary);
+  padding: 9px 18px;
+  border-top: .5px solid var(--color-border-default);
+  border-bottom: .5px solid var(--color-border-default);
+}
+.iv-row {
+  border-bottom: 1px solid var(--color-border-subtle);
+  cursor: pointer;
+  font-size: 12.5px;
+}
+.iv-row:hover { background: var(--color-surface-hover, #F7F4EE); }
+
+.iv-num { text-align: right; font-family: var(--font-mono); white-space: nowrap; }
+.iv-col-header .iv-num { font-family: inherit; }
+
+.iv-chevron-cell { display: flex; align-items: center; justify-content: center; height: 100%; }
+.iv-chevron { width: 15px; height: 15px; color: var(--color-text-tertiary); transition: transform .15s ease; cursor: pointer; }
+.iv-chevron.open { transform: rotate(90deg); }
+
+.iv-sku { font-family: var(--font-mono); font-size: 11.5px; color: var(--color-text-secondary); white-space: nowrap; }
+.iv-name { font-weight: 600; color: var(--color-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.iv-value { font-weight: 700; color: var(--color-text-primary); }
+
+/* Inventory status pill */
+.iv-status { display: inline-flex; align-items: center; padding: 2px 10px; border-radius: 9999px; font-size: 10px; font-weight: 700; letter-spacing: .02em; border: 1px solid transparent; }
+.iv-status-active { background: var(--color-success-surface, #E7F3EC); color: var(--color-success-text, #1B7A46); border-color: #C5E4D1; }
+.iv-status-inactive { background: var(--color-surface-sunken, #EFEBE4); color: var(--color-text-tertiary); border-color: var(--color-border-default); }
+
+/* Stock available */
+.iv-stock-cell { min-width: 0; }
+.iv-stock { display: inline-flex; align-items: baseline; gap: 5px; flex-wrap: wrap; }
+.iv-stock-qty { font-family: var(--font-mono); font-weight: 600; color: var(--color-text-primary); }
+.iv-stock-uom { font-size: 11px; color: var(--color-text-tertiary); }
+.iv-stock-locs { font-size: 10.5px; color: var(--color-action); font-weight: 600; }
+.iv-stock-out { font-size: 11.5px; font-weight: 600; color: var(--color-danger-text, #C0392B); }
+
+/* Per-location breakdown (expanded) */
+.iv-loc-wrap { background: var(--color-surface-sunken, #F7F4EE); border-bottom: 1px solid var(--color-border-subtle); padding: 4px 0; }
+.iv-loc-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 7px 18px 7px 60px;
+  font-size: 12px;
+}
+.iv-loc-name { display: inline-flex; align-items: center; gap: 8px; color: var(--color-text-secondary); }
+.iv-loc-name svg { width: 13px; height: 13px; color: var(--color-text-tertiary); }
+.iv-loc-qty { font-family: var(--font-mono); font-weight: 600; color: var(--color-text-primary); }
