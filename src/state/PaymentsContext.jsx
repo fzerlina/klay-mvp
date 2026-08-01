@@ -112,11 +112,15 @@ export function PaymentsProvider({ children }) {
     });
   }, []);
 
-  // Send a requested payment back to AP (e.g. FM rejects) — clears the request.
-  const returnPayment = useCallback((ids) => {
+  // Send a requested payment back to AP (FM rejects). Rather than clearing the
+  // request silently, we mark it "returned" with a reason so AP sees it bounced
+  // and why — the bill re-enters AP Staff's request queue.
+  const returnPayment = useCallback((ids, by, reason) => {
     setPayments((prev) => {
       const next = { ...prev };
-      for (const id of ids) delete next[id];
+      for (const id of ids) {
+        next[id] = { status: "returned", returnedBy: by, returnedAt: TODAY_ISO, returnReason: reason || "Sent back for correction", requestedBy: next[id]?.requestedBy, requestedAt: next[id]?.requestedAt };
+      }
       return next;
     });
   }, []);
@@ -149,6 +153,7 @@ export const PAYMENT_STATUS_META = {
   unpaid:    { label: "Unpaid",    tone: "muted" },
   requested: { label: "Requested", tone: "review" },
   approved:  { label: "Approved",  tone: "action" },
+  returned:  { label: "Returned",  tone: "danger" },
   partial:   { label: "Partial",   tone: "partial" },
   paid:      { label: "Paid",      tone: "success" },
   reconciled:{ label: "Reconciled", tone: "success" },

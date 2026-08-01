@@ -101,7 +101,7 @@ function paymentTasks(ctx) {
     : hasCapability("payment.execute") ? "execute"
     : "view";
   if (payMode === "view") return [];
-  const g = { group: "payments", groupLabel: "Payments", groupTo: "/ap-aging" };
+  const g = { group: "payments", groupLabel: "Payments", groupTo: "/payments" };
   const out = [];
 
   const queue = agingLines.filter(isDecisionQueueRow);
@@ -115,7 +115,7 @@ function paymentTasks(ctx) {
   if (stageRows.length) {
     out.push({ ...g, id: `pay:${payMode}`, label: STAGE_META.label, count: stageRows.length,
       amount: sum(stageRows, (l) => l.remaining), sub: STAGE_META.sub, tag: null,
-      severity: "action", to: "/ap-aging", cta: STAGE_META.cta });
+      severity: "action", to: "/payments", cta: STAGE_META.cta });
   }
 
   // Finance Staff — settle the overdue first.
@@ -124,7 +124,7 @@ function paymentTasks(ctx) {
     if (overdue.length) {
       out.push({ ...g, id: "pay:overdue", label: "Settle overdue", count: overdue.length,
         amount: sum(overdue, (l) => l.remaining), sub: "Past due — pay these first",
-        tag: { text: "overdue", tone: "danger" }, severity: "action", to: "/ap-aging?card=overdue", cta: "Prioritize" });
+        tag: { text: "overdue", tone: "danger" }, severity: "action", to: "/payments?card=overdue", cta: "Prioritize" });
     }
   }
   return out;
