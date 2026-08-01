@@ -561,7 +561,7 @@ export default function ApCloseCommandCenterPage() {
         <div className="apc-head">
           <div className="apc-head-top">
             <div className="apc-head-titles">
-              <h1 className="apc-title">Close Command Center</h1>
+              <h1 className="apc-title">Close</h1>
               <div className="apc-period-wrap">
                 <select
                   className="apc-period-select"

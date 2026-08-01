@@ -85,14 +85,17 @@ const DEFAULT_USER_ID = "U002";
 // (always reachable). Order matters: first matching prefix wins.
 const ROUTE_MODULE = [
   ["/bills", "ap"],
+  ["/payments", "ap"],
   ["/ap/close", "ap"],
-  ["/ap-aging", "ap"],
+  ["/ap-aging", "reports"],
   ["/vendors", "ap"],
   ["/invoices", "ar"],
   ["/customers", "ar"],
   ["/general-ledger", "gl"],
   ["/journal-entry", "gl"],
   ["/bank-reconciliation", "gl"],
+  ["/tax-reconciliation", "gl"],
+  ["/reports", "reports"],
   ["/trial-balance", "reports"],
   ["/chart-of-accounts", "settings"],
   ["/bank-accounts", "settings"],
@@ -114,7 +117,7 @@ const LANDING_CANDIDATES = [
   // Home task hub is ungated (module null → always reachable), so it's the
   // universal landing for every persona (MoM 2026-07-10). Module-scoped pages
   // remain as fallbacks for the NoAccess "Go to my workspace" link.
-  ["/dashboard", null],
+  ["/command-center", null],
   ["/journal-entry", "gl"],
   ["/bills", "ap"],
   ["/invoices", "ar"],

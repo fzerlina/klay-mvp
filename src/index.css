@@ -79,6 +79,7 @@ body{font-family:var(--font-sans);background:var(--color-surface-base);color:var
 .sb.collapsed .sb-section{display:none}
 .sb-item{display:flex;align-items:center;gap:11px;padding:8px 10px;margin:1px 0;border-radius:8px;cursor:pointer;font-size:13px;font-weight:400;color:var(--sidebar-text);text-decoration:none;transition:background var(--transition-fast),color var(--transition-fast);position:relative}
 .sb-item svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.6;flex-shrink:0;color:var(--sidebar-text-muted)}
+.sb-item-nested{padding-left:20px;font-size:12.5px}
 .sb-item:hover{background:rgba(255,255,255,0.05);color:#fff}
 .sb-item:hover svg{color:#fff}
 .sb-item.active{background:var(--sidebar-active-bg);color:#fff;font-weight:600}
@@ -136,7 +137,8 @@ body{font-family:var(--font-sans);background:var(--color-surface-base);color:var
 .sb:not(.collapsed) .sb-rail-divider{display:none}
 
 /* Profile pinned to bottom */
-.sb-bottom{flex-shrink:0;border-top:1px solid var(--sidebar-divider);margin-top:auto;padding:8px 0 4px}
+.sb-foot{margin-top:auto;flex-shrink:0}
+.sb-bottom{flex-shrink:0;border-top:1px solid var(--sidebar-divider);padding:8px 0 4px}
 .sb.collapsed .sb-bottom{padding:8px 0 4px}
 .sb-profile{display:flex;align-items:center;gap:10px;padding:8px 10px;cursor:pointer;border-radius:8px;transition:background var(--transition-fast)}
 .sb.collapsed .sb-profile{justify-content:center;padding:6px 0;margin:0 auto;width:36px;height:36px}

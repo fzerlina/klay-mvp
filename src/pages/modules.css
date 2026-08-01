@@ -662,6 +662,8 @@
 .bp-pay-badge.review{background:var(--color-warning-surface);color:var(--color-warning-text)}
 .bp-pay-badge.action{background:var(--color-action-wash,#E8EDFB);color:var(--color-action)}
 .bp-pay-badge.muted{background:var(--color-surface-sunken);color:var(--color-text-tertiary)}
+.bp-pay-badge.partial{background:#F3E4C9;color:#9A6212}
+.bp-pay-badge.danger{background:#FBEAE7;color:#C0392B}
 .bp-status-aging{margin-top:5px}
 
 /* Anomaly dot — kept inline in the Status cell */
@@ -704,3 +706,12 @@
 .bp-cell-no-trigger{cursor:default;border-bottom:1px dashed transparent;transition:border-color var(--transition-fast)}
 .lg-row:hover .bp-cell-no-trigger,
 .bp-cell-no-trigger:hover{border-bottom-color:var(--color-text-tertiary)}
+
+/* ── Shared lens tabs (Command Center · Cashflow Report) ──────────────── */
+.cc-tabs{display:flex;gap:4px;margin-top:18px;border-bottom:1px solid var(--color-border-subtle)}
+.cc-tab{display:inline-flex;align-items:center;gap:7px;padding:9px 4px;margin-bottom:-1px;background:none;border:none;cursor:pointer;font-family:var(--font-display);font-size:13.5px;font-weight:600;color:var(--color-text-tertiary);border-bottom:2px solid transparent}
+.cc-tab + .cc-tab{margin-left:18px}
+.cc-tab:hover{color:var(--color-text-secondary)}
+.cc-tab.active{color:var(--color-text-primary);border-bottom-color:#BA5A0E}
+.cc-tab-count{min-width:18px;padding:0 6px;height:18px;border-radius:9999px;display:inline-flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:11px;font-weight:700;background:var(--color-surface-sunken,#EFEBE4);color:var(--color-text-secondary)}
+.cc-tab.active .cc-tab-count{background:#F3DFC9;color:#BA5A0E}

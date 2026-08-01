@@ -1,15 +1,16 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import Layout, { NoAccess } from "./layout/Layout";
 import { CurrentUserProvider, useCurrentUser } from "./state/CurrentUserContext";
-import HomePage from "./pages/HomePage";
-import InsightsPage from "./pages/InsightsPage";
+import CommandCenterPage from "./pages/CommandCenterPage";
+import PaymentsPage from "./pages/PaymentsPage";
+import ReportsPage from "./pages/ReportsPage";
 import JournalEntryPage from "./pages/JournalEntryPage";
 import ChartOfAccountsPage from "./pages/ChartOfAccountsPage";
 import DimensionsPage from "./pages/DimensionsPage";
 import BillsPage from "./pages/BillsPage";
 import BillCreatePage from "./pages/BillCreatePage";
 import BillDetailPage from "./pages/BillDetailPage";
-import ApAgingPage from "./pages/ApAgingPage";
+import CashflowReportPage from "./pages/CashflowReportPage";
 import InvoicesPage from "./pages/InvoicesPage";
 import InvoiceCreatePage from "./pages/InvoiceCreatePage";
 import VendorsPage from "./pages/VendorsPage";
@@ -25,6 +26,7 @@ import GeneralLedgerPage from "./pages/GeneralLedgerPage";
 import TrialBalancePage from "./pages/TrialBalancePage";
 import ApCloseCommandCenterPage from "./pages/ApCloseCommandCenterPage";
 import BankReconciliationPage from "./pages/BankReconciliationPage";
+import TaxReconciliationPage from "./pages/TaxReconciliationPage";
 import BankAccountsSettingsPage from "./pages/BankAccountsSettingsPage";
 import UsersPage from "./pages/UsersPage";
 import AccessPolicyPage from "./pages/AccessPolicyPage";
@@ -103,8 +105,10 @@ export default function App() {
             <Routes>
               <Route element={<Layout />}>
                 <Route index element={<RoleLanding />} />
-                <Route path="/dashboard" element={<HomePage />} />
-                <Route path="/insights" element={<InsightsPage />} />
+                <Route path="/command-center" element={<CommandCenterPage />} />
+                {/* Retired routes — Your Tasks + Insights merged into Command Center. */}
+                <Route path="/dashboard" element={<Navigate to="/command-center" replace />} />
+                <Route path="/insights" element={<Navigate to="/command-center?tab=insights" replace />} />
                 <Route path="/general-ledger" element={<GeneralLedgerPage />} />
                 <Route path="/journal-entry" element={<JournalEntryPage />} />
                 <Route path="/chart-of-accounts" element={<ChartOfAccountsPage />} />
@@ -112,7 +116,9 @@ export default function App() {
                 <Route path="/bills" element={<BillsPage />} />
                 <Route path="/bills/new" element={<RequireLevel module="ap" level="transact" action="create bills"><BillCreatePage /></RequireLevel>} />
                 <Route path="/bills/:id" element={<BillDetailPage />} />
-                <Route path="/ap-aging" element={<ApAgingPage />} />
+                <Route path="/payments" element={<PaymentsPage />} />
+                {/* AP Aging table folded into the Cashflow Report (Reports hub). */}
+                <Route path="/ap-aging" element={<Navigate to="/reports/cashflow?tab=ap" replace />} />
                 <Route path="/ap/close" element={<Navigate to="/close" replace />} />
                 <Route path="/invoices" element={<InvoicesPage />} />
                 <Route path="/invoices/new" element={<InvoiceCreatePage />} />
@@ -125,9 +131,12 @@ export default function App() {
                 <Route path="/inventory" element={<InventoryPage />} />
                 <Route path="/inventory/new" element={<InventoryCreatePage />} />
                 <Route path="/inventory/:id" element={<InventoryDetailPage />} />
+                <Route path="/reports" element={<ReportsPage />} />
+                <Route path="/reports/cashflow" element={<CashflowReportPage />} />
                 <Route path="/trial-balance" element={<TrialBalancePage />} />
                 <Route path="/close" element={<ApCloseCommandCenterPage />} />
                 <Route path="/bank-reconciliation" element={<BankReconciliationPage />} />
+                <Route path="/tax-reconciliation" element={<TaxReconciliationPage />} />
                 <Route path="/bank-accounts" element={<BankAccountsSettingsPage />} />
                 <Route path="/users" element={<UsersPage />} />
                 <Route path="/access-policy" element={<AccessPolicyPage />} />
