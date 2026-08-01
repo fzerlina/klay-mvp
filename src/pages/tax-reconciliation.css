@@ -1,0 +1,74 @@
+/* ── Tax Reconciliation ───────────────────────────────────────────────── */
+.txr-lede { margin-top: 6px; font-size: 13px; color: var(--color-text-secondary); max-width: 720px; }
+.txr-body { padding: 16px 24px 40px; display: flex; flex-direction: column; gap: 22px; }
+
+.txr-banner {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 14px; border-radius: 10px;
+  background: var(--color-surface-sunken, #F4F1EA);
+  font-size: 12px; color: var(--color-text-secondary);
+}
+.txr-banner svg { width: 16px; height: 16px; flex-shrink: 0; color: var(--color-text-tertiary); }
+
+/* ── Section (VAT / Withholding) ──────────────────────────────────────── */
+.txr-section { display: flex; flex-direction: column; gap: 12px; }
+.txr-section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.txr-section-title { font-family: var(--font-display); font-size: 16px; font-weight: 700; color: var(--color-text-primary); }
+.txr-section-blurb { margin-top: 3px; font-size: 12.5px; color: var(--color-text-secondary); max-width: 620px; }
+
+.txr-upload-btn {
+  flex-shrink: 0; display: inline-flex; align-items: center; gap: 7px;
+  padding: 8px 14px; border-radius: 9px; cursor: pointer;
+  background: var(--color-surface-raised, #fff); border: 1px solid var(--color-border-default);
+  font-size: 12.5px; font-weight: 600; color: var(--color-text-primary);
+}
+.txr-upload-btn svg { width: 14px; height: 14px; }
+.txr-upload-btn:hover { border-color: var(--color-border-strong, #C9BFB0); }
+
+/* ── Flow steps ───────────────────────────────────────────────────────── */
+.txr-flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.txr-flow-step { display: inline-flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--color-text-secondary); }
+.txr-flow-num {
+  width: 17px; height: 17px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--color-surface-sunken, #EFEBE4); color: var(--color-text-tertiary);
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+}
+.txr-flow-arrow { color: var(--color-text-tertiary); margin: 0 2px; }
+
+/* ── Table ────────────────────────────────────────────────────────────── */
+.txr-card { border: 1px solid var(--color-border-default); border-radius: 12px; overflow: hidden; background: var(--color-surface-raised, #fff); }
+.txr-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.txr-table thead th {
+  text-align: left; padding: 10px 16px;
+  font-size: 9.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--color-text-tertiary); background: var(--color-surface-sunken);
+  border-bottom: 1px solid var(--color-border-default); white-space: nowrap;
+}
+.txr-table th.r, .txr-table td.r { text-align: right; }
+.txr-table th.ra, .txr-table td.ra { text-align: right; }
+.txr-table td { padding: 12px 16px; border-bottom: 1px solid var(--color-border-subtle); color: var(--color-text-secondary); vertical-align: middle; }
+.txr-table tbody tr:last-child td { border-bottom: none; }
+.txr-type { display: flex; flex-direction: column; gap: 1px; }
+.txr-type-main { font-weight: 600; color: var(--color-text-primary); white-space: nowrap; }
+.txr-type-sub { font-size: 10.5px; color: var(--color-text-tertiary); white-space: nowrap; }
+.txr-doc { font-family: var(--font-mono); font-size: 11.5px; color: var(--color-text-primary); white-space: nowrap; }
+.txr-link { font-family: var(--font-mono); font-size: 11.5px; color: var(--color-action); white-space: nowrap; }
+.txr-num { font-family: var(--font-mono); white-space: nowrap; color: var(--color-text-primary); }
+.txr-dash { color: var(--color-text-tertiary); }
+
+.txr-row-act {
+  background: none; border: none; cursor: pointer; padding: 0;
+  font-size: 11.5px; font-weight: 700; color: #BA5A0E;
+}
+.txr-row-act:hover { text-decoration: underline; text-underline-offset: 2px; }
+
+.txr-table-foot { padding: 9px 16px; font-size: 11px; color: var(--color-text-tertiary); background: var(--color-surface-sunken, #F7F4EE); border-top: 1px solid var(--color-border-subtle); }
+
+/* ── Status pills ─────────────────────────────────────────────────────── */
+.txr-pill { display: inline-flex; align-items: center; padding: 2px 10px; border-radius: 9999px; font-size: 10px; font-weight: 700; white-space: nowrap; border: 1px solid transparent; }
+.txr-pill.ok { background: var(--color-success-surface, #E7F3EC); color: var(--color-success-text, #1B7A46); border-color: #C5E4D1; }
+.txr-pill.pending { background: #FBF1E0; color: #BA7517; border-color: #EEDCBB; }
+.txr-pill.mismatch { background: #FBEAE7; color: #C0392B; border-color: #F1CFC9; }
+.txr-pill.cancelled { background: var(--color-surface-sunken, #EFEBE4); color: var(--color-text-secondary); border-color: var(--color-border-default); }
+.txr-pill.skipped { background: transparent; color: var(--color-text-tertiary); border: 1px dashed var(--color-border-strong, #C9BFB0); }
