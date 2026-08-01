@@ -88,11 +88,39 @@
 }
 .bd-head-total-val {
   font-family: var(--font-mono);
-  font-size: 18px;
-  font-weight: 700;
+  font-size: 20px;
+  font-weight: 800;
   color: var(--color-text-primary);
   margin-top: 2px;
+  letter-spacing: -.01em;
 }
+.bd-head-total-sub {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--color-text-tertiary);
+  margin-top: 3px;
+}
+
+/* ── Payment tab ─────────────────────────────────────────────────────────── */
+.bd-pay-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.bd-pay-table th.r, .bd-pay-table td.r { text-align: right; }
+.bd-pay-amt { font-family: var(--font-mono); font-weight: 700; color: var(--color-text-primary); white-space: nowrap; }
+.bd-pay-table thead th {
+  text-align: left;
+  padding: 8px 10px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+  border-bottom: 1px solid var(--color-border-default);
+  white-space: nowrap;
+}
+.bd-pay-table td { padding: 10px; border-bottom: 1px solid var(--color-border-subtle); color: var(--color-text-secondary); vertical-align: middle; }
+.bd-pay-date { font-family: var(--font-mono); font-size: 11.5px; white-space: nowrap; color: var(--color-text-tertiary); }
+.bd-pay-by { color: var(--color-text-secondary); white-space: nowrap; }
+.bd-pay-empty { text-align: center; padding: 32px 10px; color: var(--color-text-tertiary); }
 
 /* ── Two-panel main ──────────────────────────────────────────────────────── */
 

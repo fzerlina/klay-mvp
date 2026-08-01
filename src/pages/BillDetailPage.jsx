@@ -34,6 +34,80 @@ import "./bill-detail.css";
 const GRN_LABEL      = { matched: "Matched", pending: "Pending", mismatch: "Mismatch" };
 const PAY_LABEL      = { paid: "Paid", unpaid: "Unpaid", overdue: "Overdue" };
 
+// Payment request status — the workflow axis (posted bills only). Distinct from
+// Payment status (settlement: Unpaid / Partial / Paid).
+const REQ_LABEL = { notyet: "Not yet requested", requested: "Requested", approved: "Approved", returned: "Returned", settled: "Settled" };
+const REQ_TONE  = { notyet: "muted", requested: "review", approved: "action", returned: "danger", settled: "success" };
+
+// Settlement of a bill from its ledger balance + payment stage.
+function settlementOf(bill, stage) {
+  if (bill.pay === "paid") return "paid";
+  if (stage === "partial" || (bill.sisa != null && bill.sisa > 0 && bill.sisa < bill.total)) return "partial";
+  return "unpaid";
+}
+// Request stage (posted only): unpaid→notyet, else the lifecycle stage.
+function requestKeyOf(bill, stage) {
+  if (bill.pay === "paid") return "settled";
+  if (stage === "requested") return "requested";
+  if (stage === "approved") return "approved";
+  if (stage === "returned") return "returned";
+  return "notyet"; // unpaid or partial-remainder
+}
+
+// ─── Payment tab — payment history ──────────────────────────────────────────
+// The payment lifecycle for a posted bill: request → approve → (return) → pay,
+// each event a row (partial payments included), with how much each covers.
+// Useful for reading how a partially-paid bill got where it is.
+function PaymentTab({ bill, detail }) {
+  const isPosted = !!bill.je_number || workflowStatus(bill) === "POSTED" || workflowStatus(bill) === "PAID";
+  // Amount a request/approval/return covers = the outstanding balance at the
+  // time (the whole remaining is requested). Executed payments carry their own
+  // amount in the audit action text (e.g. "Partial payment — Rp X").
+  const reqAmount = bill.sisa != null ? bill.sisa : bill.total;
+  const parseRp = (s) => { const m = /Rp\s*([\d.]+)/.exec(s || ""); return m ? Number(m[1].replace(/\./g, "")) : null; };
+
+  const events = [];
+  if (detail?.requestedAt) events.push({ at: detail.requestedAt, activity: "Payment requested", req: "requested", by: detail.requestedBy, amount: reqAmount });
+  if (detail?.approvedAt)  events.push({ at: detail.approvedAt,  activity: "Payment approved",  req: "approved",  by: detail.approvedBy,  amount: reqAmount });
+  if (detail?.returnedAt)  events.push({ at: detail.returnedAt,  activity: detail.returnReason ? `Returned — ${detail.returnReason}` : "Returned to AP", req: "returned", by: detail.returnedBy, amount: reqAmount });
+  for (const a of bill.audit || []) {
+    if (a.type === "paid") events.push({ at: a.date, time: a.time, activity: a.action, req: "settled", by: a.by, amount: parseRp(a.action) ?? reqAmount });
+  }
+  events.sort((x, y) => (x.at || "").localeCompare(y.at || ""));
+
+  return (
+    <div className="drawer-section">
+      <div className="drawer-section-title">Payment history</div>
+      <table className="bd-pay-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Activity</th>
+            <th className="r">Amount</th>
+            <th>Payment request status</th>
+            <th>By</th>
+          </tr>
+        </thead>
+        <tbody>
+          {events.length === 0 ? (
+            <tr><td colSpan={5} className="bd-pay-empty">No payment activity yet.{!isPosted && " Payment starts once the bill is posted to the GL."}</td></tr>
+          ) : (
+            events.map((e, i) => (
+              <tr key={i}>
+                <td className="bd-pay-date">{formatDateEn(e.at)}{e.time ? ` · ${e.time}` : ""}</td>
+                <td>{e.activity}</td>
+                <td className="r bd-pay-amt">{formatRupiah(e.amount)}</td>
+                <td><span className={`bp-pay-badge ${REQ_TONE[e.req]}`}>{REQ_LABEL[e.req]}</span></td>
+                <td className="bd-pay-by">{e.by || "—"}</td>
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // ─── Per-action permission tiers ─────────────────────────────────────────────
 // AP gating is two-tier (matches the permission matrix): "transact" covers data
 // prep the AP clerk owns (submit/edit/delete/cancel a bill), while "approve+post"
@@ -1057,7 +1131,7 @@ export default function BillDetailPage() {
   const navigate = useNavigate();
   const { id } = useParams();
   const { bills, updateBill } = useBills();
-  const { statusOf: paymentStatusOf, requestPayment, approvePayment, markPaid } = usePayments();
+  const { statusOf: paymentStatusOf, detailOf: paymentDetailOf, requestPayment, approvePayment, markPaid } = usePayments();
   const { addJournalEntry, peekNextJeNumber } = useJournalEntries();
   const { closedThrough, autoAssignLateBills, nextOpenPeriod } = useClosePeriod();
   const { hasLevel, hasCapability, level, user } = useCurrentUser();
@@ -1072,6 +1146,15 @@ export default function BillDetailPage() {
     toastTmr.current = setTimeout(() => setToast(""), 2400);
   }
 
+  // Back = return to wherever the user came from (Bills, Payment, AP aging,
+  // Command Center, …). React Router stamps a history index; when there's an
+  // in-app entry behind us we pop it, otherwise fall back to the Bills list
+  // (e.g. the detail page was opened via a direct link).
+  const goBack = () => {
+    if (typeof window !== "undefined" && window.history.state && window.history.state.idx > 0) navigate(-1);
+    else navigate("/bills");
+  };
+
   const bill = bills.find((b) => b.id === id);
 
   if (!bill) {
@@ -1082,7 +1165,7 @@ export default function BillDetailPage() {
           <div className="bd-notfound-sub">
             No bill with ID <span className="bd-mono">{id}</span> exists in the current dataset.
           </div>
-          <button className="bd-back" onClick={() => navigate("/bills")}>← Back to Bills</button>
+          <button className="bd-back" onClick={goBack}>← Back</button>
         </div>
       </div>
     );
@@ -1421,6 +1504,15 @@ export default function BillDetailPage() {
   const pphRate = bill.pphRate != null ? bill.pphRate : (bill.dpp > 0 && bill.pph23 ? bill.pph23 / bill.dpp : 0);
   const netPayable = bill.total - (bill.pph23 || 0);
 
+  // Payment axes: settlement (Unpaid / Partial / Paid) + remaining balance, and
+  // the request status (posted-only). Both surface on the header, Bill
+  // Information, and the Payment tab.
+  const payDetail = paymentDetailOf(bill.id);
+  const remaining = bill.pay === "paid" ? 0 : (bill.sisa != null ? bill.sisa : bill.total);
+  const settleKey = settlementOf(bill, paymentStage);
+  const reqKey = requestKeyOf(bill, paymentStage);
+  const billPosted = !!bill.je_number || workflowStatus(bill) === "POSTED" || workflowStatus(bill) === "PAID";
+
   // Compliance / status label maps for the new Detail rows.
   const RECON_LABEL = { reconciled: "Reconciled", unreconciled: "Unreconciled" };
   const TAX_STATUS_LABEL = { reported: "Reported", pending: "Pending", "not-applicable": "Not applicable" };
@@ -1429,7 +1521,7 @@ export default function BillDetailPage() {
     <div className="bd-page">
       {/* ── Header ────────────────────────────────────────────────── */}
       <div className="bd-head">
-        <button className="bd-back" onClick={() => navigate("/bills")}>← Bills</button>
+        <button className="bd-back" onClick={goBack}>← Back</button>
         <div className="bd-head-main">
           <div className="drawer-av bill">{bill.initials || initials(bill.vendorName)}</div>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -1447,16 +1539,21 @@ export default function BillDetailPage() {
             </div>
           </div>
           <div className="bd-head-total">
-            <div className="bd-head-total-lbl">Total</div>
-            <div className="bd-head-total-val">{formatRupiah(bill.total)}</div>
+            <div className="bd-head-total-lbl">Remaining balance</div>
+            <div className="bd-head-total-val">{remaining > 0 ? formatRupiah(remaining) : "Rp 0"}</div>
+            <div className="bd-head-total-sub">Total {formatRupiah(bill.total)}</div>
           </div>
         </div>
       </div>
 
-      {/* ── Status progress bar (top section, full width) ─────────────── */}
-      <div className="bd-status-band">
-        <StatusStepper bill={bill} paymentStage={paymentStage} />
-      </div>
+      {/* ── Status progress bar — pre-posting only. Once the bill is posted,
+           the payment lifecycle lives in the Payment tab, so the stepper is
+           dropped here. ─────────────────────────────────────────────────── */}
+      {!billPosted && (
+        <div className="bd-status-band">
+          <StatusStepper bill={bill} paymentStage={paymentStage} />
+        </div>
+      )}
 
       {/* ── Two-panel body: form leads on the left, source document on the
           right — consistent with Create New Bill. ─────────────────────── */}
@@ -1468,6 +1565,7 @@ export default function BillDetailPage() {
             {[
               ["detail",  "Detail"],
               ["posting", "Posting"],
+              ["payment", "Payment"],
               ["vendor",  "Vendor"],
               ["audit",   "Audit"],
             ].map(([t, label]) => (
@@ -1556,19 +1654,17 @@ export default function BillDetailPage() {
                   <PlainRow label="GRN Status" value={GRN_LABEL[bill.grn] || "—"} />
                   <PlainRow
                     label="Payment Status"
-                    value={
-                      bill.pay === "paid" ? "Paid"
-                        : workflowStatus(bill) === "POSTED" ? (PAYMENT_STATUS_META[paymentStage]?.label || "Unpaid")
-                        : PAY_LABEL[bill.pay]
-                    }
+                    value={<span className={`bp-pay-badge ${PAYMENT_STATUS_META[settleKey].tone}`}>{PAYMENT_STATUS_META[settleKey].label}</span>}
                   />
+                  {billPosted && (
+                    <PlainRow
+                      label="Payment Request Status"
+                      value={<span className={`bp-pay-badge ${REQ_TONE[reqKey]}`}>{REQ_LABEL[reqKey]}</span>}
+                    />
+                  )}
                   <SubRow
                     label="Bank Reconciliation Status"
                     value={RECON_LABEL[bill.bankReconStatus] || "—"}
-                  />
-                  <SubRow
-                    label="Payment Date & Time"
-                    value={bill.paymentDate ? `${formatDateEn(bill.paymentDate)}${bill.paymentTime ? " · " + bill.paymentTime : ""}` : "—"}
                   />
                   {bill.keterangan && (
                     <div className="drawer-row">
@@ -1662,6 +1758,10 @@ export default function BillDetailPage() {
                 vendor={vendor}
                 onViewPostedJe={() => navigate("/journal-entry")}
               />
+            )}
+
+            {tab === "payment" && (
+              <PaymentTab bill={bill} detail={payDetail} />
             )}
 
             {tab === "vendor" && (
