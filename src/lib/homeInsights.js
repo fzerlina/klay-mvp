@@ -29,7 +29,7 @@ const todayKey = () => TODAY.toISOString().slice(0, 10);
 function payablesInsights(ctx) {
   const { agingLines, can } = ctx;
   if (!can("ap")) return [];
-  const g = { group: "payables", groupLabel: "Payables", groupTo: "/ap-aging" };
+  const g = { group: "payables", groupLabel: "Payables", groupTo: "/reports/cashflow?tab=ap" };
   const out = [];
 
   // Vendor concentration in the 60+ day overdue tail — collection/risk signal.
@@ -50,7 +50,7 @@ function payablesInsights(ctx) {
     out.push({ ...g, id: "pay:concentration", headline: `${concentrationPct}%`,
       label: `Top ${topV.length} vendor${topV.length === 1 ? "" : "s"} of 60+ day overdue`,
       detail: `${topV.map((v) => v.name).join(", ")} hold ${formatRupiah(topVsum)} of ${formatRupiah(sixtyTotal)} owed past 60 days.`,
-      tone: concentrationPct >= 60 ? "warning" : "neutral", to: "/ap-aging", cta: "View AP Aging" });
+      tone: concentrationPct >= 60 ? "warning" : "neutral", to: "/reports/cashflow?tab=ap", cta: "View AP Aging" });
   }
 
   const snapshot = buildSnapshot(agingLines);
@@ -65,7 +65,7 @@ function payablesInsights(ctx) {
     const pct = Math.round(overdue / totalOut * 100);
     out.push({ ...g, id: "pay:overdueshare", headline: `${pct}%`, label: "of payables are overdue",
       detail: `${formatRupiah(overdue)} of ${formatRupiah(totalOut)} outstanding is past due · DPO ${snapshot.dpoDays} days.`,
-      tone: pct >= 40 ? "warning" : "neutral", to: "/ap-aging", cta: "View AP Aging" });
+      tone: pct >= 40 ? "warning" : "neutral", to: "/reports/cashflow?tab=ap", cta: "View AP Aging" });
   }
   return out;
 }

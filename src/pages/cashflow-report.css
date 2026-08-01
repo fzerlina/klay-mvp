@@ -1,0 +1,56 @@
+/* ── Cashflow Report ──────────────────────────────────────────────────── */
+.cfr-back {
+  background: none; border: none; cursor: pointer; padding: 0 0 6px;
+  font-size: 12px; font-weight: 600; color: var(--color-text-tertiary);
+}
+.cfr-back:hover { color: #BA5A0E; }
+.cfr-lede { margin-top: 6px; font-size: 13px; color: var(--color-text-secondary); }
+
+/* KPI strip — horizontal inset matches the table tabs' lg-table-wrap (24px). */
+.cfr-insights { padding: 14px 24px 32px; display: flex; flex-direction: column; gap: 18px; }
+.cfr-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.cfr-kpi {
+  padding: 14px 16px; border-radius: 12px;
+  background: var(--color-surface-raised, #fff); border: 1px solid var(--color-border-default);
+  border-left: 3px solid var(--color-border-strong, #C9BFB0);
+}
+.cfr-kpi.tone-pay { border-left-color: #A8620C; }
+.cfr-kpi.tone-recv { border-left-color: #2E7D44; }
+.cfr-kpi.tone-neutral { border-left-color: #8A8172; }
+.cfr-kpi-lbl { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--color-text-tertiary); }
+.cfr-kpi-val { margin-top: 6px; font-family: var(--font-mono); font-size: 18px; font-weight: 700; color: var(--color-text-primary); letter-spacing: -.01em; }
+.cfr-kpi-sub { margin-top: 3px; font-size: 11.5px; color: var(--color-text-secondary); }
+
+/* Two-column side blocks (bars / rankings) */
+.cfr-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.cfr-side {
+  padding: 16px; border-radius: 12px;
+  background: var(--color-surface-raised, #fff); border: 1px solid var(--color-border-default);
+}
+.cfr-side-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
+.cfr-side-lbl { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--color-text-tertiary); }
+.cfr-side-total { font-family: var(--font-mono); font-size: 15px; font-weight: 700; color: var(--color-text-primary); }
+
+.cfr-bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--color-surface-sunken, #EFEBE4); margin-bottom: 12px; }
+.cfr-bar > span { display: block; }
+
+.cfr-legend { display: flex; flex-direction: column; gap: 6px; }
+.cfr-legend-row { display: flex; align-items: center; justify-content: space-between; font-size: 12px; }
+.cfr-legend-lbl { display: inline-flex; align-items: center; gap: 7px; color: var(--color-text-secondary); }
+.cfr-legend-lbl i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+.cfr-legend-amt { font-family: var(--font-mono); font-size: 12px; color: var(--color-text-primary); }
+
+.cfr-side-open { margin-top: 14px; background: none; border: none; cursor: pointer; padding: 0; font-size: 12px; font-weight: 700; color: #BA5A0E; }
+
+.cfr-rank-row { display: flex; align-items: center; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid var(--color-border-subtle); font-size: 12.5px; }
+.cfr-rank-row:last-child { border-bottom: none; }
+.cfr-rank-name { color: var(--color-text-primary); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cfr-rank-amt { font-family: var(--font-mono); font-weight: 700; margin-left: 12px; white-space: nowrap; }
+.cfr-rank-amt.pay { color: #A8620C; }
+.cfr-rank-amt.recv { color: #2E7D44; }
+.cfr-empty-row { padding: 14px 0; font-size: 12.5px; color: var(--color-text-tertiary); }
+
+@media (max-width: 860px) {
+  .cfr-kpis { grid-template-columns: repeat(2, 1fr); }
+  .cfr-sides { grid-template-columns: 1fr; }
+}

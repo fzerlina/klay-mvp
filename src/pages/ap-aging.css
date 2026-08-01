@@ -260,3 +260,42 @@
 @media (max-width: 900px){
   .apa-dq-row,.apa-dq-header{grid-template-columns:28px 1.1fr 80px 90px 84px 88px 46px 132px;gap:8px}
 }
+
+/* ── AR Aging Table — 8-col grid (no Accrual column) ──────────────────── */
+.ar-aging .apa-at-header,
+.ar-aging .apa-at-vendor,
+.ar-aging .apa-at-expand .apa-at-inv,
+.ar-aging .apa-at-grand {
+  grid-template-columns: minmax(220px, 1.6fr) repeat(6, minmax(80px, 1fr)) 130px;
+}
+
+/* ── Aging tables: horizontal scroll so wide grids never clip / wrap ──── */
+.apa-at-scroll { overflow-x: auto; }
+/* Fixed bucket-column widths so long Rupiah figures never collide with the
+   next column; the scroll wrapper absorbs the total width. */
+.apa-at-scroll .apa-at-header,
+.apa-at-scroll .apa-at-vendor,
+.apa-at-scroll .apa-at-inv,
+.apa-at-scroll .apa-at-grand {
+  grid-template-columns: minmax(220px, 1.4fr) repeat(6, 118px) 118px 132px;
+  min-width: 1200px;
+}
+.ar-aging .apa-at-scroll .apa-at-header,
+.ar-aging .apa-at-scroll .apa-at-vendor,
+.ar-aging .apa-at-scroll .apa-at-inv,
+.ar-aging .apa-at-scroll .apa-at-grand {
+  grid-template-columns: minmax(220px, 1.4fr) repeat(6, 118px) 132px;
+  min-width: 1070px;
+}
+/* Keep money cells on one line; the scroll wrapper handles overflow. */
+.apa-at-vendor > div, .apa-at-inv > div, .apa-at-grand > div { white-space: nowrap; }
+/* Inside a horizontal scroller the sticky-bottom grand total can't anchor to
+   the page, so pin it to the end of the table instead. */
+.apa-at-scroll .apa-at-grand { position: static; box-shadow: none; }
+
+/* ── Flat aging row label (Bill/Invoice · counterparty · age meta) ────── */
+.apa-at-vendor .apa-flat-label { flex-direction: column; align-items: flex-start; gap: 2px; }
+.apa-flat-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.apa-flat-sub { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 11px; color: var(--color-text-tertiary); }
+.apa-flat-vendor { color: var(--color-text-secondary); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+.apa-flat-meta { white-space: nowrap; }
