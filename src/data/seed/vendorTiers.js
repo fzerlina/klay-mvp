@@ -15,6 +15,10 @@ export const VENDOR_TIER_SEED = {
   V010: { tier: "strategic", note: "Annual insurance cover." },
   V012: { tier: "at_risk",   note: "Inactive; unresolved disputes." },
   V020: { tier: "at_risk",   note: "Large overdue concentration — watch sequencing." },
+  // Formerly "Blocked" — that lifecycle state was dropped for MVP; the
+  // in-dispute / risky signal is carried by the At-Risk tier instead.
+  V035: { tier: "at_risk",   note: "Bank-detail fraud alert — verifying payee before releasing payment." },
+  V043: { tier: "at_risk",   note: "Active dispute on last delivery — hold on new commitments." },
 };
 
 export function seedTierFor(vendorId) {

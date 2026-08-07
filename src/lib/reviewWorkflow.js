@@ -116,13 +116,15 @@ export function computeBillFlags(bill, vendorArg, opts = {}) {
     });
   }
 
-  // Vendor is a pending draft — Vendor Master SoD: a manager approves it and
-  // adds the bank before the bill can post/pay. Clears when the vendor → Active.
-  if (vendor && vendor.status === "pending") {
+  // Vendor is awaiting approval — a new vendor, or one with a pending bank/payee
+  // change. Vendor Master SoD: a manager signs it off before the bill can
+  // post/pay. The bill can still be created & submitted; this only blocks at
+  // posting & payment. Clears when the vendor's approval → Approved.
+  if (vendor && vendor.approval === "pending_approval") {
     push("vendor_pending", {
       label: "Vendor pending approval", severity: SEVERITY.REVIEW, category: "Vendor",
       ownerRole: "finance_manager",
-      message: `${vendor.name} is a pending draft — a manager must approve it and add its bank (in Vendor Master) before this bill can be posted or paid.`,
+      message: `${vendor.name} is pending approval — a manager must sign off the vendor (in Vendor Master) before this bill can be posted or paid.`,
     });
   }
 

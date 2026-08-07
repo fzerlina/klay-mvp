@@ -1,19 +1,31 @@
 import { createContext, useContext, useMemo, useState, useCallback } from "react";
 import { VENDORS as SEED_VENDORS } from "../data/seed/vendors";
 import { seedTierFor, seedTierNoteFor } from "../data/seed/vendorTiers";
-import { seedStatusFor, seedHealthFor } from "../data/seed/vendorHealth";
+import { seedStatusFor, seedApprovalFor } from "../data/seed/vendorHealth";
 import { TODAY } from "../lib/clock";
 
 const VendorsContext = createContext(null);
 
+// Our own (paying) bank account — the default company account bills to this
+// vendor are settled FROM. Distinct from the vendor's own account (paid TO).
+// Single house account for the prototype; stored per-vendor so it can diverge.
+export const DEFAULT_COMPANY_BANK = {
+  name: "BCA", branch: "KCU Sudirman", acc: "008-2233-4455", holder: "PT Klay Indonesia",
+};
+
 // Layer vendor-master attributes that live outside the auto-generated seed
-// (relationship tier, lifecycle status, health signal) onto each record so the
-// vendor stays the single source of truth.
+// (relationship tier, lifecycle + approval status, paying account) onto each
+// record so the vendor stays the single source of truth.
 function withDerived(v) {
   return {
     ...v,
-    status: seedStatusFor(v.id, v.status),
-    health: v.health || seedHealthFor(v.id),
+    // Entity type collapses to two kinds for MVP: company | individual.
+    // (Cooperative / government are treated as companies — PKP, need faktur.)
+    type: v.type === "individual" ? "individual" : "company",
+    // Two independent status axes (see vendorHealth.js).
+    status: seedStatusFor(v.id, v.status),        // lifecycle: active | inactive
+    approval: v.approval || seedApprovalFor(v.id), // approved | pending_approval
+    company_bank: v.company_bank || DEFAULT_COMPANY_BANK,
     relationship_tier: v.relationship_tier || seedTierFor(v.id),
     relationship_tier_note: v.relationship_tier_note || seedTierNoteFor(v.id),
     relationship_tier_set_by: v.relationship_tier_set_by || null,
@@ -61,16 +73,17 @@ export function VendorsProvider({ children }) {
       pph: draft.pph || "none",
       category: draft.category || "expense",
       type: draft.type || "company",
-      // Manual creation (Flow B) always lands as DRAFT_PENDING — a Finance
-      // Manager confirms tax + bank and activates it (SoD: creator ≠ activator).
-      status: "pending",
-      health: "healthy",
+      // A new vendor is immediately Active (usable to create bills) but lands in
+      // Pending approval — a manager signs it off (SoD: creator ≠ approver).
+      status: "active",
+      approval: "pending_approval",
       source: draft.source || "MANUAL",
       lastTx: null,
       notes: draft.notes || "",
       acct: draft.acct || "",
       defTax: draft.defTax || "",
       banks: draft.banks || [],
+      company_bank: draft.company_bank || DEFAULT_COMPANY_BANK,
       relationship_tier: draft.relationship_tier || "standard",
       relationship_tier_note: draft.relationship_tier_note || "",
       relationship_tier_set_by: null,
@@ -100,39 +113,38 @@ export function VendorsProvider({ children }) {
     }));
   }, []);
 
-  // Move a vendor through its lifecycle: pending → active (approve), active →
-  // inactive (deactivate) or blocked (block), blocked/inactive → active.
+  // LIFECYCLE axis — active ⇄ inactive only (Deactivate / Reactivate). Blocked
+  // was dropped for MVP.
   const setVendorStatus = useCallback((id, status, meta = {}) => {
     setVendors((prev) => prev.map((v) => (v.id === id ? { ...v, status } : v)));
     logEvent(id, meta.event || "Status change", `→ ${status}${meta.reason ? ` · ${meta.reason}` : ""}`, meta.actor);
   }, [logEvent]);
 
-  // Manually set/override a vendor's health signal (healthy | review | flagged).
-  const setVendorHealth = useCallback((id, health, meta = {}) => {
-    setVendors((prev) => prev.map((v) => (v.id === id ? { ...v, health } : v)));
-    logEvent(id, "Health set", `→ ${health}${meta.reason ? ` · ${meta.reason}` : ""}`, meta.actor);
+  // APPROVAL axis — sign off (or bounce back) the current version of the record.
+  // Independent of lifecycle: approving doesn't change active/inactive.
+  const setVendorApproval = useCallback((id, approval, meta = {}) => {
+    setVendors((prev) => prev.map((v) => (v.id === id ? { ...v, approval } : v)));
+    const label = approval === "approved" ? "Approved" : "Pending approval";
+    logEvent(id, meta.event || label, meta.reason || "", meta.actor);
   }, [logEvent]);
 
-  // Add a bank account (Tier 3 — vendor.manage_bank). New account becomes the
-  // default when it's the first, or when explicitly flagged default.
-  const addVendorBank = useCallback((id, bank, meta = {}) => {
-    setVendors((prev) => prev.map((v) => {
-      if (v.id !== id) return v;
-      const existing = v.banks || [];
-      const makeDefault = existing.length === 0 || bank.isDefault;
-      const cleaned = makeDefault ? existing.map((b) => ({ ...b, isDefault: false })) : existing;
-      return { ...v, banks: [...cleaned, { ...bank, isDefault: makeDefault }] };
-    }));
+  // Set the vendor's payout bank account (single). A bank/payee change is a
+  // sensitive (Type-3) change: it always bounces the record back to Pending
+  // approval — an approver must confirm the new payee before it can post/pay.
+  const setVendorBank = useCallback((id, bank, meta = {}) => {
+    setVendors((prev) => prev.map((v) => (
+      v.id === id ? { ...v, banks: [{ ...bank, isDefault: true }], approval: "pending_approval" } : v
+    )));
     const last4 = (bank.acc || "").replace(/\D/g, "").slice(-4);
-    logEvent(id, "Bank account added", `${bank.name}${last4 ? ` ••••${last4}` : ""}`, meta.actor);
+    logEvent(id, "Bank / payee changed — pending approval", `${bank.name}${last4 ? ` ••••${last4}` : ""}`, meta.actor);
   }, [logEvent]);
 
   const vendorById = useCallback((id) => vendors.find((v) => v.id === id) || null, [vendors]);
   const tierOf = useCallback((id) => vendors.find((v) => v.id === id)?.relationship_tier || "standard", [vendors]);
 
   const value = useMemo(
-    () => ({ vendors, addVendor, setVendorTier, setVendorStatus, setVendorHealth, addVendorBank, changeLog, vendorById, tierOf }),
-    [vendors, addVendor, setVendorTier, setVendorStatus, setVendorHealth, addVendorBank, changeLog, vendorById, tierOf],
+    () => ({ vendors, addVendor, setVendorTier, setVendorStatus, setVendorApproval, setVendorBank, changeLog, vendorById, tierOf }),
+    [vendors, addVendor, setVendorTier, setVendorStatus, setVendorApproval, setVendorBank, changeLog, vendorById, tierOf],
   );
   return <VendorsContext.Provider value={value}>{children}</VendorsContext.Provider>;
 }
