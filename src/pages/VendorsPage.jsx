@@ -3,20 +3,15 @@ import { useNavigate } from "react-router-dom";
 import { BILLS as bills } from "../data/seed/bills";
 import { useVendors } from "../state/VendorsContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
-import { CAT_LABELS, PPH_SHORT_LABELS } from "../data/labels";
+import { CAT_LABELS } from "../data/labels";
 import { TODAY, daysSince } from "../lib/clock";
-import { formatDate } from "../lib/format";
+import { formatDate, termLabel } from "../lib/format";
 import AiChatDrawer from "./AiChatDrawer";
 import SummaryDrawer from "./SummaryDrawer";
 import { computeVendorsInsights, makeVendorsAiContext } from "./ai-vendors-context";
 import { TierPill } from "../components/RelationshipTier";
 import "./modules.css";
 import "./invoices-ledger.css";
-
-const HEALTH_CHIP = {
-  review:  { cls: "review",  lbl: "Review" },
-  flagged: { cls: "flagged", lbl: "Flagged" },
-};
 
 // NPWP display — mask the prefix, reveal the last 6 digits (PRD Vendor List spec).
 function maskNpwp(taxId) {
@@ -27,42 +22,33 @@ function maskNpwp(taxId) {
   return `••• ${last6.slice(0, 3)}.${last6.slice(3)}`;
 }
 
-// Default bank account, shown as bank name + last 4 digits only.
-function bankDisplay(banks) {
-  if (!banks || !banks.length) return null;
-  const b = banks.find((x) => x.isDefault) || banks[0];
-  const digits = (b.acc || "").replace(/\D/g, "");
-  return { name: b.name, last4: digits.slice(-4) };
+// Lifecycle badge (active | inactive) + approval badge (approved | pending).
+function LifecycleBadge({ status }) {
+  const s = status === "inactive"
+    ? { cls: "inactive", lbl: "Inactive" }
+    : { cls: "active", lbl: "Active" };
+  return <span className={`v-life ${s.cls}`}>{s.lbl}</span>;
+}
+function ApprovalBadge({ approval }) {
+  if (approval === "pending_approval") return <span className="v-appr pending">Pending approval</span>;
+  return <span className="v-appr approved">Approved</span>;
 }
 
 function VendorRow({ r, onClick, onKebab, isSelected, isAlt, showKebab = true }) {
   const stale = daysSince(r.lastTx) > 60 && r.status === "active";
-  const chip = HEALTH_CHIP[r.health];
   const npwp = maskNpwp(r.tax_id);
-  const bank = bankDisplay(r.banks);
   return (
     <div className={`lg-row${isSelected ? " selected" : ""}${isAlt ? " alt" : ""}`} onClick={onClick}>
       <div className="lg-cell-no">{r.code}</div>
       <div className="lg-cell-customer">
         <div className="lg-cell-customer-body">
           <div className="lg-cell-customer-name">
-            <span className="vh-name">{r.name}</span>
-            {chip && <span className={`vh-chip ${chip.cls}`} title={`Health: ${chip.lbl}`}>{chip.lbl}</span>}
-            <TierPill tier={r.relationship_tier} />
+            <span className="vh-name">{r.legal_name || r.name}</span>
           </div>
-          <div className="lg-cell-customer-addr">{r.contact} · {r.email}</div>
         </div>
       </div>
       <div className="lg-cell-date">{npwp || <span className="lg-cell-em-dash">—</span>}</div>
-      <div className="lg-cell-date">{r.payment_terms}</div>
-      <div style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>{PPH_SHORT_LABELS[r.pph] || PPH_SHORT_LABELS.none}</div>
-      <div style={{ fontSize: 11, color: "var(--color-text-secondary)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-        {bank ? (
-          <>{bank.name} <span style={{ fontFamily: "var(--font-mono)", color: "var(--color-text-tertiary)" }}>••••{bank.last4}</span></>
-        ) : (
-          <span className="lg-cell-em-dash">—</span>
-        )}
-      </div>
+      <div className="lg-cell-date">{termLabel(r.payment_terms)}</div>
       <div style={{ fontSize: 11, color: stale ? "var(--color-warning-text)" : "var(--color-text-tertiary)", fontWeight: stale ? 600 : 400 }}>
         {r.lastTx ? (
           <>
@@ -73,9 +59,11 @@ function VendorRow({ r, onClick, onKebab, isSelected, isAlt, showKebab = true })
           <span className="lg-cell-em-dash">—</span>
         )}
       </div>
-      <div>
-        <span className={`cat-badge ${r.category}`}>{CAT_LABELS[r.category] || r.category}</span>
-      </div>
+      <div>{r.relationship_tier && r.relationship_tier !== "standard"
+        ? <TierPill tier={r.relationship_tier} />
+        : <span className="lg-cell-em-dash">—</span>}</div>
+      <div><LifecycleBadge status={r.status} /></div>
+      <div><ApprovalBadge approval={r.approval} /></div>
       <div className="lg-cell-kebab" onClick={(e) => e.stopPropagation()}>
         {showKebab && (
           <button className="lg-kebab" onClick={() => onKebab(r.id)}>
@@ -111,28 +99,22 @@ function RowMenu({ vendor, onClose, onAction, canTransact = true, canApprove = f
             Duplicate
           </div>
           <div className="row-menu-sep" />
+          {vendor.approval === "pending_approval" && canApprove && (
+            <div className="row-menu-item" onClick={() => onAction("approve", vendor)}>
+              <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              Approve
+            </div>
+          )}
           {vendor.status === "active" && (
             <div className="row-menu-item" onClick={() => onAction("deactivate", vendor)}>
               <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
               Deactivate
             </div>
           )}
-          {vendor.status === "pending" && canApprove && (
-            <div className="row-menu-item" onClick={() => onAction("approve", vendor)}>
-              <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
-              Approve
-            </div>
-          )}
           {vendor.status === "inactive" && (
             <div className="row-menu-item" onClick={() => onAction("activate", vendor)}>
               <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
               Reactivate
-            </div>
-          )}
-          {vendor.status === "blocked" && canApprove && (
-            <div className="row-menu-item" onClick={() => onAction("unblock", vendor)}>
-              <svg viewBox="0 0 24 24"><path d="M7 11V7a5 5 0 0 1 9.9-1"/><rect x="4" y="11" width="16" height="10" rx="2"/></svg>
-              Unblock
             </div>
           )}
           <div className="row-menu-item danger" onClick={() => onAction("archive", vendor)}>
@@ -149,8 +131,6 @@ const SORT_LABELS = {
   "name-asc":     "Name A-Z",
   "name-desc":    "Name Z-A",
   "code-asc":     "Code A-Z",
-  "lasttx-desc":  "Last transaction newest ↓",
-  "lasttx-asc":   "Last transaction oldest ↑",
 };
 function useClickOutside(ref, onClose) {
   useEffect(() => {
@@ -177,12 +157,6 @@ function SortPopover({ value, onPick, onClose }) {
   );
 }
 
-const HEALTH_FILTER_OPTIONS = [
-  { k: "healthy", lbl: "Healthy" },
-  { k: "review",  lbl: "Review" },
-  { k: "flagged", lbl: "Flagged" },
-];
-
 const TIER_FILTER_OPTIONS = [
   { k: "strategic", lbl: "Strategic" },
   { k: "standard",  lbl: "Standard" },
@@ -200,12 +174,10 @@ function FilterPopover({ values, onChange, onClose }) {
     return { ...d, [key]: next };
   });
 
-  const reset = () => setDraft({ categories: new Set(), terms: new Set(), pph: new Set(), health: new Set(), tier: new Set() });
+  const reset = () => setDraft({ terms: new Set(), tier: new Set() });
   const apply = () => { onChange(draft); onClose(); };
 
-  const categories = ["inventory", "service", "expense", "cooperative", "individual"];
   const allTerms = ["NET 7", "NET 14", "NET 15", "NET 30", "NET 45", "NET 60"];
-  const pphKeys = ["none", "pph23_2", "pph23_15", "pph4_final", "pph21"];
 
   const summary = (set) => (set.size > 0 ? `${set.size} selected` : "all");
 
@@ -213,51 +185,18 @@ function FilterPopover({ values, onChange, onClose }) {
     <div className="lg-popover lg-filter-pop" ref={ref}>
       <div className="lg-filter-body">
         <div className="lg-filter-fld">
-          <div className="lg-filter-fld-lbl">Category ({summary(draft.categories)})</div>
-          <div className="lg-toggle-row">
-            {categories.map((c) => (
-              <button key={c} className={`lg-toggle${draft.categories.has(c) ? " on" : ""}`} onClick={() => toggleIn("categories", c)}>
-                {CAT_LABELS[c] || c}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="lg-filter-fld">
           <div className="lg-filter-fld-lbl">Payment Terms ({summary(draft.terms)})</div>
           <div className="lg-toggle-row">
             {allTerms.map((t) => (
               <button key={t} className={`lg-toggle${draft.terms.has(t) ? " on" : ""}`} onClick={() => toggleIn("terms", t)}>
-                {t}
+                {termLabel(t)}
               </button>
             ))}
           </div>
         </div>
 
         <div className="lg-filter-fld">
-          <div className="lg-filter-fld-lbl">PPh Status ({summary(draft.pph)})</div>
-          <div className="lg-toggle-row">
-            {pphKeys.map((p) => (
-              <button key={p} className={`lg-toggle${draft.pph.has(p) ? " on" : ""}`} onClick={() => toggleIn("pph", p)}>
-                {PPH_SHORT_LABELS[p]}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="lg-filter-fld">
-          <div className="lg-filter-fld-lbl">Health ({summary(draft.health)})</div>
-          <div className="lg-toggle-row">
-            {HEALTH_FILTER_OPTIONS.map((h) => (
-              <button key={h.k} className={`lg-toggle${draft.health.has(h.k) ? " on" : ""}`} onClick={() => toggleIn("health", h.k)}>
-                {h.lbl}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="lg-filter-fld">
-          <div className="lg-filter-fld-lbl">Relationship ({summary(draft.tier)})</div>
+          <div className="lg-filter-fld-lbl">Relationship tier ({summary(draft.tier)})</div>
           <div className="lg-toggle-row">
             {TIER_FILTER_OPTIONS.map((t) => (
               <button key={t.k} className={`lg-toggle${draft.tier.has(t.k) ? " on" : ""}`} onClick={() => toggleIn("tier", t.k)}>
@@ -290,7 +229,7 @@ export default function VendorsPage() {
   // both Finance Manager and Accounting Manager hold (AP Staff / Finance Staff
   // do not), matching "the managers can approve/unblock."
   const canApprove = hasCapability("ap.post");
-  const { vendors, setVendorStatus } = useVendors();
+  const { vendors, setVendorStatus, setVendorApproval } = useVendors();
   // AP balance as of vendor (derived from bills)
   const apBalance = useMemo(() => {
     const m = {};
@@ -304,7 +243,7 @@ export default function VendorsPage() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState({ kind: "tab", value: "active" });
   const [sortChoice, setSortChoice] = useState(null);
-  const emptyFilters = { categories: new Set(), terms: new Set(), pph: new Set(), health: new Set(), tier: new Set() };
+  const emptyFilters = { terms: new Set(), tier: new Set() };
   const [filterValues, setFilterValues] = useState(emptyFilters);
 
   const [menuOpenFor, setMenuOpenFor] = useState(null);
@@ -335,15 +274,13 @@ export default function VendorsPage() {
 
   // ── Tab counts (by lifecycle status) ─────────────────────────────────────
   const statusCounts = useMemo(() => {
-    const c = { active: 0, pending: 0, inactive: 0, blocked: 0 };
+    const c = { active: 0, inactive: 0 };
     for (const v of vendors) if (c[v.status] != null) c[v.status]++;
     return c;
   }, [vendors]);
   const tabs = [
     { k: "active",   lbl: "Active",   count: statusCounts.active },
-    { k: "pending",  lbl: "Pending",  count: statusCounts.pending },
     { k: "inactive", lbl: "Inactive", count: statusCounts.inactive },
-    { k: "blocked",  lbl: "Blocked",  count: statusCounts.blocked },
   ];
 
   // ── Corpus — tabs map 1:1 to lifecycle status ───────────────────────────
@@ -353,20 +290,14 @@ export default function VendorsPage() {
   }, [filter, vendors]);
 
   const hasActiveFilters = useMemo(() => (
-    filterValues.categories.size > 0 ||
     filterValues.terms.size > 0 ||
-    filterValues.pph.size > 0 ||
-    filterValues.health.size > 0 ||
     filterValues.tier.size > 0 ||
     sortChoice !== null
   ), [filterValues, sortChoice]);
 
   const activeFilterCount = useMemo(() => {
     let n = 0;
-    if (filterValues.categories.size > 0) n++;
     if (filterValues.terms.size > 0) n++;
-    if (filterValues.pph.size > 0) n++;
-    if (filterValues.health.size > 0) n++;
     if (filterValues.tier.size > 0) n++;
     return n;
   }, [filterValues]);
@@ -374,18 +305,16 @@ export default function VendorsPage() {
   // ── Apply filter values + search ───────────────────────────────────────
   const filteredRows = useMemo(() => {
     let list = corpus;
-    if (filterValues.categories.size > 0) list = list.filter((v) => filterValues.categories.has(v.category));
     if (filterValues.terms.size > 0) list = list.filter((v) => filterValues.terms.has(v.payment_terms));
-    if (filterValues.pph.size > 0) list = list.filter((v) => filterValues.pph.has(v.pph || "none"));
-    if (filterValues.health.size > 0) list = list.filter((v) => filterValues.health.has(v.health || "healthy"));
     if (filterValues.tier.size > 0) list = list.filter((v) => filterValues.tier.has(v.relationship_tier || "standard"));
 
+    // Search: legal/display name, NPWP (full or partial), and vendor code.
     const q = search.toLowerCase().trim();
     const qDigits = q.replace(/\D/g, "");
     if (q) list = list.filter((v) =>
       v.name.toLowerCase().includes(q) ||
+      (v.legal_name && v.legal_name.toLowerCase().includes(q)) ||
       v.code.toLowerCase().includes(q) ||
-      (v.contact && v.contact.toLowerCase().includes(q)) ||
       (v.tax_id && (
         v.tax_id.toLowerCase().includes(q) ||
         (qDigits && v.tax_id.replace(/\D/g, "").includes(qDigits))
@@ -395,13 +324,14 @@ export default function VendorsPage() {
       id: v.id,
       code: v.code,
       name: v.name,
+      legal_name: v.legal_name,
       contact: v.contact,
       email: v.email,
       address: v.address,
       category: v.category,
       type: v.type,
       status: v.status,
-      health: v.health,
+      approval: v.approval,
       relationship_tier: v.relationship_tier,
       pph: v.pph,
       tax_id: v.tax_id,
@@ -413,16 +343,15 @@ export default function VendorsPage() {
     }));
   }, [corpus, filterValues, search, apBalance]);
 
-  // ── Sort ─────────────────────────────────────────────────────────────
+  // ── Sort — vendor name or code ─────────────────────────────────────────
   const effectiveSort = sortChoice || "name-asc";
 
   const sortedRows = useMemo(() => {
     const arr = [...filteredRows];
+    const nameOf = (r) => (r.legal_name || r.name || "");
     switch (effectiveSort) {
-      case "name-asc":    arr.sort((a, b) => a.name.localeCompare(b.name)); break;
-      case "name-desc":   arr.sort((a, b) => b.name.localeCompare(a.name)); break;
-      case "lasttx-desc": arr.sort((a, b) => (b.lastTx || "").localeCompare(a.lastTx || "")); break;
-      case "lasttx-asc":  arr.sort((a, b) => (a.lastTx || "").localeCompare(b.lastTx || "")); break;
+      case "name-asc":    arr.sort((a, b) => nameOf(a).localeCompare(nameOf(b))); break;
+      case "name-desc":   arr.sort((a, b) => nameOf(b).localeCompare(nameOf(a))); break;
       case "code-asc":    arr.sort((a, b) => a.code.localeCompare(b.code)); break;
       default: break;
     }
@@ -467,9 +396,8 @@ export default function VendorsPage() {
     if (action === "edit") showToast(`Edit ${v.name} (demo)`);
     else if (action === "newBill") showToast(`New bill for ${v.name} (demo)`);
     else if (action === "duplicate") showToast(`Duplicated ${v.name} (demo)`);
-    else if (action === "approve") { setVendorStatus(v.id, "active"); showToast(`${v.name} approved — now active`); }
+    else if (action === "approve") { setVendorApproval(v.id, "approved", { event: "Approved" }); showToast(`${v.name} approved`); }
     else if (action === "activate") { setVendorStatus(v.id, "active"); showToast(`${v.name} reactivated`); }
-    else if (action === "unblock") { setVendorStatus(v.id, "active"); showToast(`${v.name} unblocked — now active`); }
     else if (action === "deactivate") { setVendorStatus(v.id, "inactive"); showToast(`${v.name} set to inactive`); }
     else if (action === "archive") showToast(`${v.name} archived (demo)`);
   }
@@ -512,7 +440,7 @@ export default function VendorsPage() {
             <div className="lg-filter-row">
               <div className="lg-search">
                 <svg viewBox="0 0 14 14"><circle cx="6" cy="6" r="3.5"/><path d="M9 9l3 3" strokeLinecap="round"/></svg>
-                <input placeholder="Search vendor name, NPWP, code, or contact…" value={search} onChange={(e) => setSearch(e.target.value)} />
+                <input placeholder="Search vendor name, NPWP, or code…" value={search} onChange={(e) => setSearch(e.target.value)} />
               </div>
               <div className="lg-filter-meta">
                 <div className="lg-meta-btn-wrap">
@@ -540,13 +468,13 @@ export default function VendorsPage() {
 
             <div className="lg-col-header">
               <div>Code</div>
-              <div>Name</div>
+              <div>Legal Name</div>
               <div>NPWP</div>
               <div>Terms</div>
-              <div>PPh Status</div>
-              <div>Bank Account</div>
               <div>Last Transaction</div>
-              <div>Category</div>
+              <div>Relationship</div>
+              <div>Lifecycle</div>
+              <div>Approval</div>
               <div />
             </div>
 
