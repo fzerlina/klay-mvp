@@ -2,7 +2,7 @@ import { useState, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useVendors } from "../state/VendorsContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
-import { initials } from "../lib/format";
+import { initials, termLabel } from "../lib/format";
 import "./invoice-create.css";
 import "./vendor-create.css";
 
@@ -24,22 +24,31 @@ const CATEGORY_OPTIONS = [
   { v: "service", label: "Service — professional services" },
 ];
 
+// Two entity kinds only. Company (incl. PT / CV / UD / cooperative) is PKP and
+// needs a Tax Invoice (Faktur Pajak); Individual is Non-PKP and doesn't.
 const TYPE_OPTIONS = [
   { v: "company", label: "Company (PT / CV / UD)" },
-  { v: "individual", label: "Individual / sole proprietor" },
-  { v: "cooperative", label: "Cooperative (Koperasi)" },
-  { v: "government", label: "Government entity" },
+  { v: "individual", label: "Individual" },
 ];
 
 const TERM_OPTIONS = ["NET 7", "NET 14", "NET 15", "NET 30", "NET 45", "NET 60"];
 
-const PPH_OPTIONS = [
+// Withholding CHOICES for a Company — the user picks the type; the rate is
+// resolved automatically from whether the vendor has an NPWP (see rateFor).
+// Individual vendors are always PPh 21, with the rate chosen at Create Bill time.
+const WHT_COMPANY = [
   { v: "none", label: "No withholding" },
-  { v: "pph23_2", label: "PPh 23 — 2% (services, rent, royalty)" },
-  { v: "pph23_15", label: "PPh 23 — 15% (dividends, interest)" },
-  { v: "pph4_final", label: "PPh 4(2) Final — construction" },
-  { v: "pph21", label: "PPh 21 — individuals / experts" },
+  { v: "pph23", label: "PPh 23" },
+  { v: "pph05_final", label: "PPh 0.5% Final" },
+  { v: "pph42", label: "PPh 4(2)" },
 ];
+
+// NPWP-resolved rate preview for the two graduated types.
+function rateFor(pph, hasNpwp) {
+  if (pph === "pph23") return hasNpwp ? "2%" : "4%";
+  if (pph === "pph42") return hasNpwp ? "10%" : "20%";
+  return null;
+}
 
 const CURRENCY_OPTIONS = ["IDR", "USD", "SGD", "EUR"];
 
@@ -51,18 +60,6 @@ const RECON_OPTIONS = [
 
 function digitsOnly(s) {
   return (s || "").replace(/\D/g, "");
-}
-
-// Deterministic PPh recommendation (PRD Zone 3) from entity type + category.
-function recommendPph(type, category) {
-  if (!type || !category) return null;
-  if (type === "individual") {
-    return { value: "pph21", reason: "Payments to an individual / sole proprietor typically fall under PPh 21." };
-  }
-  if (category === "service") {
-    return { value: "pph23_2", reason: "Service invoices from a corporate entity (PT / CV) are typically subject to PPh 23 at 2%." };
-  }
-  return { value: "none", reason: "Goods / expense purchases from a corporate entity are typically not withheld. Confirm with the vendor's tax profile." };
 }
 
 function SparkIcon() {
@@ -105,10 +102,23 @@ export default function VendorCreatePage() {
   const [address, setAddress] = useState("");
 
   const [npwp, setNpwp] = useState("");
-  const [pkp, setPkp] = useState("");
   const [pph, setPph] = useState("none");
-  const [pphTouched, setPphTouched] = useState(false);
   const [dedupDismissed, setDedupDismissed] = useState(false);
+
+  // PKP is derived from entity type: Company is PKP (needs Faktur Pajak),
+  // Individual is Non-PKP. Not a user choice.
+  const isCompany = type !== "individual";
+  const pkp = isCompany ? "PKP" : "NON_PKP";
+  // Individual withholding is always PPh 21 (rate set per bill); Company keeps
+  // the chosen type. Switching to Individual pins PPh 21.
+  const effectivePph = isCompany ? pph : "pph21";
+  const hasNpwp = digitsOnly(npwp).length >= 6;
+  const pphRate = rateFor(effectivePph, hasNpwp);
+  function changeType(next) {
+    setType(next);
+    if (next === "individual") setPph("pph21");
+    else if (pph === "pph21") setPph("none");
+  }
 
   const [term, setTerm] = useState("NET 30");
   const [currency, setCurrency] = useState("IDR");
@@ -147,9 +157,6 @@ export default function VendorCreatePage() {
   }, [name, npwp, vendors]);
 
   const showDedup = !dedupDismissed && (npwpMatch || nameMatch);
-
-  // ── PPh recommendation (PRD Zone 3) ───────────────────────────────────────
-  const pphRec = useMemo(() => recommendPph(type, category), [type, category]);
 
   function updateBank(i, patch) {
     setBanks((prev) => prev.map((b, idx) => (idx === i ? { ...b, ...patch } : b)));
@@ -193,7 +200,7 @@ export default function VendorCreatePage() {
       address: address.trim(),
       tax_id: npwp.trim(),
       pkp,
-      pph,
+      pph: effectivePph,
       payment_terms: term,
       currency,
       acct: recon,
@@ -207,7 +214,7 @@ export default function VendorCreatePage() {
       relationship_tier_note: tier !== "standard" ? tierNote.trim() : "",
       source: "MANUAL",
     });
-    showToast("Draft created — pending Finance Manager confirmation ✓");
+    showToast("Vendor created — active, pending approval ✓");
     setTimeout(() => navigate("/vendors"), 800);
   }
 
@@ -247,7 +254,7 @@ export default function VendorCreatePage() {
           <svg viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" /></svg>
         </button>
         <div className="ap-title">New Vendor</div>
-        <span className="vc-status">Draft · Pending confirmation</span>
+        <span className="vc-status">Active · Pending approval</span>
         <div className="ap-hint" style={{ flex: 1, marginLeft: 8 }}>
           Fields marked <span style={{ color: "var(--color-danger-text)" }}>*</span> are required
         </div>
@@ -285,9 +292,10 @@ export default function VendorCreatePage() {
               </div>
               <div className="form-fld">
                 <label>Entity Type</label>
-                <select value={type} onChange={(e) => setType(e.target.value)}>
+                <select value={type} onChange={(e) => changeType(e.target.value)}>
                   {TYPE_OPTIONS.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
                 </select>
+                <span className="vc-hint">{isCompany ? "PKP · issues Tax Invoice (Faktur Pajak)" : "Non-PKP · no Faktur Pajak"}</span>
               </div>
             </div>
             <div className="form-fld" style={{ marginBottom: 0 }}>
@@ -300,7 +308,7 @@ export default function VendorCreatePage() {
           <div className="form-sec card">
             <div className="form-sec-title">Tax &amp; Compliance</div>
             <div className="form-fld" style={{ marginBottom: showDedup ? 6 : 12 }}>
-              <label>NPWP (Tax ID) <span className="vc-req">*</span></label>
+              <label>{isCompany ? "NPWP (Tax ID)" : "NIK / NPWP"} <span className="vc-req">*</span></label>
               <input
                 type="text"
                 value={npwp}
@@ -308,7 +316,7 @@ export default function VendorCreatePage() {
                 placeholder="12.345.678.9-001.000"
                 style={{ fontFamily: "var(--font-mono)" }}
               />
-              <span className="vc-hint">Checked against your vendor master as you type</span>
+              <span className="vc-hint">Checked against your vendor master as you type · sets the withholding rate</span>
             </div>
 
             {showDedup && (
@@ -339,47 +347,44 @@ export default function VendorCreatePage() {
               </div>
             )}
 
+            {/* PKP + Faktur Pajak are derived from entity type — not chosen here. */}
             <div className="form-fld" style={{ marginBottom: 14, marginTop: 4 }}>
-              <label style={{ marginBottom: 8, display: "block" }}>PKP Status <span className="vc-req">*</span></label>
-              <div className="pkp-group">
-                {[
-                  { v: "PKP", label: "PKP — VAT-registered", desc: "Subject to VAT; can issue Tax Invoices (Faktur Pajak)." },
-                  { v: "NON_PKP", label: "Non-PKP", desc: "Not VAT-registered. Typically cooperatives, individuals, or businesses below the threshold." },
-                ].map((o) => (
-                  <label key={o.v} className={`pkp-opt${pkp === o.v ? " selected" : ""}`} onClick={() => setPkp(o.v)}>
-                    <input type="radio" name="pkp" value={o.v} checked={pkp === o.v} onChange={() => setPkp(o.v)} />
-                    <div className="pkp-dot"><div className="pkp-dot-inner" /></div>
-                    <div className="pkp-text">
-                      <div className="pkp-label">{o.label}</div>
-                      <div className="pkp-desc">{o.desc}</div>
-                    </div>
-                  </label>
-                ))}
+              <label style={{ marginBottom: 8, display: "block" }}>PKP Status</label>
+              <div className="vc-derived">
+                <div className="vc-derived-row">
+                  <span className="vc-derived-lbl">VAT status</span>
+                  <span className="vc-derived-val">{isCompany ? "PKP — VAT-registered" : "Non-PKP"}</span>
+                </div>
+                <div className="vc-derived-row">
+                  <span className="vc-derived-lbl">Tax Invoice (Faktur Pajak)</span>
+                  <span className="vc-derived-val">{isCompany ? "Required" : "Not required"}</span>
+                </div>
+                <div className="vc-derived-note">Set automatically from the entity type.</div>
               </div>
-              {fmHint}
             </div>
 
             <div className="form-fld" style={{ marginBottom: 0 }}>
               <label>Withholding (PPh)</label>
-              <select value={pph} onChange={(e) => { setPph(e.target.value); setPphTouched(true); }}>
-                {PPH_OPTIONS.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
-              </select>
-              {pphRec && (
-                <div className="vc-pph-rec">
-                  <div className="vc-pph-rec-body">
-                    <div className="vc-pph-rec-lbl"><SparkIcon /> Recommended: {PPH_OPTIONS.find((o) => o.v === pphRec.value)?.label}</div>
-                    {pphRec.reason} Confirmed or overridden before this vendor is activated.
-                  </div>
-                  <button
-                    className="vc-pph-rec-btn"
-                    disabled={pph === pphRec.value}
-                    onClick={() => { setPph(pphRec.value); setPphTouched(true); }}
-                  >
-                    {pph === pphRec.value ? "Applied" : "Apply"}
-                  </button>
-                </div>
+              {isCompany ? (
+                <>
+                  <select value={pph} onChange={(e) => setPph(e.target.value)}>
+                    {WHT_COMPANY.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
+                  </select>
+                  <span className="vc-hint">
+                    {pphRate
+                      ? `Rate ${pphRate} — resolved from ${hasNpwp ? "the NPWP on file" : "no NPWP (higher rate applies)"}.`
+                      : "Rate is fixed for this type."}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <select value="pph21" disabled>
+                    <option value="pph21">PPh 21</option>
+                  </select>
+                  <span className="vc-hint">Individuals are always PPh 21 — the rate is chosen per bill.</span>
+                </>
               )}
-              {pphTouched && fmHint}
+              {fmHint}
             </div>
           </div>
 
@@ -390,7 +395,7 @@ export default function VendorCreatePage() {
               <div className="form-fld">
                 <label>Payment Terms <span className="vc-req">*</span></label>
                 <select value={term} onChange={(e) => setTerm(e.target.value)}>
-                  {TERM_OPTIONS.map((t) => <option key={t} value={t}>{t} days</option>)}
+                  {TERM_OPTIONS.map((t) => <option key={t} value={t}>{termLabel(t)}</option>)}
                 </select>
               </div>
               <div className="form-fld">
@@ -547,12 +552,12 @@ export default function VendorCreatePage() {
       {/* Footer */}
       <div className="ap-foot">
         <span className="ap-hint">
-          Saved as a <strong style={{ color: "var(--color-text-secondary)" }}>Draft</strong> — tax &amp; bank are confirmed before it's activated.
+          Created <strong style={{ color: "var(--color-text-secondary)" }}>Active</strong> and usable — a manager approves it before it can post or pay.
         </span>
         <button className="ap-btn" onClick={() => navigate("/vendors")}>Cancel</button>
         <button className="ap-btn-send" onClick={onSave} disabled={!canSubmit} title={npwpMatch ? "Resolve the duplicate NPWP first" : undefined}>
           <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" /></svg>
-          Create Draft
+          Create Vendor
         </button>
       </div>
 
