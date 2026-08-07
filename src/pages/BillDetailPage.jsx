@@ -2,6 +2,7 @@ import { useState, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { VENDORS } from "../data/seed/vendors";
 import { useBills } from "../state/BillsContext";
+import { useVendors } from "../state/VendorsContext";
 import { usePayments, PAYMENT_STATUS_META } from "../state/PaymentsContext";
 import { useJournalEntries } from "../state/JournalEntriesContext";
 import { formatRupiah, formatDateEn, initials } from "../lib/format";
@@ -1135,6 +1136,7 @@ export default function BillDetailPage() {
   const { addJournalEntry, peekNextJeNumber } = useJournalEntries();
   const { closedThrough, autoAssignLateBills, nextOpenPeriod } = useClosePeriod();
   const { hasLevel, hasCapability, level, user } = useCurrentUser();
+  const { vendorById } = useVendors();
   const [tab, setTab] = useState("detail");
   const [docView, setDocView] = useState("invoice");
   const [toast, setToast] = useState("");
@@ -1171,7 +1173,9 @@ export default function BillDetailPage() {
     );
   }
 
-  const vendor = VENDORS.find((v) => v.id === bill.vendor);
+  // Prefer the context-derived vendor (carries the live lifecycle/approval axes
+  // and normalized attributes); fall back to the raw seed if not yet loaded.
+  const vendor = vendorById(bill.vendor) || VENDORS.find((v) => v.id === bill.vendor);
   const fields = computeFieldConfidence(bill, vendor);
   const brief = computeReviewBrief(bill, fields);
 
