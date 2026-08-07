@@ -8,21 +8,47 @@ export const CAT_LABELS = {
   individual: 'Individual',
 };
 
-export const PPH_LABELS = {
-  none: 'No withholding',
-  pph23_2: 'Withholding Tax (PPh 23) — 2% (services/rent)',
-  pph23_15: 'Withholding Tax (PPh 23) — 15% (dividends/interest)',
-  pph4_final: 'Final Withholding (PPh 4(2)) — construction',
-  pph21: 'Withholding Tax (PPh 21) — individuals',
+// Withholding model (Vendor Master MVP — entity-type driven).
+//   Company  → chooses one of: PPh 23 · PPh 0.5% Final · PPh 4(2). The RATE is
+//              resolved from whether the vendor has an NPWP (higher if not).
+//   Individual → PPh 21 only; the rate is chosen at Create Bill time.
+// A vendor still may have no withholding (goods purchases): key "none".
+export const WITHHOLDING = {
+  none:        { label: 'No withholding', scope: 'both' },
+  pph23:       { label: 'PPh 23',         scope: 'company', npwp: '2%',  nonNpwp: '4%'  },
+  pph05_final: { label: 'PPh 0.5% Final', scope: 'company' },
+  pph42:       { label: 'PPh 4(2)',       scope: 'company', npwp: '10%', nonNpwp: '20%' },
+  pph21:       { label: 'PPh 21',         scope: 'individual' },
 };
 
-// Compact PPh labels for table columns where the full description is too long.
-export const PPH_SHORT_LABELS = {
-  none: 'None',
-  pph23_2: 'PPh 23 · 2%',
-  pph23_15: 'PPh 23 · 15%',
+// Old auto-generated seed uses legacy PPh keys — normalize to the new model so
+// existing vendors render correctly without regenerating the seed.
+const PPH_LEGACY = { pph23_2: 'pph23', pph23_15: 'pph23', pph4_final: 'pph42', pph21: 'pph21', none: 'none' };
+export function normalizePph(pph) {
+  return WITHHOLDING[pph] ? pph : (PPH_LEGACY[pph] || 'none');
+}
+
+// Full withholding label with the NPWP-resolved rate, e.g. "PPh 23 — 2% (NPWP)".
+export function withholdingLabel(pph, hasNpwp) {
+  const key = normalizePph(pph);
+  const w = WITHHOLDING[key];
+  if (key === 'pph23' || key === 'pph42') {
+    return `${w.label} — ${hasNpwp ? w.npwp : w.nonNpwp} (${hasNpwp ? 'NPWP' : 'non-NPWP'})`;
+  }
+  if (key === 'pph21') return 'PPh 21 — rate set per bill';
+  return w.label;
+}
+
+// Back-compat: full labels keyed by the legacy values still in seed.
+export const PPH_LABELS = {
+  none: 'No withholding',
+  pph23_2: 'PPh 23 — 2% (NPWP)',
+  pph23_15: 'PPh 23',
   pph4_final: 'PPh 4(2)',
-  pph21: 'PPh 21',
+  pph21: 'PPh 21 — rate set per bill',
+  pph23: 'PPh 23',
+  pph05_final: 'PPh 0.5% Final',
+  pph42: 'PPh 4(2)',
 };
 
 // Vendor "default account" labels — should mirror leaf accounts in seed/coa.js.

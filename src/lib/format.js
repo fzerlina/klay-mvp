@@ -39,6 +39,19 @@ export function formatDateEn(input) {
   return `${d.getDate()} ${MONTHS_EN_SHORT[d.getMonth()]} ${d.getFullYear()}`;
 }
 
+// Payment terms in plain language — "NET 30" → "30 days", "NET 0" → "Due on
+// receipt". Accepts the stored "NET n" form or a bare number; unknown strings
+// pass through unchanged.
+export function termLabel(term) {
+  if (term == null || term === "") return DASH;
+  const s = String(term).trim();
+  const m = s.match(/(\d+)/);
+  if (!m) return s;
+  const n = parseInt(m[1], 10);
+  if (n === 0) return "Due on receipt";
+  return `${n} days`;
+}
+
 export function initials(name) {
   if (!name) return "";
   return name.trim().split(/\s+/).map((w) => w[0] || "").join("").slice(0, 2).toUpperCase();
