@@ -7,7 +7,7 @@
 //        active   → usable
 //        inactive → retired / replaced, not available for new transactions
 //      ("Blocked" was dropped for MVP — "in dispute / risky" is now carried by
-//       the At-Risk relationship tier, and "stop using entirely" is Inactive.)
+//       the In Dispute relationship tier, and "stop using entirely" is Inactive.)
 //   2. APPROVAL status — has the current version of the record been signed off?
 //        approved          → reviewed and signed off
 //        pending_approval  → a new vendor, or a sensitive (bank/payee) change,

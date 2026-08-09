@@ -9,15 +9,15 @@ import "./relationship-tier.css";
 // context; edits made anywhere (list, detail, AP Aging) update the same record
 // and show everywhere the party appears. Pass `vendorId` OR `customerId`.
 
-export const TIER_LABEL = { strategic: "Strategic", standard: "Standard", at_risk: "At-Risk" };
+export const TIER_LABEL = { strategic: "Strategic", standard: "Standard", at_risk: "In Dispute" };
 const TIERS = [
   { key: "strategic", label: "Strategic", desc: "Relationship-sensitive — a key account to protect." },
   { key: "standard", label: "Standard", desc: "Default. No special handling." },
-  { key: "at_risk", label: "At-Risk", desc: "Disputes or slow payment — weigh carefully." },
+  { key: "at_risk", label: "In Dispute", desc: "In active dispute — weigh carefully." },
 ];
 const TOOLTIP = {
   strategic: "Strategic — a key relationship. Handle with priority (terms, responsiveness, retention).",
-  at_risk: "At-Risk — documented disputes, slow responses, or payment issues. Use as a signal.",
+  at_risk: "In Dispute — documented disputes, slow responses, or payment issues. Use as a signal.",
   standard: "Standard — no special handling.",
 };
 

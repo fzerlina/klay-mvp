@@ -199,7 +199,7 @@ const HEALTH_FILTER_OPTIONS = [
 const TIER_FILTER_OPTIONS = [
   { k: "strategic", lbl: "Strategic" },
   { k: "standard",  lbl: "Standard" },
-  { k: "at_risk",   lbl: "At-Risk" },
+  { k: "at_risk",   lbl: "In Dispute" },
 ];
 const ALL_TERMS = ["COD", "NET 7", "NET 14", "NET 15", "NET 21", "NET 30", "NET 45", "NET 60"];
 

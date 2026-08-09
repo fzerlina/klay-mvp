@@ -37,7 +37,7 @@ export function ageBucketOf(daysOverdue) {
   return "b_gt120";
 }
 
-// ── Relationship tier — Strategic / Standard / At-Risk ─────────────────────
+// ── Relationship tier — Strategic / Standard / In Dispute ──────────────────
 // The tier is a VENDOR-MASTER attribute (PRD TP-02), not an AP-Aging concept.
 // This returns the seeded base value; live edits (from Vendor master or the
 // aging table) live on the vendor record in VendorsContext, which the page
@@ -384,5 +384,5 @@ export function buildVendorPivot(lines) {
 export const RELATIONSHIP_LABEL = {
   strategic: "Strategic",
   standard:  "Standard",
-  at_risk:   "At-Risk",
+  at_risk:   "In Dispute",
 };

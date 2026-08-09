@@ -404,7 +404,7 @@ function FilterPopover({ values, onChange, vendors: vendorList, exceptionOnly, o
         <div className="lg-filter-fld">
           <div className="lg-filter-fld-lbl">Relationship ({(draft.tier && draft.tier.size) > 0 ? `${draft.tier.size} selected` : "all"})</div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {[["strategic", "Strategic"], ["standard", "Standard"], ["at_risk", "At-Risk"]].map(([k, lbl]) => (
+            {[["strategic", "Strategic"], ["standard", "Standard"], ["at_risk", "In Dispute"]].map(([k, lbl]) => (
               <button
                 type="button"
                 key={k}

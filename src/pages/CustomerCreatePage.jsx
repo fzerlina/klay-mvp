@@ -422,7 +422,7 @@ export default function CustomerCreatePage() {
                   {[
                     { k: "strategic", lbl: "Strategic", desc: "Relationship-sensitive — a key account to protect." },
                     { k: "standard",  lbl: "Standard",  desc: "Default. No special handling." },
-                    { k: "at_risk",   lbl: "At-Risk",   desc: "Disputes or slow payment — weigh carefully." },
+                    { k: "at_risk",   lbl: "In Dispute", desc: "In active dispute — weigh carefully." },
                   ].map((t) => (
                     <button
                       type="button"
