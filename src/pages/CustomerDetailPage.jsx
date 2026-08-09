@@ -1,28 +1,39 @@
 import { useState, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { INVOICES } from "../data/seed/invoices";
-import { useCustomers } from "../state/CustomersContext";
+import { useCustomers, AR_ACCT_LABELS } from "../state/CustomersContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
-import { formatRupiah, formatDate } from "../lib/format";
+import { withholdingLabel } from "../data/labels";
+import { formatRupiah, formatDate, termLabel } from "../lib/format";
 import RelationshipTierControl, { TIER_LABEL } from "../components/RelationshipTier";
 import "./vendor-detail.css";
 
 // ── Customer Detail (mirror of Vendor Detail, AR side) ───────────────────────
-// Full page at /customers/:id. Status bar + health alerts, section grid, a
-// Transactions tab (invoices for this customer) and an Activity/change log.
-// Lifecycle actions are capability-gated: Approve / Credit hold / Release /
-// Deactivate / Reactivate and manual health are the approver control (ar.post —
-// Finance Manager + Accounting Manager). SoD: the AR Staff who onboards a
-// customer can't approve it or place a credit hold.
+// Full page at /customers/:id. Two status axes (lifecycle + approval) plus an
+// independent credit-hold flag, a section grid, an Invoices tab, version history,
+// and an Audit log. Lifecycle/approval/hold actions are capability-gated:
+// Submit is the maker action (ar transact); Approve / Reject / Deactivate /
+// Reactivate / Credit hold / Release are the approver control (ar.post — Finance
+// Manager + Accounting Manager). SoD: the AR Staff who onboards can't approve.
 
+// Two independent axes: lifecycle (draft/active/inactive) and approval.
 const STATUS = {
-  pending:  { cls: "pending",  lbl: "Pending · awaiting approval" },
+  draft:    { cls: "draft",    lbl: "Draft" },
   active:   { cls: "active",   lbl: "Active" },
   inactive: { cls: "inactive", lbl: "Inactive" },
-  blocked:  { cls: "blocked",  lbl: "Credit hold" },
 };
-const HEALTH = { review: "Review", flagged: "Flagged" };
+const APPROVAL = {
+  approved:         { cls: "approved", lbl: "Approved" },
+  pending_approval: { cls: "pending",  lbl: "Pending approval" },
+};
+const PKP_LABEL = { PKP: "PKP — VAT-registered", NON_PKP: "Non-PKP", UNKNOWN: "Unknown — not set" };
 const TYPE_LABEL = { perusahaan: "Company", individu: "Individual" };
+
+function digitsOnly(s) { return (s || "").replace(/\D/g, ""); }
+function bankAcc(acc) {
+  const d = digitsOnly(acc);
+  return d.length > 4 ? `•••• ${d.slice(-4)}` : acc;
+}
 
 // AR invoice payment status → tone + label (seed uses Bahasa enum values).
 function invStatusMeta(payStatus) {
@@ -34,11 +45,12 @@ function invStatusMeta(payStatus) {
     default:           return { tone: "muted",   label: payStatus || "—" };
   }
 }
+const BLANK_BANK = { name: "", code: "", branch: "", acc: "", holder: "" };
 
 export default function CustomerDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { customerById, setCustomerStatus, setCustomerHealth, changeLog } = useCustomers();
+  const { customerById, setCustomerStatus, submitCustomer, rejectCustomer, setCustomerApproval, setCustomerHold, setCompanyBank, changeLog, versionsOf } = useCustomers();
   const { user, hasCapability, hasLevel } = useCurrentUser();
 
   const customer = customerById(id);
@@ -48,8 +60,11 @@ export default function CustomerDetailPage() {
   const canInvoice = hasLevel("ar", "transact");
 
   const [tab, setTab] = useState("overview");
+  const [openVer, setOpenVer] = useState(null); // expanded version snapshot id
   const [dialog, setDialog] = useState(null);
   const [reason, setReason] = useState("");
+  const [bankOpen, setBankOpen] = useState(false); // receiving-account editor
+  const [bankForm, setBankForm] = useState(BLANK_BANK);
   const [toast, setToast] = useState("");
   function flash(msg) { setToast(msg); setTimeout(() => setToast(""), 2200); }
   function openDialog(cfg) { setReason(""); setDialog(cfg); }
@@ -61,6 +76,7 @@ export default function CustomerDetailPage() {
   }, [customer]);
   const outstanding = useMemo(() => txns.filter((inv) => inv.payStatus !== "lunas").reduce((s, inv) => s + (inv.total || 0), 0), [txns]);
   const log = (customer && changeLog[customer.id]) || [];
+  const vlist = customer ? versionsOf(customer.id) : [];
 
   if (!customer) {
     return (
@@ -74,9 +90,15 @@ export default function CustomerDetailPage() {
   }
 
   const st = STATUS[customer.status] || STATUS.active;
+  const appr = APPROVAL[customer.approval] || APPROVAL.approved;
+  const isDraft = customer.status === "draft";
+  // "Awaiting approval" = submitted (Active) but not yet approved. A Draft is
+  // pre-submit, so its Approve/Reject don't show until it's submitted.
+  const awaitingApproval = !isDraft && customer.approval === "pending_approval";
+  const overLimit = customer.creditLimit > 0 && (customer.ar || 0) > customer.creditLimit;
   const meta = { actor: user.name };
   const doStatus = (status, extra) => { setCustomerStatus(customer.id, status, { ...meta, ...extra }); };
-  const overLimit = customer.creditLimit > 0 && (customer.ar || 0) > customer.creditLimit;
+  const doApprove = () => { setCustomerApproval(customer.id, "approved", { ...meta, event: "Approved" }); };
 
   function confirmDialog() {
     if (!dialog) return;
@@ -92,22 +114,36 @@ export default function CustomerDetailPage() {
     reasonRequired: false, confirmLabel: "Deactivate", danger: false,
     onConfirm: (r) => { doStatus("inactive", { reason: r, event: "Deactivated" }); flash(`${customer.name} set to inactive`); },
   });
-  const askBlock = () => openDialog({
+  const askHold = () => openDialog({
     title: `Place ${customer.name} on credit hold?`,
-    body: "No new invoices will be allowed until the hold is released. Use for over-limit exposure, bad debt, or an open dispute. A reason is required.",
+    body: "No new invoices should be issued until the hold is released. Use for over-limit exposure, bad-debt risk, or an open dispute. A reason is required.",
     reasonRequired: true, reasonPlaceholder: "e.g. AR far exceeds the credit limit — pausing new orders until paid down",
     confirmLabel: "Place on hold", danger: true,
-    onConfirm: (r) => { doStatus("blocked", { reason: r, event: "Credit hold" }); flash(`${customer.name} placed on credit hold`); },
+    onConfirm: (r) => { setCustomerHold(customer.id, true, { reason: r, actor: user.name }); flash(`${customer.name} placed on credit hold`); },
   });
   const askReject = () => openDialog({
     title: `Reject ${customer.name}?`,
-    body: "The draft will be declined and set to Inactive. Record why, so whoever onboarded it can revise and resubmit.",
+    body: (customer.current_version || 0) === 0
+      ? "This returns the customer to Draft so whoever onboarded it can revise and resubmit. Record why."
+      : "This discards the pending change; the customer stays on its last approved version. Record why.",
     reasonRequired: true, reasonPlaceholder: "e.g. NPWP doesn't match the legal name provided",
-    confirmLabel: "Reject customer", danger: true,
-    onConfirm: (r) => { doStatus("inactive", { reason: r, event: "Rejected" }); flash(`${customer.name} rejected`); },
+    confirmLabel: "Reject", danger: true,
+    onConfirm: (r) => { rejectCustomer(customer.id, { reason: r, actor: user.name }); flash(`${customer.name} rejected`); },
   });
 
-  const avgInvoice = txns.length ? Math.round(txns.reduce((s, inv) => s + (inv.total || 0), 0) / txns.length) : 0;
+  // Change the company (receiving) account — our own account, logged not gated.
+  const openBank = () => {
+    setBankForm(customer.company_bank ? { ...BLANK_BANK, ...customer.company_bank } : BLANK_BANK);
+    setBankOpen(true);
+  };
+  function saveBank() {
+    if (!bankForm.name.trim() || digitsOnly(bankForm.acc).length < 4) return;
+    setCompanyBank(customer.id, { ...bankForm }, { actor: user.name });
+    flash("Receiving account updated");
+    setBankOpen(false);
+  }
+
+  const primary = customer.contacts?.[0];
 
   return (
     <div className="vd-page">
@@ -121,7 +157,8 @@ export default function CustomerDetailPage() {
             <div className="vd-title-row">
               <span className="vd-title">{customer.name}</span>
               {customer.status !== "active" && <span className={`vd-status ${st.cls}`}>{st.lbl}</span>}
-              {HEALTH[customer.health] && <span className={`vd-hchip ${customer.health}`}>{HEALTH[customer.health]}</span>}
+              {awaitingApproval && <span className={`vd-status ${appr.cls}`}>{appr.lbl}</span>}
+              {customer.on_hold && <span className="vd-status blocked">Credit hold</span>}
               <RelationshipTierControl customerId={customer.id} />
             </div>
             <div className="vd-sub">
@@ -129,13 +166,18 @@ export default function CustomerDetailPage() {
               <span>·</span>
               <span>{TYPE_LABEL[customer.type] || customer.type}</span>
               <span>·</span>
-              <span>{customer.top}</span>
+              <span>{termLabel(customer.top)}</span>
             </div>
           </div>
           <div className="vd-actions">
-            {customer.status === "pending" && canApprove && (
+            {isDraft && canInvoice && (
+              <button className="vd-btn primary" onClick={() => { submitCustomer(customer.id, { actor: user.name }); flash(`${customer.name} submitted — now active, pending approval`); }}>
+                <svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg> Submit for approval
+              </button>
+            )}
+            {awaitingApproval && canApprove && (
               <>
-                <button className="vd-btn primary" onClick={() => { doStatus("active", { event: "Approved" }); flash(`${customer.name} approved`); }}>
+                <button className="vd-btn primary" onClick={() => { doApprove(); flash(`${customer.name} approved`); }}>
                   <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" /></svg> Approve
                 </button>
                 <button className="vd-btn danger" onClick={askReject}>
@@ -143,60 +185,61 @@ export default function CustomerDetailPage() {
                 </button>
               </>
             )}
-            {customer.status === "blocked" && canApprove && (
-              <button className="vd-btn primary" onClick={() => { doStatus("active", { event: "Credit hold released" }); flash(`${customer.name} released`); }}>
-                <svg viewBox="0 0 24 24"><path d="M7 11V7a5 5 0 0 1 9.9-1" /><rect x="4" y="11" width="16" height="10" rx="2" /></svg> Release hold
-              </button>
-            )}
             {customer.status === "inactive" && canApprove && (
               <button className="vd-btn" onClick={() => { doStatus("active", { event: "Reactivated" }); flash(`${customer.name} reactivated`); }}>
                 <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" /></svg> Reactivate
               </button>
             )}
             {customer.status === "active" && canApprove && (
-              <>
-                <button className="vd-btn" onClick={askDeactivate}>Deactivate</button>
-                <button className="vd-btn danger" onClick={askBlock}>Credit hold</button>
-              </>
+              <button className="vd-btn" onClick={askDeactivate}>Deactivate</button>
             )}
-            {canInvoice && <button className="vd-btn" onClick={() => flash("New invoice (demo)")}>
+            {customer.status === "active" && !customer.on_hold && canApprove && (
+              <button className="vd-btn danger" onClick={askHold}>Credit hold</button>
+            )}
+            {customer.on_hold && canApprove && (
+              <button className="vd-btn primary" onClick={() => { setCustomerHold(customer.id, false, { actor: user.name }); flash(`${customer.name} released from credit hold`); }}>
+                <svg viewBox="0 0 24 24"><path d="M7 11V7a5 5 0 0 1 9.9-1" /><rect x="4" y="11" width="16" height="10" rx="2" /></svg> Release hold
+              </button>
+            )}
+            {canInvoice && !isDraft && <button className="vd-btn" onClick={() => flash("New invoice (demo)")}>
               <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg> New Invoice
             </button>}
           </div>
         </div>
 
-        {/* ── Health / status alert ───────────────────────────────── */}
-        {customer.health === "flagged" && (
-          <div className="vd-alert flagged">
+        {/* ── Draft / Approval / Hold / Over-limit alerts ─────────── */}
+        {isDraft && (
+          <div className="vd-alert info">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></svg>
+            <div><strong>Draft.</strong> This customer can't be used on invoices yet. {canInvoice ? "Submit it for approval to make it Active — then a manager approves it before it can post." : "Whoever onboarded it submits it for approval to make it Active."}</div>
+          </div>
+        )}
+        {awaitingApproval && (
+          <div className="vd-alert info">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></svg>
+            <div><strong>Pending approval.</strong> This customer is usable to create invoices, but stays blocking at posting until approved. {canApprove ? "Review the details, then Approve — or Reject to send it back." : "An approver (Finance Manager or Accounting Manager) signs it off."}</div>
+          </div>
+        )}
+        {customer.on_hold && (
+          <div className="vd-alert flagged" style={{ marginTop: (isDraft || awaitingApproval) ? 10 : 0 }}>
             <svg viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /></svg>
-            <div><strong>Flagged.</strong> This customer has a flagged health signal (over-limit exposure, bad-debt risk, or a manual flag). Review before issuing new invoices or extending credit.</div>
+            <div><strong>Credit hold.</strong> No new invoices should be issued until released.{customer.hold_reason ? ` Reason: ${customer.hold_reason}` : ""} {canApprove ? "Use Release hold once resolved." : "An approver releases the hold."}</div>
           </div>
         )}
-        {customer.health === "review" && (
-          <div className="vd-alert review">
-            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><path d="M12 8v4M12 16h.01" /></svg>
-            <div><strong>Review recommended.</strong> Something about this customer is worth a look — check the AR balance against the credit limit and recent payment behaviour.</div>
-          </div>
-        )}
-        {overLimit && customer.status !== "blocked" && (
-          <div className="vd-alert review" style={{ marginTop: customer.health && customer.health !== "healthy" ? 10 : 0 }}>
+        {overLimit && !customer.on_hold && (
+          <div className="vd-alert review" style={{ marginTop: (isDraft || awaitingApproval) ? 10 : 0 }}>
             <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><path d="M12 8v4M12 16h.01" /></svg>
             <div><strong>Over credit limit.</strong> AR <strong>{formatRupiah(customer.ar)}</strong> exceeds the limit of <strong>{formatRupiah(customer.creditLimit)}</strong>. Consider a credit hold or a limit review before new orders.</div>
-          </div>
-        )}
-        {customer.status === "pending" && (
-          <div className="vd-alert info" style={{ marginTop: (customer.health && customer.health !== "healthy") || overLimit ? 10 : 0 }}>
-            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></svg>
-            <div><strong>Draft — awaiting approval.</strong> {canApprove ? "Review the details, then Approve to activate — or Reject to send it back." : "An approver (Finance Manager or Accounting Manager) confirms the details and activates it."}</div>
           </div>
         )}
 
         {/* ── Tabs ────────────────────────────────────────────────── */}
         <div className="vd-tabs">
-          {[["overview", "Overview"], ["transactions", "Transactions"], ["activity", "Activity"]].map(([k, lbl]) => (
+          {[["overview", "Details"], ["transactions", "Invoices & Payment History"], ["versions", "Versions"], ["activity", "Audit log"]].map(([k, lbl]) => (
             <button key={k} className={`vd-tab${tab === k ? " active" : ""}`} onClick={() => setTab(k)}>
               {lbl}
               {k === "transactions" && txns.length > 0 && <span className="vd-tab-count">{txns.length}</span>}
+              {k === "versions" && vlist.length > 0 && <span className="vd-tab-count">{vlist.length}</span>}
               {k === "activity" && log.length > 0 && <span className="vd-tab-count">{log.length}</span>}
             </button>
           ))}
@@ -205,44 +248,67 @@ export default function CustomerDetailPage() {
         {/* ── OVERVIEW ────────────────────────────────────────────── */}
         {tab === "overview" && (
           <div className="vd-body">
+            <div className="vd-gate-legend">
+              <span className="vd-gate">⚷</span> Changing a marked field starts a new approval cycle — the customer stays usable to create invoices but is blocked at posting until re-approved.
+            </div>
             <div className="vd-grid">
+              {/* Status — the two axes + hold */}
+              <div className="vd-card">
+                <div className="vd-card-title">Status</div>
+                <Row l="Lifecycle status" v={st.lbl} />
+                <Row l="Approval status" v={appr.lbl} />
+                <Row l="Current version" v={vlist[0]?.versionId || "— none yet"} />
+                {customer.on_hold && <Row l="Credit hold" v={customer.hold_reason || "On hold"} />}
+              </div>
+
               {/* Identity */}
               <div className="vd-card">
                 <div className="vd-card-title">Identity</div>
-                <Row l="Display name" v={customer.name} />
-                <Row l="Legal name" v={customer.legalName || customer.name} />
                 <Row l="Customer code" v={customer.code} mono />
+                <Row l="Legal name" v={customer.legalName || customer.name} gated />
                 <Row l="Entity type" v={TYPE_LABEL[customer.type] || customer.type} />
-                <Row l="Relationship tier" v={TIER_LABEL[customer.relationship_tier] || "Standard"} />
                 <Row l="Address" v={customer.address || "—"} />
+                <Row l="Relationship tier" v={TIER_LABEL[customer.relationship_tier] || "Standard"} />
               </div>
 
               {/* Tax & Compliance */}
               <div className="vd-card">
-                <div className="vd-card-title">
-                  Tax &amp; Compliance
-                  {canApprove && (
-                    <span className="vd-health-set">
-                      {["healthy", "review", "flagged"].map((h) => (
-                        <button key={h} className={`${customer.health === h ? `on ${h}` : ""}`}
-                          onClick={() => { setCustomerHealth(customer.id, h, meta); flash(`Health set to ${h}`); }}>
-                          {h === "healthy" ? "Healthy" : HEALTH[h]}
-                        </button>
-                      ))}
-                    </span>
-                  )}
-                </div>
-                <Row l="NPWP" v={customer.npwp || "—"} mono />
-                <Row l="Health" v={customer.health === "healthy" || !customer.health ? "Current" : HEALTH[customer.health]} />
+                <div className="vd-card-title">Tax &amp; Compliance</div>
+                <Row l={customer.type === "individu" ? "NIK / NPWP" : "NPWP"} v={customer.npwp || "—"} mono gated />
+                <Row l="PKP status" v={PKP_LABEL[customer.pkp] || customer.pkp} />
+                <Row l="Tax Invoice (Faktur Pajak)" v={customer.pkp === "PKP" ? "Required" : "Not required"} />
+                <Row l="Withholding" v={withholdingLabel(customer.pph, !!customer.npwp)} />
               </div>
 
               {/* Credit & Terms */}
               <div className="vd-card">
                 <div className="vd-card-title">Credit &amp; Terms</div>
-                <Row l="Payment terms" v={customer.top || "—"} />
-                <Row l="Credit limit" v={customer.creditLimit > 0 ? formatRupiah(customer.creditLimit) : "—"} />
-                <Row l="AR balance" v={customer.ar > 0 ? formatRupiah(customer.ar) : "—"} />
+                <Row l="Payment terms" v={termLabel(customer.top)} gated />
+                <Row l="Credit limit" v={customer.creditLimit > 0 ? formatRupiah(customer.creditLimit) : "—"} gated />
+                <Row l="AR account" v={AR_ACCT_LABELS[customer.acct] || customer.acct || "—"} gated />
                 <Row l="Currency" v={customer.currency || "IDR"} />
+                <Row l="AR balance" v={customer.ar > 0 ? formatRupiah(customer.ar) : "—"} />
+              </div>
+
+              {/* Receiving account — our house account, single */}
+              <div className="vd-card">
+                <div className="vd-card-title">Receiving Account</div>
+                <div className="vd-bank-lbl">Company receiving account <span className="vd-bank-hint">— paid into</span></div>
+                {customer.company_bank ? (
+                  <div className="vd-bank">
+                    <div className="vd-bank-name">{customer.company_bank.name}{customer.company_bank.branch ? ` — ${customer.company_bank.branch}` : ""}</div>
+                    <div className="vd-bank-acc">{bankAcc(customer.company_bank.acc)}</div>
+                    <div className="vd-bank-holder">a/n {customer.company_bank.holder || "—"}</div>
+                  </div>
+                ) : (
+                  <div className="vd-row-val dim" style={{ textAlign: "left", fontSize: 12 }}>No receiving account set.</div>
+                )}
+                {canApprove && (
+                  <button className="vd-btn vd-bank-btn" onClick={openBank}>
+                    <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+                    {customer.company_bank ? "Change receiving account" : "Set receiving account"}
+                  </button>
+                )}
               </div>
 
               {/* Invoicing */}
@@ -256,35 +322,18 @@ export default function CustomerDetailPage() {
               {/* Contacts */}
               <div className="vd-card">
                 <div className="vd-card-title">Primary Contact</div>
-                <Row l="Name" v={customer.contacts?.[0]?.name || "—"} />
-                <Row l="Role" v={customer.contacts?.[0]?.title || "—"} />
-                <Row l="Email" v={customer.contacts?.[0]?.email || "—"} />
-                <Row l="Phone" v={customer.contacts?.[0]?.phone || "—"} mono />
+                <Row l="Name" v={primary?.name || "—"} />
+                <Row l="Role" v={primary?.title || "—"} />
+                <Row l="Email" v={primary?.email || "—"} />
+                <Row l="Phone" v={primary?.phone || "—"} mono />
               </div>
 
               {/* Notes */}
-              <div className="vd-card">
+              <div className="vd-card span2">
                 <div className="vd-card-title">Internal Notes</div>
                 <div style={{ fontSize: 12.5, color: "var(--color-text-secondary)", lineHeight: 1.6 }}>
                   {customer.notes || <span className="vd-row-val dim">No notes.</span>}
                 </div>
-              </div>
-
-              {/* Health panel */}
-              <div className="vd-card span2">
-                <div className="vd-card-title">Customer Health</div>
-                {txns.length === 0 ? (
-                  <div className="vd-row-val dim" style={{ textAlign: "left", fontSize: 12 }}>
-                    No transaction history yet — behavioural metrics appear once this customer has activity.
-                  </div>
-                ) : (
-                  <div className="vd-metrics">
-                    <div><div className="vd-metric-lbl">Outstanding</div><div className={`vd-metric-val${outstanding > 0 ? " danger" : ""}`}>{outstanding > 0 ? formatRupiah(outstanding) : "—"}</div></div>
-                    <div><div className="vd-metric-lbl">Invoices</div><div className="vd-metric-val">{txns.length}</div></div>
-                    <div><div className="vd-metric-lbl">Avg invoice</div><div className="vd-metric-val">{formatRupiah(avgInvoice)}</div></div>
-                    <div><div className="vd-metric-lbl">Last invoice</div><div className="vd-metric-val" style={{ fontSize: 13 }}>{customer.lastInv ? formatDate(customer.lastInv) : "—"}</div></div>
-                  </div>
-                )}
               </div>
             </div>
           </div>
@@ -333,13 +382,48 @@ export default function CustomerDetailPage() {
           </div>
         )}
 
+        {/* ── VERSIONS ────────────────────────────────────────────── */}
+        {tab === "versions" && (
+          <div className="vd-body">
+            <div className="vd-card">
+              <div className="vd-card-title">Version history</div>
+              <div className="vd-ver-intro">Each completed approval cycle freezes the customer's full record as a version.</div>
+              {vlist.length === 0 ? (
+                <div className="vd-empty">No approved version yet — this customer has never completed an approval cycle.</div>
+              ) : (
+                <div className="vd-ver-list">
+                  {vlist.map((ver, i) => {
+                    const open = openVer === ver.versionId;
+                    return (
+                      <div className={`vd-ver${open ? " open" : ""}`} key={ver.versionId}>
+                        <button className="vd-ver-head" onClick={() => setOpenVer(open ? null : ver.versionId)}>
+                          <span className="vd-ver-caret">{open ? "▾" : "▸"}</span>
+                          <span className="vd-ver-id">{ver.versionId}</span>
+                          {i === 0 && <span className="vd-ver-current">Current</span>}
+                          <span className="vd-ver-meta">approved {formatDate(ver.approvedAt)} · {ver.approvedBy}</span>
+                          <span className="vd-ver-changed">
+                            {ver.changedFields.length > 0
+                              ? `changed: ${ver.changedFields.map((f) => VER_FIELD_LABEL[f] || f).join(", ")}`
+                              : "initial version"}
+                          </span>
+                        </button>
+                        {open && <VersionSnapshot data={ver.data} reason={ver.reason} />}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* ── ACTIVITY ────────────────────────────────────────────── */}
         {tab === "activity" && (
           <div className="vd-body">
             <div className="vd-card">
               <div className="vd-card-title">Change Log</div>
               {log.length === 0 ? (
-                <div className="vd-empty">No changes recorded in this session. Status changes, health overrides, and credit holds will appear here.</div>
+                <div className="vd-empty">No changes recorded in this session. Status changes, approvals, and credit holds will appear here.</div>
               ) : (
                 <ul className="vd-log">
                   {log.map((e, i) => (
@@ -388,16 +472,97 @@ export default function CustomerDetailPage() {
         </div>
       )}
 
+      {/* ── Change receiving account modal (our own account — logged) ── */}
+      {bankOpen && (
+        <div className="vd-modal-overlay" onClick={() => setBankOpen(false)}>
+          <div className="vd-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="vd-modal-title">{customer.company_bank ? "Change receiving account" : "Set receiving account"}</div>
+            <div className="vd-modal-body">
+              The company account this customer's invoices are paid <strong>into</strong>. This is our own account — the change is logged but doesn't require approval.
+            </div>
+            <div className="vd-bank-form">
+              <label>Bank name</label>
+              <input value={bankForm.name} onChange={(e) => setBankForm({ ...bankForm, name: e.target.value })} placeholder="BCA / Mandiri / BNI…" autoFocus />
+              <div className="vd-bank-grid">
+                <div>
+                  <label>Branch</label>
+                  <input value={bankForm.branch} onChange={(e) => setBankForm({ ...bankForm, branch: e.target.value })} placeholder="KCU Sudirman" />
+                </div>
+                <div>
+                  <label>Account number</label>
+                  <input value={bankForm.acc} onChange={(e) => setBankForm({ ...bankForm, acc: e.target.value })} placeholder="123-456-7890" style={{ fontFamily: "var(--font-mono)" }} />
+                </div>
+              </div>
+              <label>Account holder</label>
+              <input value={bankForm.holder} onChange={(e) => setBankForm({ ...bankForm, holder: e.target.value })} placeholder="Registered account name" />
+            </div>
+            <div className="vd-modal-actions">
+              <button className="vd-btn" onClick={() => setBankOpen(false)}>Cancel</button>
+              <button className="vd-btn primary" onClick={saveBank} disabled={!bankForm.name.trim() || digitsOnly(bankForm.acc).length < 4}>Save account</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {toast && <div className="toast show">{toast}</div>}
     </div>
   );
 }
 
-function Row({ l, v, mono }) {
+function Row({ l, v, mono, gated }) {
   return (
     <div className="vd-row">
-      <span className="vd-row-lbl">{l}</span>
+      <span className="vd-row-lbl">
+        {l}
+        {gated && <span className="vd-gate" title="Changing this field requires manager approval">⚷</span>}
+      </span>
       <span className={`vd-row-val${mono ? " mono" : ""}`}>{v}</span>
+    </div>
+  );
+}
+
+// Human labels for changed-field keys shown on a version row.
+const VER_FIELD_LABEL = {
+  code: "Code", name: "Display name", legalName: "Legal name", type: "Entity type",
+  address: "Address", npwp: "NPWP/NIK", pkp: "PKP status", pph: "Withholding",
+  top: "Payment terms", currency: "Currency", creditLimit: "Credit limit", acct: "AR account",
+  company_bank: "Receiving account", contacts: "Contacts", notes: "Notes",
+  relationship_tier: "Relationship tier", relationship_tier_note: "Tier note",
+  status: "Lifecycle", approval: "Approval",
+};
+
+// Read-only full record of a frozen version — mirrors the Details tab layout.
+function VersionSnapshot({ data, reason }) {
+  const c = data.company_bank;
+  const primary = data.contacts?.[0];
+  return (
+    <div className="vd-ver-snap">
+      {reason && <div className="vd-ver-reason">Reason: {reason}</div>}
+      <div className="vd-ver-grp">Identity</div>
+      <Row l="Customer code" v={data.code} mono />
+      <Row l="Legal name" v={data.legalName || data.name} />
+      <Row l="Entity type" v={TYPE_LABEL[data.type] || data.type} />
+      <Row l="Address" v={data.address || "—"} />
+      <Row l="Relationship tier" v={TIER_LABEL[data.relationship_tier] || "Standard"} />
+      <div className="vd-ver-grp">Tax &amp; Compliance</div>
+      <Row l={data.type === "individu" ? "NIK / NPWP" : "NPWP"} v={data.npwp || "—"} mono />
+      <Row l="PKP status" v={PKP_LABEL[data.pkp] || data.pkp} />
+      <Row l="Tax Invoice (Faktur Pajak)" v={data.pkp === "PKP" ? "Required" : "Not required"} />
+      <Row l="Withholding" v={withholdingLabel(data.pph, !!data.npwp)} />
+      <div className="vd-ver-grp">Credit &amp; Terms</div>
+      <Row l="Payment terms" v={termLabel(data.top)} />
+      <Row l="Credit limit" v={data.creditLimit > 0 ? formatRupiah(data.creditLimit) : "—"} />
+      <Row l="AR account" v={AR_ACCT_LABELS[data.acct] || data.acct || "—"} />
+      <Row l="Currency" v={data.currency || "IDR"} />
+      <div className="vd-ver-grp">Receiving Account</div>
+      <Row l="Company receiving account (paid into)" v={c ? `${c.name}${c.branch ? ` — ${c.branch}` : ""} · ${bankAcc(c.acc)} · a/n ${c.holder || "—"}` : "—"} />
+      <div className="vd-ver-grp">Primary Contact</div>
+      <Row l="Name" v={primary?.name || "—"} />
+      <Row l="Role" v={primary?.title || "—"} />
+      <Row l="Email" v={primary?.email || "—"} />
+      <Row l="Phone" v={primary?.phone || "—"} mono />
+      <div className="vd-ver-grp">Internal Notes</div>
+      <div className="vd-ver-notes">{data.notes || "—"}</div>
     </div>
   );
 }

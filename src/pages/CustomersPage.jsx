@@ -3,18 +3,13 @@ import { useNavigate } from "react-router-dom";
 import { useCustomers } from "../state/CustomersContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
 import { TODAY, daysSince } from "../lib/clock";
-import { formatDate } from "../lib/format";
+import { formatDate, termLabel } from "../lib/format";
 import AiChatDrawer from "./AiChatDrawer";
 import SummaryDrawer from "./SummaryDrawer";
 import { computeCustomersInsights, makeCustomersAiContext } from "./ai-customers-context";
 import { TierPill } from "../components/RelationshipTier";
 import "./modules.css";
 import "./invoices-ledger.css";
-
-const HEALTH_CHIP = {
-  review:  { cls: "review",  lbl: "Review" },
-  flagged: { cls: "flagged", lbl: "Flagged" },
-};
 
 function fmtRp(n) {
   if (n == null) return "—";
@@ -30,10 +25,23 @@ function maskNpwp(taxId) {
   return `••• ${last6.slice(0, 3)}.${last6.slice(3)}`;
 }
 
+// Lifecycle badge (draft | active | inactive) + approval badge (approved | pending).
+const LIFECYCLE_BADGE = {
+  draft:    { cls: "draft",    lbl: "Draft" },
+  inactive: { cls: "inactive", lbl: "Inactive" },
+  active:   { cls: "active",   lbl: "Active" },
+};
+function LifecycleBadge({ status }) {
+  const s = LIFECYCLE_BADGE[status] || LIFECYCLE_BADGE.active;
+  return <span className={`v-life ${s.cls}`}>{s.lbl}</span>;
+}
+function ApprovalBadge({ approval }) {
+  if (approval === "pending_approval") return <span className="v-appr pending">Pending approval</span>;
+  return <span className="v-appr approved">Approved</span>;
+}
+
 function CustomerRow({ r, onClick, onKebab, isAlt, showKebab = true }) {
   const stale = r.lastInv && daysSince(r.lastInv) >= 60 && r.status === "active";
-  const overLimit = r.creditLimit > 0 && r.ar > r.creditLimit;
-  const chip = HEALTH_CHIP[r.health];
   const npwp = maskNpwp(r.npwp);
   return (
     <div className={`lg-row${isAlt ? " alt" : ""}`} onClick={onClick}>
@@ -41,28 +49,16 @@ function CustomerRow({ r, onClick, onKebab, isAlt, showKebab = true }) {
       <div className="lg-cell-customer">
         <div className="lg-cell-customer-body">
           <div className="lg-cell-customer-name">
-            <span className="vh-name">{r.name}</span>
-            {chip && <span className={`vh-chip ${chip.cls}`} title={`Health: ${chip.lbl}`}>{chip.lbl}</span>}
-            <TierPill tier={r.relationship_tier} />
+            <span className="vh-name">{r.legalName || r.name}</span>
+            {r.on_hold && <span className="v-hold" title={r.hold_reason ? `Credit hold: ${r.hold_reason}` : "On credit hold"}>Credit hold</span>}
           </div>
-          <div className="lg-cell-customer-addr">{r.contact}{r.email ? ` · ${r.email}` : ""}</div>
         </div>
       </div>
-      <div>
-        <span className={`type-badge ${r.type}`}>{r.type === "perusahaan" ? "Company" : "Individual"}</span>
-      </div>
       <div className="lg-cell-date">{npwp || <span className="lg-cell-em-dash">—</span>}</div>
-      <div className="lg-cell-date">{r.top}</div>
+      <div className="lg-cell-date">{termLabel(r.top)}</div>
       <div style={{ fontSize: 11, color: "var(--color-text-secondary)", textAlign: "right" }}>
         {r.creditLimit > 0 ? (
           <><span style={{ color: "var(--color-text-tertiary)", marginRight: 2 }}>Rp</span>{fmtRp(r.creditLimit)}</>
-        ) : (
-          <span className="lg-cell-em-dash">—</span>
-        )}
-      </div>
-      <div className="lg-cell-total" style={(r.arOverdue || overLimit) ? { color: "var(--color-danger-text)" } : undefined}>
-        {r.ar > 0 ? (
-          <><span className="lg-cell-total-rp">Rp</span>{fmtRp(r.ar)}</>
         ) : (
           <span className="lg-cell-em-dash">—</span>
         )}
@@ -77,6 +73,11 @@ function CustomerRow({ r, onClick, onKebab, isAlt, showKebab = true }) {
           <span className="lg-cell-em-dash">—</span>
         )}
       </div>
+      <div>{r.relationship_tier && r.relationship_tier !== "standard"
+        ? <TierPill tier={r.relationship_tier} />
+        : <span className="lg-cell-em-dash">—</span>}</div>
+      <div><LifecycleBadge status={r.status} /></div>
+      <div><ApprovalBadge approval={r.approval} /></div>
       <div className="lg-cell-kebab" onClick={(e) => e.stopPropagation()}>
         {showKebab && (
           <button className="lg-kebab" onClick={() => onKebab(r.id)}>
@@ -103,33 +104,33 @@ function RowMenu({ customer, onClose, onAction, canTransact = true, canApprove =
             <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
             Edit
           </div>
-          <div className="row-menu-item" onClick={() => onAction("newInvoice", customer)}>
-            <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-            New Invoice
-          </div>
+          {customer.status !== "draft" && (
+            <div className="row-menu-item" onClick={() => onAction("newInvoice", customer)}>
+              <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              New Invoice
+            </div>
+          )}
           <div className="row-menu-item" onClick={() => onAction("duplicate", customer)}>
             <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
             Duplicate
           </div>
           <div className="row-menu-sep" />
-          {customer.status === "active" && (
-            <>
-              <div className="row-menu-item" onClick={() => onAction("deactivate", customer)}>
-                <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
-                Deactivate
-              </div>
-              {canApprove && (
-                <div className="row-menu-item" onClick={() => onAction("block", customer)}>
-                  <svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                  Credit hold
-                </div>
-              )}
-            </>
+          {customer.status === "draft" && (
+            <div className="row-menu-item" onClick={() => onAction("submit", customer)}>
+              <svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+              Submit for approval
+            </div>
           )}
-          {customer.status === "pending" && canApprove && (
+          {customer.status === "active" && customer.approval === "pending_approval" && canApprove && (
             <div className="row-menu-item" onClick={() => onAction("approve", customer)}>
               <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
               Approve
+            </div>
+          )}
+          {customer.status === "active" && (
+            <div className="row-menu-item" onClick={() => onAction("deactivate", customer)}>
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+              Deactivate
             </div>
           )}
           {customer.status === "inactive" && (
@@ -138,8 +139,14 @@ function RowMenu({ customer, onClose, onAction, canTransact = true, canApprove =
               Reactivate
             </div>
           )}
-          {customer.status === "blocked" && canApprove && (
-            <div className="row-menu-item" onClick={() => onAction("unblock", customer)}>
+          {customer.status === "active" && !customer.on_hold && canApprove && (
+            <div className="row-menu-item" onClick={() => onAction("hold", customer)}>
+              <svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              Credit hold
+            </div>
+          )}
+          {customer.on_hold && canApprove && (
+            <div className="row-menu-item" onClick={() => onAction("release", customer)}>
               <svg viewBox="0 0 24 24"><path d="M7 11V7a5 5 0 0 1 9.9-1"/><rect x="4" y="11" width="16" height="10" rx="2"/></svg>
               Release hold
             </div>
@@ -155,14 +162,9 @@ function RowMenu({ customer, onClose, onAction, canTransact = true, canApprove =
 }
 
 const SORT_LABELS = {
-  "name-asc":     "Name A-Z",
-  "name-desc":    "Name Z-A",
-  "code-asc":     "Code A-Z",
-  "ar-desc":      "AR balance highest ↓",
-  "ar-asc":       "AR balance lowest ↑",
-  "limit-desc":   "Credit limit highest ↓",
-  "lastinv-desc": "Last invoice newest ↓",
-  "lastinv-asc":  "Last invoice oldest ↑",
+  "name-asc":  "Name A-Z",
+  "name-desc": "Name Z-A",
+  "code-asc":  "Code A-Z",
 };
 
 function useClickOutside(ref, onClose) {
@@ -190,89 +192,51 @@ function SortPopover({ value, onPick, onClose }) {
   );
 }
 
-const TYPE_FILTER_OPTIONS = [["perusahaan", "Company"], ["individu", "Individual"]];
-const HEALTH_FILTER_OPTIONS = [
-  { k: "healthy", lbl: "Healthy" },
-  { k: "review",  lbl: "Review" },
-  { k: "flagged", lbl: "Flagged" },
-];
 const TIER_FILTER_OPTIONS = [
   { k: "strategic", lbl: "Strategic" },
   { k: "standard",  lbl: "Standard" },
   { k: "at_risk",   lbl: "In Dispute" },
 ];
-const ALL_TERMS = ["COD", "NET 7", "NET 14", "NET 15", "NET 21", "NET 30", "NET 45", "NET 60"];
 
 function FilterPopover({ values, onChange, onClose }) {
   const ref = useRef(null);
   useClickOutside(ref, onClose);
   const [draft, setDraft] = useState(values);
 
-  const update = (patch) => setDraft((d) => ({ ...d, ...patch }));
   const toggleIn = (key, v) => setDraft((d) => {
     const next = new Set(d[key]);
     next.has(v) ? next.delete(v) : next.add(v);
     return { ...d, [key]: next };
   });
 
-  const reset = () => setDraft({ types: new Set(), terms: new Set(), health: new Set(), tier: new Set(), minAr: "", maxAr: "" });
+  const reset = () => setDraft({ terms: new Set(), tier: new Set() });
   const apply = () => { onChange(draft); onClose(); };
 
+  const allTerms = ["COD", "NET 7", "NET 14", "NET 15", "NET 21", "NET 30", "NET 45", "NET 60"];
   const summary = (set) => (set.size > 0 ? `${set.size} selected` : "all");
 
   return (
     <div className="lg-popover lg-filter-pop" ref={ref}>
       <div className="lg-filter-body">
         <div className="lg-filter-fld">
-          <div className="lg-filter-fld-lbl">Type ({summary(draft.types)})</div>
-          <div className="lg-toggle-row">
-            {TYPE_FILTER_OPTIONS.map(([v, lbl]) => (
-              <button key={v} className={`lg-toggle${draft.types.has(v) ? " on" : ""}`} onClick={() => toggleIn("types", v)}>
-                {lbl}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="lg-filter-fld">
           <div className="lg-filter-fld-lbl">Payment Terms ({summary(draft.terms)})</div>
           <div className="lg-toggle-row">
-            {ALL_TERMS.map((t) => (
+            {allTerms.map((t) => (
               <button key={t} className={`lg-toggle${draft.terms.has(t) ? " on" : ""}`} onClick={() => toggleIn("terms", t)}>
-                {t}
+                {termLabel(t)}
               </button>
             ))}
           </div>
         </div>
 
         <div className="lg-filter-fld">
-          <div className="lg-filter-fld-lbl">Health ({summary(draft.health)})</div>
-          <div className="lg-toggle-row">
-            {HEALTH_FILTER_OPTIONS.map((h) => (
-              <button key={h.k} className={`lg-toggle${draft.health.has(h.k) ? " on" : ""}`} onClick={() => toggleIn("health", h.k)}>
-                {h.lbl}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="lg-filter-fld">
-          <div className="lg-filter-fld-lbl">Relationship ({summary(draft.tier)})</div>
+          <div className="lg-filter-fld-lbl">Relationship tier ({summary(draft.tier)})</div>
           <div className="lg-toggle-row">
             {TIER_FILTER_OPTIONS.map((t) => (
               <button key={t.k} className={`lg-toggle${draft.tier.has(t.k) ? " on" : ""}`} onClick={() => toggleIn("tier", t.k)}>
                 {t.lbl}
               </button>
             ))}
-          </div>
-        </div>
-
-        <div className="lg-filter-fld">
-          <div className="lg-filter-fld-lbl">AR Balance range (Rp)</div>
-          <div className="lg-filter-row2">
-            <input type="number" className="lg-filter-input" placeholder="Min" value={draft.minAr} onChange={(e) => update({ minAr: e.target.value })} />
-            <span style={{ color: "var(--color-text-tertiary)", fontSize: 11 }}>—</span>
-            <input type="number" className="lg-filter-input" placeholder="Max" value={draft.maxAr} onChange={(e) => update({ maxAr: e.target.value })} />
           </div>
         </div>
       </div>
@@ -296,12 +260,12 @@ export default function CustomersPage() {
   // control action — SoD-separated from creating it. Gate on ar.post, which the
   // Finance Manager and Accounting Manager hold (AR Staff / Finance Staff do not).
   const canApprove = hasCapability("ar.post");
-  const { customers, setCustomerStatus } = useCustomers();
+  const { customers, setCustomerStatus, setCustomerApproval, submitCustomer, setCustomerHold } = useCustomers();
 
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState({ kind: "tab", value: "active" });
   const [sortChoice, setSortChoice] = useState(null);
-  const emptyFilters = { types: new Set(), terms: new Set(), health: new Set(), tier: new Set(), minAr: "", maxAr: "" };
+  const emptyFilters = { terms: new Set(), tier: new Set() };
   const [filterValues, setFilterValues] = useState(emptyFilters);
 
   const [menuOpenFor, setMenuOpenFor] = useState(null);
@@ -331,15 +295,14 @@ export default function CustomersPage() {
 
   // ── Tab counts (by lifecycle status) ─────────────────────────────────────
   const statusCounts = useMemo(() => {
-    const c = { active: 0, pending: 0, inactive: 0, blocked: 0 };
+    const c = { draft: 0, active: 0, inactive: 0 };
     for (const cust of customers) if (c[cust.status] != null) c[cust.status]++;
     return c;
   }, [customers]);
   const tabs = [
     { k: "active",   lbl: "Active",   count: statusCounts.active },
-    { k: "pending",  lbl: "Pending",  count: statusCounts.pending },
+    { k: "draft",    lbl: "Draft",    count: statusCounts.draft },
     { k: "inactive", lbl: "Inactive", count: statusCounts.inactive },
-    { k: "blocked",  lbl: "Blocked",  count: statusCounts.blocked },
   ];
 
   // ── Corpus — tabs map 1:1 to lifecycle status ───────────────────────────
@@ -349,78 +312,62 @@ export default function CustomersPage() {
   }, [filter, customers]);
 
   const hasActiveFilters = useMemo(() => (
-    filterValues.types.size > 0 ||
     filterValues.terms.size > 0 ||
-    filterValues.health.size > 0 ||
     filterValues.tier.size > 0 ||
-    filterValues.minAr !== "" ||
-    filterValues.maxAr !== "" ||
     sortChoice !== null
   ), [filterValues, sortChoice]);
 
   const activeFilterCount = useMemo(() => {
     let n = 0;
-    if (filterValues.types.size > 0) n++;
     if (filterValues.terms.size > 0) n++;
-    if (filterValues.health.size > 0) n++;
     if (filterValues.tier.size > 0) n++;
-    if (filterValues.minAr !== "" || filterValues.maxAr !== "") n++;
     return n;
   }, [filterValues]);
 
   // ── Apply filter values + search ───────────────────────────────────────
   const filteredRows = useMemo(() => {
     let list = corpus;
-    if (filterValues.types.size > 0) list = list.filter((c) => filterValues.types.has(c.type));
     if (filterValues.terms.size > 0) list = list.filter((c) => filterValues.terms.has(c.top));
-    if (filterValues.health.size > 0) list = list.filter((c) => filterValues.health.has(c.health || "healthy"));
     if (filterValues.tier.size > 0) list = list.filter((c) => filterValues.tier.has(c.relationship_tier || "standard"));
-    const min = filterValues.minAr === "" ? null : Number(filterValues.minAr);
-    const max = filterValues.maxAr === "" ? null : Number(filterValues.maxAr);
-    if (min != null && !isNaN(min)) list = list.filter((c) => (c.ar || 0) >= min);
-    if (max != null && !isNaN(max)) list = list.filter((c) => (c.ar || 0) <= max);
 
+    // Search: legal/display name, NPWP (full or partial), and customer code.
     const q = search.toLowerCase().trim();
     const qDigits = q.replace(/\D/g, "");
     if (q) list = list.filter((c) =>
       c.name.toLowerCase().includes(q) ||
+      (c.legalName && c.legalName.toLowerCase().includes(q)) ||
       c.code.toLowerCase().includes(q) ||
-      (c.contacts?.[0]?.name && c.contacts[0].name.toLowerCase().includes(q)) ||
       (c.npwp && (c.npwp.toLowerCase().includes(q) || (qDigits && c.npwp.replace(/\D/g, "").includes(qDigits)))),
     );
     return list.map((c) => ({
       id: c.id,
       code: c.code,
       name: c.name,
-      contact: c.contacts?.[0]?.name || "—",
-      email: c.contacts?.[0]?.email || "",
+      legalName: c.legalName,
       type: c.type,
       status: c.status,
-      health: c.health,
+      approval: c.approval,
+      on_hold: c.on_hold,
+      hold_reason: c.hold_reason,
       relationship_tier: c.relationship_tier,
       npwp: c.npwp,
       top: c.top,
       creditLimit: c.creditLimit || 0,
       ar: c.ar || 0,
-      arOverdue: c.arOverdue,
       lastInv: c.lastInv,
       raw: c,
     }));
   }, [corpus, filterValues, search]);
 
-  // ── Sort ─────────────────────────────────────────────────────────────
+  // ── Sort — customer name or code ───────────────────────────────────────
   const effectiveSort = sortChoice || "name-asc";
   const sortedRows = useMemo(() => {
     const arr = [...filteredRows];
+    const nameOf = (r) => (r.legalName || r.name || "");
     switch (effectiveSort) {
-      case "name-asc":     arr.sort((a, b) => a.name.localeCompare(b.name)); break;
-      case "name-desc":    arr.sort((a, b) => b.name.localeCompare(a.name)); break;
-      case "code-asc":     arr.sort((a, b) => a.code.localeCompare(b.code)); break;
-      case "ar-desc":      arr.sort((a, b) => b.ar - a.ar); break;
-      case "ar-asc":       arr.sort((a, b) => a.ar - b.ar); break;
-      case "limit-desc":   arr.sort((a, b) => b.creditLimit - a.creditLimit); break;
-      case "lastinv-desc": arr.sort((a, b) => (b.lastInv || "").localeCompare(a.lastInv || "")); break;
-      case "lastinv-asc":  arr.sort((a, b) => (a.lastInv || "").localeCompare(b.lastInv || "")); break;
+      case "name-asc":  arr.sort((a, b) => nameOf(a).localeCompare(nameOf(b))); break;
+      case "name-desc": arr.sort((a, b) => nameOf(b).localeCompare(nameOf(a))); break;
+      case "code-asc":  arr.sort((a, b) => a.code.localeCompare(b.code)); break;
       default: break;
     }
     return arr;
@@ -437,14 +384,14 @@ export default function CustomersPage() {
   }
 
   function exportCsv() {
-    const headers = ["Code", "Name", "Type", "PIC", "Email", "NPWP", "Terms", "Credit Limit", "AR Balance", "Status", "Last Invoice"];
+    const headers = ["Code", "Name", "Legal Name", "Type", "NPWP", "Terms", "Credit Limit", "AR Balance", "Lifecycle", "Approval", "Credit Hold", "Last Invoice"];
     const esc = (v) => {
       const s = String(v == null ? "" : v);
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
     const lines = [headers.join(",")];
     for (const r of sortedRows) {
-      lines.push([r.code, r.name, r.type, r.contact, r.email, r.npwp || "", r.top, r.creditLimit, r.ar, r.status, r.lastInv || ""].map(esc).join(","));
+      lines.push([r.code, r.name, r.legalName || "", r.type, r.npwp || "", r.top, r.creditLimit, r.ar, r.status, r.approval, r.on_hold ? "yes" : "", r.lastInv || ""].map(esc).join(","));
     }
     const blob = new Blob(["﻿" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -464,11 +411,12 @@ export default function CustomersPage() {
     if (action === "edit") showToast(`Edit ${c.name} (demo)`);
     else if (action === "newInvoice") showToast(`New invoice for ${c.name} (demo)`);
     else if (action === "duplicate") showToast(`Duplicated ${c.name} (demo)`);
-    else if (action === "approve") { setCustomerStatus(c.id, "active", { event: "Customer approved" }); showToast(`${c.name} approved — now active`); }
+    else if (action === "submit") { submitCustomer(c.id, { actor: undefined }); showToast(`${c.name} submitted — now active, pending approval`); }
+    else if (action === "approve") { setCustomerApproval(c.id, "approved", { event: "Approved" }); showToast(`${c.name} approved`); }
     else if (action === "activate") { setCustomerStatus(c.id, "active", { event: "Reactivated" }); showToast(`${c.name} reactivated`); }
-    else if (action === "block") { setCustomerStatus(c.id, "blocked", { event: "Credit hold" }); showToast(`${c.name} placed on credit hold`); }
-    else if (action === "unblock") { setCustomerStatus(c.id, "active", { event: "Credit hold released" }); showToast(`${c.name} released — now active`); }
     else if (action === "deactivate") { setCustomerStatus(c.id, "inactive", { event: "Deactivated" }); showToast(`${c.name} set to inactive`); }
+    else if (action === "hold") { setCustomerHold(c.id, true, { event: "Credit hold" }); showToast(`${c.name} placed on credit hold`); }
+    else if (action === "release") { setCustomerHold(c.id, false, { event: "Credit hold released" }); showToast(`${c.name} released from credit hold`); }
     else if (action === "archive") showToast(`${c.name} archived (demo)`);
   }
 
@@ -510,7 +458,7 @@ export default function CustomersPage() {
             <div className="lg-filter-row">
               <div className="lg-search">
                 <svg viewBox="0 0 14 14"><circle cx="6" cy="6" r="3.5"/><path d="M9 9l3 3" strokeLinecap="round"/></svg>
-                <input placeholder="Search customer name, NPWP, code, or contact…" value={search} onChange={(e) => setSearch(e.target.value)} />
+                <input placeholder="Search customer name, NPWP, or code…" value={search} onChange={(e) => setSearch(e.target.value)} />
               </div>
               <div className="lg-filter-meta">
                 <div className="lg-meta-btn-wrap">
@@ -538,13 +486,14 @@ export default function CustomersPage() {
 
             <div className="lg-col-header">
               <div>Code</div>
-              <div>Customer</div>
-              <div>Type</div>
+              <div>Legal Name</div>
               <div>NPWP</div>
               <div>Terms</div>
               <div style={{ textAlign: "right" }}>Credit Limit</div>
-              <div style={{ textAlign: "right" }}>AR Balance</div>
               <div>Last Invoice</div>
+              <div>Relationship</div>
+              <div>Lifecycle</div>
+              <div>Approval</div>
               <div />
             </div>
 

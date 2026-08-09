@@ -2,7 +2,7 @@ import { useState, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCustomers } from "../state/CustomersContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
-import { initials } from "../lib/format";
+import { initials, termLabel } from "../lib/format";
 import "./invoice-create.css";
 import "./vendor-create.css";
 import "./customer-create.css";
@@ -18,6 +18,30 @@ const CURRENCY_OPTIONS = [
   { v: "IDR", label: "IDR — Rupiah" },
   { v: "USD", label: "USD — US Dollar" },
   { v: "SGD", label: "SGD — Singapore Dollar" },
+];
+
+// Withholding CHOICES for a Company — the user picks the type; the rate is
+// resolved automatically from whether the customer has an NPWP (see rateFor).
+// Individuals are always PPh 21, with the rate chosen per invoice.
+const WHT_COMPANY = [
+  { v: "none", label: "No withholding" },
+  { v: "pph23", label: "PPh 23" },
+  { v: "pph05_final", label: "PPh 0.5% Final" },
+  { v: "pph42", label: "PPh 4(2)" },
+];
+
+// NPWP-resolved rate preview for the two graduated types.
+function rateFor(pph, hasNpwp) {
+  if (pph === "pph23") return hasNpwp ? "2%" : "4%";
+  if (pph === "pph42") return hasNpwp ? "10%" : "20%";
+  return null;
+}
+
+// AR control-account shortlist (mirrors the AP reconciliation-account picker).
+const AR_ACCT_OPTIONS = [
+  { v: "1-1200", label: "1-1200 · Accounts Receivable (default)" },
+  { v: "1-1210", label: "1-1210 · AR — Trade" },
+  { v: "1-1220", label: "1-1220 · AR — Retail" },
 ];
 const ENTITY_FORMS = [
   { v: "PT", label: "PT (Limited company)" },
@@ -67,10 +91,15 @@ export default function CustomerCreatePage() {
   const [address, setAddress] = useState("");
   const [dedupDismissed, setDedupDismissed] = useState(false);
 
+  // Tax — entity-type driven (mirror of New Vendor). Company picks a withholding
+  // type; the rate is resolved from NPWP presence. Individual is always PPh 21.
+  const [pph, setPph] = useState("none");
+
   // Terms & credit
   const [top, setTop] = useState("NET 30");
   const [creditLimit, setCreditLimit] = useState("");
   const [currency, setCurrency] = useState("IDR");
+  const [recon, setRecon] = useState("1-1200");
 
   // Contacts
   const [contacts, setContacts] = useState([blankContact(true)]);
@@ -109,13 +138,22 @@ export default function CustomerCreatePage() {
 
   function resetForm() {
     setCode(""); setName(""); setLegalName(""); setEntityForm("PT"); setNpwp(""); setAddress(""); setDedupDismissed(false);
-    setTop("NET 30"); setCreditLimit(""); setCurrency("IDR");
+    setPph("none");
+    setTop("NET 30"); setCreditLimit(""); setCurrency("IDR"); setRecon("1-1200");
     setContacts([blankContact(true)]);
     setNotes(""); setTier("standard"); setTierNote("");
   }
   function backToStep0() { setEntityType(null); resetForm(); }
 
   const isCompany = entityType === "perusahaan";
+
+  // PKP is derived from entity type: Company is PKP (needs Faktur Pajak),
+  // Individual is Non-PKP. Not a user choice.
+  const pkp = isCompany ? "PKP" : "NON_PKP";
+  // Individual withholding is always PPh 21; Company keeps the chosen type.
+  const effectivePph = isCompany ? pph : "pph21";
+  const hasNpwp = digitsOnly(npwp).length >= 6;
+  const pphRate = rateFor(effectivePph, hasNpwp);
 
   const primary = contacts[0];
   const canSubmit =
@@ -141,10 +179,13 @@ export default function CustomerCreatePage() {
       legalName: isCompany ? (legalName.trim() || name.trim()) : "",
       entityForm: isCompany ? entityForm : "",
       npwp: npwp.trim(),
+      pkp,
+      pph: effectivePph,
       address: address.trim(),
       top,
       creditLimit: parseInt(String(creditLimit).replace(/[^\d]/g, ""), 10) || 0,
       currency,
+      acct: recon,
       contacts: contacts.filter((c) => c.name.trim()),
       notes: notes.trim(),
       relationship_tier: tier,
@@ -240,6 +281,10 @@ export default function CustomerCreatePage() {
       <div className="ap-s1" style={{ alignItems: "stretch", padding: "28px 24px 96px" }}>
         <div style={{ width: "100%", maxWidth: 720, margin: "0 auto" }}>
 
+          <div className="vc-approval-note">
+            <strong>Approval-gated:</strong> legal name, NPWP/NIK, credit limit, AR account, and payment terms. A manager signs these off before the customer can post; later changes to any of them start a new approval cycle.
+          </div>
+
           {/* Information */}
           <div className="form-sec card">
             <div className="form-sec-title">{isCompany ? "Company Information" : "Customer Information"}</div>
@@ -316,6 +361,47 @@ export default function CustomerCreatePage() {
             </div>
           </div>
 
+          {/* Tax & Compliance — PKP + Faktur derived from entity type */}
+          <div className="form-sec card">
+            <div className="form-sec-title">Tax &amp; Compliance</div>
+            <div className="form-fld" style={{ marginBottom: 14 }}>
+              <label style={{ marginBottom: 8, display: "block" }}>PKP Status</label>
+              <div className="vc-derived">
+                <div className="vc-derived-row">
+                  <span className="vc-derived-lbl">VAT status</span>
+                  <span className="vc-derived-val">{isCompany ? "PKP — VAT-registered" : "Non-PKP"}</span>
+                </div>
+                <div className="vc-derived-row">
+                  <span className="vc-derived-lbl">Tax Invoice (Faktur Pajak)</span>
+                  <span className="vc-derived-val">{isCompany ? "Required" : "Not required"}</span>
+                </div>
+                <div className="vc-derived-note">Set automatically from the entity type.</div>
+              </div>
+            </div>
+            <div className="form-fld" style={{ marginBottom: 0 }}>
+              <label>Withholding (PPh)</label>
+              {isCompany ? (
+                <>
+                  <select value={pph} onChange={(e) => setPph(e.target.value)}>
+                    {WHT_COMPANY.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
+                  </select>
+                  <span className="vc-hint">
+                    {pphRate
+                      ? `Rate ${pphRate} — resolved from ${hasNpwp ? "the NPWP on file" : "no NPWP (higher rate applies)"}.`
+                      : "Rate is fixed for this type."}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <select value="pph21" disabled>
+                    <option value="pph21">PPh 21</option>
+                  </select>
+                  <span className="vc-hint">Individuals are always PPh 21 — the rate is chosen per invoice.</span>
+                </>
+              )}
+            </div>
+          </div>
+
           {/* Payment Terms & Credit */}
           <div className="form-sec card">
             <div className="form-sec-title">Payment Terms &amp; Credit</div>
@@ -323,7 +409,7 @@ export default function CustomerCreatePage() {
               <div className="form-fld">
                 <label>Payment Terms <span className="vc-req">*</span></label>
                 <select value={top} onChange={(e) => setTop(e.target.value)}>
-                  {TERM_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
+                  {TERM_OPTIONS.map((t) => <option key={t} value={t}>{termLabel(t)}</option>)}
                 </select>
               </div>
               <div className="form-fld">
@@ -337,6 +423,13 @@ export default function CustomerCreatePage() {
                   {CURRENCY_OPTIONS.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
                 </select>
               </div>
+            </div>
+            <div className="form-fld" style={{ marginBottom: 0 }}>
+              <label>AR Account <span className="vc-req">*</span></label>
+              <select value={recon} onChange={(e) => setRecon(e.target.value)}>
+                {AR_ACCT_OPTIONS.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
+              </select>
+              <span className="vc-hint">AR control account this customer posts to</span>
             </div>
           </div>
 
