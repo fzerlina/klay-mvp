@@ -47,6 +47,7 @@ function VendorRow({ r, onClick, onKebab, isSelected, isAlt, showKebab = true })
         <div className="lg-cell-customer-body">
           <div className="lg-cell-customer-name">
             <span className="vh-name">{r.legal_name || r.name}</span>
+            {r.relationship_tier && r.relationship_tier !== "standard" && <TierPill tier={r.relationship_tier} />}
           </div>
         </div>
       </div>
@@ -62,9 +63,6 @@ function VendorRow({ r, onClick, onKebab, isSelected, isAlt, showKebab = true })
           <span className="lg-cell-em-dash">—</span>
         )}
       </div>
-      <div>{r.relationship_tier && r.relationship_tier !== "standard"
-        ? <TierPill tier={r.relationship_tier} />
-        : <span className="lg-cell-em-dash">—</span>}</div>
       <div><LifecycleBadge status={r.status} /></div>
       <div><ApprovalBadge approval={r.approval} /></div>
       <div className="lg-cell-kebab" onClick={(e) => e.stopPropagation()}>
@@ -485,7 +483,6 @@ export default function VendorsPage() {
               <div>NPWP</div>
               <div>Terms</div>
               <div>Last Transaction</div>
-              <div>Relationship</div>
               <div>Lifecycle</div>
               <div>Approval</div>
               <div />

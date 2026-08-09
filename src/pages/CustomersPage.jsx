@@ -50,13 +50,14 @@ function CustomerRow({ r, onClick, onKebab, isAlt, showKebab = true }) {
         <div className="lg-cell-customer-body">
           <div className="lg-cell-customer-name">
             <span className="vh-name">{r.legalName || r.name}</span>
+            {r.relationship_tier && r.relationship_tier !== "standard" && <TierPill tier={r.relationship_tier} />}
             {r.on_hold && <span className="v-hold" title={r.hold_reason ? `Credit hold: ${r.hold_reason}` : "On credit hold"}>Credit hold</span>}
           </div>
         </div>
       </div>
       <div className="lg-cell-date">{npwp || <span className="lg-cell-em-dash">—</span>}</div>
       <div className="lg-cell-date">{termLabel(r.top)}</div>
-      <div style={{ fontSize: 11, color: "var(--color-text-secondary)", textAlign: "right" }}>
+      <div style={{ fontSize: 11, color: "var(--color-text-secondary)", textAlign: "right", paddingRight: 14 }}>
         {r.creditLimit > 0 ? (
           <><span style={{ color: "var(--color-text-tertiary)", marginRight: 2 }}>Rp</span>{fmtRp(r.creditLimit)}</>
         ) : (
@@ -73,9 +74,6 @@ function CustomerRow({ r, onClick, onKebab, isAlt, showKebab = true }) {
           <span className="lg-cell-em-dash">—</span>
         )}
       </div>
-      <div>{r.relationship_tier && r.relationship_tier !== "standard"
-        ? <TierPill tier={r.relationship_tier} />
-        : <span className="lg-cell-em-dash">—</span>}</div>
       <div><LifecycleBadge status={r.status} /></div>
       <div><ApprovalBadge approval={r.approval} /></div>
       <div className="lg-cell-kebab" onClick={(e) => e.stopPropagation()}>
@@ -489,9 +487,8 @@ export default function CustomersPage() {
               <div>Legal Name</div>
               <div>NPWP</div>
               <div>Terms</div>
-              <div style={{ textAlign: "right" }}>Credit Limit</div>
+              <div style={{ textAlign: "right", paddingRight: 14 }}>Credit Limit</div>
               <div>Last Invoice</div>
-              <div>Relationship</div>
               <div>Lifecycle</div>
               <div>Approval</div>
               <div />
