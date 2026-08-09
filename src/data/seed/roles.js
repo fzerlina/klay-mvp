@@ -43,6 +43,7 @@ export const CAPABILITIES = {
   "vendor.create": { label: "Create vendors", kind: "named", home: "ap", desc: "Onboard vendor master records" },
   "customer.create": { label: "Create customers", kind: "named", home: "ar", desc: "Onboard customer master records" },
   "vendor.classify": { label: "Classify vendors", kind: "named", home: "ap", desc: "Set a vendor's relationship tier (strategic / standard / at-risk)" },
+  "vendor.edit_bank": { label: "Change vendor bank/payee", kind: "named", home: "ap", desc: "Propose a change to a vendor's bank/payee details. Safe for staff to hold — the change always routes for approval (proposer ≠ approver)." },
   "customer.classify": { label: "Classify customers", kind: "named", home: "ar", desc: "Set a customer's relationship tier (strategic / standard / at-risk)" },
   // Payment lifecycle (AP Aging) — request → approve → execute, one per role
   "payment.request": { label: "Request payment", kind: "named", home: "ap", desc: "Request payment for a posted bill (AP Staff)" },
@@ -74,7 +75,7 @@ export const ROLE_CAPS = {
   // bank.reconcile (either would create a HARD self-conflict), NOT users/roles.
   finance_manager: {
     gl: ["approve", "post"],
-    ap: ["approve", "post", "payment.approve", "vendor.classify"],
+    ap: ["approve", "post", "payment.approve", "vendor.classify", "vendor.edit_bank"],
     ar: ["approve", "post", "customer.classify"],
     purchasing: ["approve"],
     inventory: ["view"],
@@ -84,7 +85,7 @@ export const ROLE_CAPS = {
   // AP Staff — highest-volume daily role. Enters & submits vendor bills; onboards
   // vendors. Cannot approve or pay, so vendor.create is safe here.
   ap_staff: {
-    ap: ["transact", "vendor.create", "payment.request", "vendor.classify"],
+    ap: ["transact", "vendor.create", "payment.request", "vendor.classify", "vendor.edit_bank"],
     reports: ["view"],
   },
   // Admin — user & access administration; deliberately powerless over money.
@@ -119,7 +120,7 @@ export const ROLE_CAPS = {
   // (that stays the Finance Manager's `approve`); no vendor.create / reconcile.
   accounting_manager: {
     gl: ["approve", "post"],
-    ap: ["post", "vendor.classify"],
+    ap: ["post", "vendor.classify", "vendor.edit_bank"],
     ar: ["post", "customer.classify"],
     reports: ["view"],
   },

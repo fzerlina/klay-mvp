@@ -57,6 +57,10 @@ export default function VendorDetailPage() {
   // for the future vendor.confirm / vendor.hold capabilities.
   const canApprove = hasCapability("ap.post");
   const canBill = hasLevel("ap", "transact");
+  // Proposing a vendor bank/payee change is open to staff — the approval flow
+  // provides the control (SoD: proposer ≠ approver). The company (paying)
+  // account has no approval flow, so it stays manager-only.
+  const canEditBank = hasCapability("vendor.edit_bank");
 
   const [tab, setTab] = useState("overview");
   const [openVer, setOpenVer] = useState(null); // expanded version snapshot id
@@ -258,10 +262,10 @@ export default function VendorDetailPage() {
                   </div>
                 ) : (
                   <div className="vd-row-val dim" style={{ textAlign: "left", fontSize: 12 }}>
-                    No bank account on file.{!canApprove && " Added by a manager before the vendor is used."}
+                    No bank account on file.{!canEditBank && " Added by whoever onboards the vendor; a manager approves it."}
                   </div>
                 )}
-                {canApprove && (
+                {canEditBank && (
                   <button className="vd-btn vd-bank-btn" onClick={() => openBank("vendor")}>
                     <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
                     {vendor.banks && vendor.banks.length > 0 ? "Change bank account" : "Add bank account"}

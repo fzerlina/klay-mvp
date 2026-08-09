@@ -87,9 +87,10 @@ export default function VendorCreatePage() {
 
   // Capabilities (source of truth = roles.js). vendor.create → AP Staff.
   const canCreateVendor = hasCapability("vendor.create");
-  // Financial authority (Tier 2/3). FM holds ap.approve; AP Staff does not — so
-  // on this AP-Staff create surface the bank section stays locked.
-  const canFinancial = hasCapability("ap.approve");
+  // Entering the vendor bank/payee is open to staff (vendor.edit_bank) — the new
+  // vendor lands Pending approval, so a manager confirms the payee before it can
+  // post or pay. The approval flow is the control, not the create-time gate.
+  const canBank = hasCapability("vendor.edit_bank");
   // Relationship tier is a vendor-master classification (vendor.classify) —
   // AP Staff (the creator) holds it, so it can be set at onboarding.
   const canClassify = hasCapability("vendor.classify");
@@ -189,7 +190,7 @@ export default function VendorCreatePage() {
     if (!contact.trim() || !email.trim() || !phone.trim()) { showToast("Primary contact name, email, and phone are required"); return; }
     if (tier !== "standard" && !tierNote.trim()) { showToast("Add a reason for the relationship tier"); return; }
 
-    const validBanks = canFinancial ? banks.filter((b) => b.name && b.acc) : [];
+    const validBanks = canBank ? banks.filter((b) => b.name && b.acc) : [];
     addVendor({
       code: code.trim(),
       name: name.trim(),
@@ -418,10 +419,10 @@ export default function VendorCreatePage() {
             </div>
           </div>
 
-          {/* 4 — Bank Account (Tier 3 — Finance Manager only) */}
+          {/* 4 — Bank Account (open to staff; approval flow is the control) */}
           <div className="form-sec card">
             <div className="form-sec-title">Bank Account</div>
-            {canFinancial ? (
+            {canBank ? (
               <>
                 <div className="bank-list">
                   {banks.map((b, i) => (
@@ -470,9 +471,8 @@ export default function VendorCreatePage() {
               <div className="vc-lock">
                 <LockIcon />
                 <div>
-                  <strong>You don't have permission to add a bank account.</strong> Bank details are the most common
-                  payment-fraud vector, so adding one is a separate permission from onboarding a vendor. This draft is
-                  created without a bank account — it's added at confirmation by someone who holds that permission.
+                  <strong>You don't have permission to add a bank account.</strong> This vendor is created without one —
+                  it's added later by someone who holds the Change vendor bank/payee permission, and a manager approves it.
                 </div>
               </div>
             )}
