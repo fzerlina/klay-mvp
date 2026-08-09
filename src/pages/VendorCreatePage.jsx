@@ -215,7 +215,7 @@ export default function VendorCreatePage() {
       relationship_tier_note: tier !== "standard" ? tierNote.trim() : "",
       source: "MANUAL",
     });
-    showToast("Vendor created — active, pending approval ✓");
+    showToast("Draft created — submit it for approval to activate ✓");
     setTimeout(() => navigate("/vendors"), 800);
   }
 
@@ -255,7 +255,7 @@ export default function VendorCreatePage() {
           <svg viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" /></svg>
         </button>
         <div className="ap-title">New Vendor</div>
-        <span className="vc-status">Active · Pending approval</span>
+        <span className="vc-status">Draft</span>
         <div className="ap-hint" style={{ flex: 1, marginLeft: 8 }}>
           Fields marked <span style={{ color: "var(--color-danger-text)" }}>*</span> are required
         </div>
@@ -520,7 +520,7 @@ export default function VendorCreatePage() {
                   {[
                     { k: "strategic", lbl: "Strategic", desc: "Relationship-sensitive — prioritize on-time payment." },
                     { k: "standard",  lbl: "Standard",  desc: "Default. No special handling." },
-                    { k: "at_risk",   lbl: "At-Risk",   desc: "Disputes or slow responses — weigh when sequencing payments." },
+                    { k: "at_risk",   lbl: "In Dispute", desc: "In active dispute — weigh when sequencing payments." },
                   ].map((t) => (
                     <button
                       type="button"
@@ -556,7 +556,7 @@ export default function VendorCreatePage() {
       {/* Footer */}
       <div className="ap-foot">
         <span className="ap-hint">
-          Created <strong style={{ color: "var(--color-text-secondary)" }}>Active</strong> and usable — a manager approves it before it can post or pay.
+          Saved as a <strong style={{ color: "var(--color-text-secondary)" }}>Draft</strong> — submit it for approval to make it Active; a manager approves it before it can post or pay.
         </span>
         <button className="ap-btn" onClick={() => navigate("/vendors")}>Cancel</button>
         <button className="ap-btn-send" onClick={onSave} disabled={!canSubmit} title={npwpMatch ? "Resolve the duplicate NPWP first" : undefined}>

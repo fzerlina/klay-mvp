@@ -39,6 +39,7 @@
 /* Status pill + health chip */
 .vd-status{display:inline-flex;align-items:center;gap:6px;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:3px 10px;border-radius:100px;border:1px solid}
 .vd-status.pending{background:var(--color-warning-surface);color:var(--color-warning-text);border-color:var(--color-warning-border)}
+.vd-status.draft{background:var(--ai-surface);color:var(--color-action);border-color:var(--ai-border)}
 .vd-status.active{background:var(--color-success-surface,#E7F3EC);color:var(--color-success-text,#1B7A46);border-color:var(--color-success-border,#B8DCC6)}
 .vd-status.inactive{background:var(--color-surface-sunken);color:var(--color-text-tertiary);border-color:var(--color-border-default)}
 .vd-status.blocked{background:var(--color-danger-surface);color:var(--color-danger-text);border-color:var(--color-danger-border)}

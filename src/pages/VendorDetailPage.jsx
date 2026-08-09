@@ -18,8 +18,9 @@ import "./vendor-detail.css";
 // Manager + Accounting Manager, a prototype stand-in for vendor.confirm /
 // vendor.hold). SoD: the AP Staff who onboards can't approve or hold.
 
-// Two independent axes: lifecycle (active/inactive) and approval.
+// Two independent axes: lifecycle (draft/active/inactive) and approval.
 const STATUS = {
+  draft:    { cls: "draft",    lbl: "Draft" },
   active:   { cls: "active",   lbl: "Active" },
   inactive: { cls: "inactive", lbl: "Inactive" },
 };
@@ -47,7 +48,7 @@ const BLANK_BANK = { name: "", code: "", acc: "", holder: "" };
 export default function VendorDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { vendorById, setVendorStatus, setVendorApproval, setVendorBank, setCompanyBank, changeLog, versionsOf } = useVendors();
+  const { vendorById, setVendorStatus, submitVendor, rejectVendor, setVendorApproval, setVendorBank, setCompanyBank, changeLog, versionsOf } = useVendors();
   const { user, hasCapability, hasLevel } = useCurrentUser();
   const { statusOf } = usePayments();
 
@@ -94,7 +95,10 @@ export default function VendorDetailPage() {
 
   const st = STATUS[vendor.status] || STATUS.active;
   const appr = APPROVAL[vendor.approval] || APPROVAL.approved;
-  const pendingApproval = vendor.approval === "pending_approval";
+  const isDraft = vendor.status === "draft";
+  // "Awaiting approval" = submitted (Active) but not yet approved. A Draft is
+  // pre-submit, so its Approve/Reject don't show until it's submitted.
+  const awaitingApproval = !isDraft && vendor.approval === "pending_approval";
   const meta = { actor: user.name };
   const doStatus = (status, extra) => { setVendorStatus(vendor.id, status, { ...meta, ...extra }); };
   const doApprove = () => { setVendorApproval(vendor.id, "approved", { ...meta, event: "Approved" }); };
@@ -115,10 +119,12 @@ export default function VendorDetailPage() {
   });
   const askReject = () => openDialog({
     title: `Reject ${vendor.name}?`,
-    body: "The pending change will be declined and the vendor set to Inactive. Record why, so whoever submitted it can revise and resubmit.",
+    body: (vendor.current_version || 0) === 0
+      ? "This returns the vendor to Draft so whoever onboarded it can revise and resubmit. Record why."
+      : "This discards the pending change; the vendor stays on its last approved version. Record why.",
     reasonRequired: true, reasonPlaceholder: "e.g. NPWP doesn't match the company name on the invoice",
-    confirmLabel: "Reject vendor", danger: true,
-    onConfirm: (r) => { doStatus("inactive", { reason: r, event: "Rejected" }); flash(`${vendor.name} rejected`); },
+    confirmLabel: "Reject", danger: true,
+    onConfirm: (r) => { rejectVendor(vendor.id, { reason: r, actor: user.name }); flash(`${vendor.name} rejected`); },
   });
 
   // Add bank account (Tier 3 — vendor.manage_bank; here gated to managers). The
@@ -153,8 +159,8 @@ export default function VendorDetailPage() {
           <div className="vd-headinfo">
             <div className="vd-title-row">
               <span className="vd-title">{vendor.name}</span>
-              {vendor.status === "inactive" && <span className={`vd-status ${st.cls}`}>{st.lbl}</span>}
-              {pendingApproval && <span className={`vd-status ${appr.cls}`}>{appr.lbl}</span>}
+              {vendor.status !== "active" && <span className={`vd-status ${st.cls}`}>{st.lbl}</span>}
+              {awaitingApproval && <span className={`vd-status ${appr.cls}`}>{appr.lbl}</span>}
               <RelationshipTierControl vendorId={vendor.id} />
             </div>
             <div className="vd-sub">
@@ -164,7 +170,12 @@ export default function VendorDetailPage() {
             </div>
           </div>
           <div className="vd-actions">
-            {pendingApproval && canApprove && (
+            {isDraft && canBill && (
+              <button className="vd-btn primary" onClick={() => { submitVendor(vendor.id, { actor: user.name }); flash(`${vendor.name} submitted — now active, pending approval`); }}>
+                <svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg> Submit for approval
+              </button>
+            )}
+            {awaitingApproval && canApprove && (
               <>
                 <button className="vd-btn primary" onClick={() => { doApprove(); flash(`${vendor.name} approved`); }}>
                   <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" /></svg> Approve
@@ -182,14 +193,20 @@ export default function VendorDetailPage() {
             {vendor.status === "active" && canApprove && (
               <button className="vd-btn" onClick={askDeactivate}>Deactivate</button>
             )}
-            {canBill && <button className="vd-btn" onClick={() => flash("New bill (demo)")}>
+            {canBill && !isDraft && <button className="vd-btn" onClick={() => flash("New bill (demo)")}>
               <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg> New Bill
             </button>}
           </div>
         </div>
 
-        {/* ── Approval alert ──────────────────────────────────────── */}
-        {pendingApproval && (
+        {/* ── Draft / Approval alert ──────────────────────────────── */}
+        {isDraft && (
+          <div className="vd-alert info">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></svg>
+            <div><strong>Draft.</strong> This vendor can't be used on bills yet. {canBill ? "Submit it for approval to make it Active — then a manager approves it before it can post or pay." : "Whoever onboarded it submits it for approval to make it Active."}</div>
+          </div>
+        )}
+        {awaitingApproval && (
           <div className="vd-alert info">
             <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></svg>
             <div><strong>Pending approval.</strong> This vendor is usable to create bills, but stays blocking at posting &amp; payment until approved. {canApprove ? "Review the details, then Approve — or Reject to send it back." : "An approver (Finance Manager or Accounting Manager) signs it off."}</div>

@@ -23,10 +23,13 @@ function maskNpwp(taxId) {
 }
 
 // Lifecycle badge (active | inactive) + approval badge (approved | pending).
+const LIFECYCLE_BADGE = {
+  draft:    { cls: "draft",    lbl: "Draft" },
+  inactive: { cls: "inactive", lbl: "Inactive" },
+  active:   { cls: "active",   lbl: "Active" },
+};
 function LifecycleBadge({ status }) {
-  const s = status === "inactive"
-    ? { cls: "inactive", lbl: "Inactive" }
-    : { cls: "active", lbl: "Active" };
+  const s = LIFECYCLE_BADGE[status] || LIFECYCLE_BADGE.active;
   return <span className={`v-life ${s.cls}`}>{s.lbl}</span>;
 }
 function ApprovalBadge({ approval }) {
@@ -90,16 +93,24 @@ function RowMenu({ vendor, onClose, onAction, canTransact = true, canApprove = f
             <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
             Edit
           </div>
-          <div className="row-menu-item" onClick={() => onAction("newBill", vendor)}>
-            <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-            New Bill
-          </div>
+          {vendor.status !== "draft" && (
+            <div className="row-menu-item" onClick={() => onAction("newBill", vendor)}>
+              <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              New Bill
+            </div>
+          )}
           <div className="row-menu-item" onClick={() => onAction("duplicate", vendor)}>
             <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
             Duplicate
           </div>
           <div className="row-menu-sep" />
-          {vendor.approval === "pending_approval" && canApprove && (
+          {vendor.status === "draft" && (
+            <div className="row-menu-item" onClick={() => onAction("submit", vendor)}>
+              <svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+              Submit for approval
+            </div>
+          )}
+          {vendor.status === "active" && vendor.approval === "pending_approval" && canApprove && (
             <div className="row-menu-item" onClick={() => onAction("approve", vendor)}>
               <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
               Approve
@@ -160,7 +171,7 @@ function SortPopover({ value, onPick, onClose }) {
 const TIER_FILTER_OPTIONS = [
   { k: "strategic", lbl: "Strategic" },
   { k: "standard",  lbl: "Standard" },
-  { k: "at_risk",   lbl: "At-Risk" },
+  { k: "at_risk",   lbl: "In Dispute" },
 ];
 
 function FilterPopover({ values, onChange, onClose }) {
@@ -229,7 +240,7 @@ export default function VendorsPage() {
   // both Finance Manager and Accounting Manager hold (AP Staff / Finance Staff
   // do not), matching "the managers can approve/unblock."
   const canApprove = hasCapability("ap.post");
-  const { vendors, setVendorStatus, setVendorApproval } = useVendors();
+  const { vendors, setVendorStatus, setVendorApproval, submitVendor } = useVendors();
   // AP balance as of vendor (derived from bills)
   const apBalance = useMemo(() => {
     const m = {};
@@ -274,12 +285,13 @@ export default function VendorsPage() {
 
   // ── Tab counts (by lifecycle status) ─────────────────────────────────────
   const statusCounts = useMemo(() => {
-    const c = { active: 0, inactive: 0 };
+    const c = { draft: 0, active: 0, inactive: 0 };
     for (const v of vendors) if (c[v.status] != null) c[v.status]++;
     return c;
   }, [vendors]);
   const tabs = [
     { k: "active",   lbl: "Active",   count: statusCounts.active },
+    { k: "draft",    lbl: "Draft",    count: statusCounts.draft },
     { k: "inactive", lbl: "Inactive", count: statusCounts.inactive },
   ];
 
@@ -396,6 +408,7 @@ export default function VendorsPage() {
     if (action === "edit") showToast(`Edit ${v.name} (demo)`);
     else if (action === "newBill") showToast(`New bill for ${v.name} (demo)`);
     else if (action === "duplicate") showToast(`Duplicated ${v.name} (demo)`);
+    else if (action === "submit") { submitVendor(v.id, { actor: undefined }); showToast(`${v.name} submitted — now active, pending approval`); }
     else if (action === "approve") { setVendorApproval(v.id, "approved", { event: "Approved" }); showToast(`${v.name} approved`); }
     else if (action === "activate") { setVendorStatus(v.id, "active"); showToast(`${v.name} reactivated`); }
     else if (action === "deactivate") { setVendorStatus(v.id, "inactive"); showToast(`${v.name} set to inactive`); }

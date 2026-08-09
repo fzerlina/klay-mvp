@@ -13,6 +13,14 @@ export const DEFAULT_COMPANY_BANK = {
   name: "BCA", branch: "KCU Sudirman", acc: "008-2233-4455", holder: "PT Klay Indonesia",
 };
 
+// Freshly-onboarded Draft vendors (no transaction history). Lifecycle = Draft:
+// not usable on bills until submitted → Active. Kept as their own seed so the
+// Draft tab is populated without faking history on transacted vendors.
+const SEED_DRAFTS = [
+  { id: "V081", code: "V-081", name: "PT Cahaya Digital Nusantara", legal_name: "PT Cahaya Digital Nusantara", initials: "CD", contact: "Sari Melati", contact_role: "Finance", phone: "+62-21-5550-1234", email: "finance@cahayadigital.id", address: "Jl. Casablanca No. 88, Jakarta 12870", tax_id: "91.234.567.8-011.000", payment_terms: "NET 30", currency: "IDR", pkp: "PKP", pph: "pph23", category: "service", type: "company", status: "draft", approval: "pending_approval", source: "MANUAL", lastTx: null, notes: "New onboarding — awaiting submit for approval.", acct: "6-2700", banks: [{ name: "BCA", branch: "KCU Casablanca", acc: "221-455-9012", holder: "PT Cahaya Digital Nusantara", isDefault: true }], relationship_tier: "standard" },
+  { id: "V082", code: "V-082", name: "UD Rukun Sentosa", legal_name: "UD Rukun Sentosa", initials: "RS", contact: "Andi Wijaya", contact_role: "Owner", phone: "+62-274-555-7788", email: "andi@rukunsentosa.id", address: "Jl. Kaliurang KM 7, Yogyakarta 55283", tax_id: "", payment_terms: "NET 14", currency: "IDR", pkp: "NON_PKP", pph: "pph21", category: "expense", type: "individual", status: "draft", approval: "pending_approval", source: "MANUAL", lastTx: null, notes: "", acct: "6-2300", banks: [], relationship_tier: "standard" },
+];
+
 // Layer vendor-master attributes that live outside the auto-generated seed
 // (relationship tier, lifecycle + approval status, paying account) onto each
 // record so the vendor stays the single source of truth.
@@ -111,9 +119,9 @@ function nextCode(list) {
 }
 
 export function VendorsProvider({ children }) {
-  const [vendors, setVendors] = useState(() => SEED_VENDORS.map(withDerived));
+  const [vendors, setVendors] = useState(() => [...SEED_DRAFTS, ...SEED_VENDORS].map(withDerived));
   // Frozen snapshots per vendor, newest-first — one per completed approval.
-  const [versions, setVersions] = useState(() => seedVersions(SEED_VENDORS.map(withDerived)));
+  const [versions, setVersions] = useState(() => seedVersions([...SEED_DRAFTS, ...SEED_VENDORS].map(withDerived)));
 
   const addVendor = useCallback((draft) => {
     const id = nextId(vendors);
@@ -136,9 +144,10 @@ export function VendorsProvider({ children }) {
       pph: draft.pph || "none",
       category: draft.category || "expense",
       type: draft.type || "company",
-      // A new vendor is immediately Active (usable to create bills) but lands in
-      // Pending approval — a manager signs it off (SoD: creator ≠ approver).
-      status: "active",
+      // A new vendor is created as a Draft — not usable on bills. The onboarder
+      // Submits it (→ Active), then a manager approves it (SoD: creator ≠
+      // approver) before it can post or pay.
+      status: "draft",
       approval: "pending_approval",
       current_version: 0, // no completed approval cycle yet
       source: draft.source || "MANUAL",
@@ -177,12 +186,35 @@ export function VendorsProvider({ children }) {
     }));
   }, []);
 
-  // LIFECYCLE axis — active ⇄ inactive only (Deactivate / Reactivate). Blocked
-  // was dropped for MVP.
+  // LIFECYCLE axis — draft → active (Submit), active ⇄ inactive (Deactivate /
+  // Reactivate). Blocked was dropped for MVP.
   const setVendorStatus = useCallback((id, status, meta = {}) => {
     setVendors((prev) => prev.map((v) => (v.id === id ? { ...v, status } : v)));
     logEvent(id, meta.event || "Status change", `→ ${status}${meta.reason ? ` · ${meta.reason}` : ""}`, meta.actor);
   }, [logEvent]);
+
+  // Submit a Draft for approval — lifecycle Draft → Active. The vendor becomes
+  // usable to CREATE bills; approval stays Pending until a manager signs off
+  // (posting/payment blocked until then). Maker action (creator, not approver).
+  const submitVendor = useCallback((id, meta = {}) => {
+    setVendors((prev) => prev.map((v) => (v.id === id ? { ...v, status: "active" } : v)));
+    logEvent(id, "Submitted for approval", "Draft → Active", meta.actor);
+  }, [logEvent]);
+
+  // Reject a pending vendor. A never-approved one (no version) returns to Draft
+  // for the maker to revise; a pending change on an already-approved vendor is
+  // discarded (approval reverts to Approved, current version stands).
+  const rejectVendor = useCallback((id, meta = {}) => {
+    setVendors((prev) => prev.map((v) => {
+      if (v.id !== id) return v;
+      return (v.current_version || 0) === 0
+        ? { ...v, status: "draft" }
+        : { ...v, approval: "approved" };
+    }));
+    const vendor = vendors.find((v) => v.id === id);
+    const backToDraft = (vendor?.current_version || 0) === 0;
+    logEvent(id, backToDraft ? "Rejected — returned to Draft" : "Change rejected", meta.reason || "", meta.actor);
+  }, [vendors, logEvent]);
 
   // APPROVAL axis — sign off (or bounce back) the current version of the record.
   // Independent of lifecycle: approving doesn't change active/inactive.
@@ -260,8 +292,8 @@ export function VendorsProvider({ children }) {
   const versionsOf = useCallback((id) => versions[id] || [], [versions]);
 
   const value = useMemo(
-    () => ({ vendors, addVendor, setVendorTier, setVendorStatus, setVendorApproval, setVendorBank, setCompanyBank, updateVendor, changeLog, versions, versionsOf, vendorById, tierOf }),
-    [vendors, addVendor, setVendorTier, setVendorStatus, setVendorApproval, setVendorBank, setCompanyBank, updateVendor, changeLog, versions, versionsOf, vendorById, tierOf],
+    () => ({ vendors, addVendor, setVendorTier, setVendorStatus, submitVendor, rejectVendor, setVendorApproval, setVendorBank, setCompanyBank, updateVendor, changeLog, versions, versionsOf, vendorById, tierOf }),
+    [vendors, addVendor, setVendorTier, setVendorStatus, submitVendor, rejectVendor, setVendorApproval, setVendorBank, setCompanyBank, updateVendor, changeLog, versions, versionsOf, vendorById, tierOf],
   );
   return <VendorsContext.Provider value={value}>{children}</VendorsContext.Provider>;
 }
