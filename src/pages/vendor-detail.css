@@ -2,6 +2,28 @@
 .vd-page{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;background:var(--color-surface-base)}
 .vd-scroll{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden}
 
+/* Approval-gated field marker + legend */
+.vd-gate{display:inline-block;margin-left:5px;color:var(--color-warning-text);font-size:11px;cursor:help;vertical-align:baseline}
+.vd-gate-legend{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--color-text-secondary);background:var(--color-surface-sunken);border:1px solid var(--color-border-subtle);border-radius:var(--radius-md);padding:8px 12px;margin-bottom:14px}
+
+/* Version history */
+.vd-ver-intro{font-size:12px;color:var(--color-text-tertiary);margin-bottom:12px}
+.vd-ver-list{display:flex;flex-direction:column;gap:8px}
+.vd-ver{border:1px solid var(--color-border-default);border-radius:var(--radius-md);overflow:hidden}
+.vd-ver.open{border-color:var(--color-action)}
+.vd-ver-head{width:100%;display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--color-surface-raised);border:none;cursor:pointer;text-align:left;font-family:var(--font-sans);flex-wrap:wrap}
+.vd-ver-head:hover{background:var(--color-surface-sunken)}
+.vd-ver-caret{font-size:10px;color:var(--color-text-tertiary);width:10px}
+.vd-ver-id{font-family:var(--font-mono);font-size:12.5px;font-weight:700;color:var(--color-text-primary)}
+.vd-ver-current{font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:2px 7px;border-radius:100px;background:var(--color-success-surface,#E7F3EC);color:var(--color-success-text,#1B7A46);border:1px solid var(--color-success-border,#B8DCC6)}
+.vd-ver-meta{font-size:11.5px;color:var(--color-text-secondary)}
+.vd-ver-changed{font-size:11px;color:var(--color-text-tertiary);margin-left:auto}
+.vd-ver-snap{padding:12px 14px 14px;border-top:1px solid var(--color-border-subtle);background:var(--color-surface-base)}
+.vd-ver-reason{font-size:11.5px;color:var(--color-text-secondary);font-style:italic;margin-bottom:10px}
+.vd-ver-grp{font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--color-text-tertiary);margin:12px 0 4px}
+.vd-ver-grp:first-of-type{margin-top:0}
+.vd-ver-notes{font-size:12.5px;color:var(--color-text-secondary);line-height:1.6}
+
 /* Top bar */
 .vd-top{display:flex;align-items:flex-start;gap:16px;padding:22px 32px 16px;background:var(--color-surface-base)}
 .vd-back{width:32px;height:32px;border-radius:var(--radius-sm);border:1px solid var(--color-border-default);background:var(--color-surface-raised);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0}
@@ -79,6 +101,7 @@
 .vd-bank-lbl{font-size:10.5px;font-weight:700;color:var(--color-text-secondary);letter-spacing:.03em;text-transform:uppercase;margin-bottom:6px}
 .vd-bank-hint{font-weight:500;text-transform:none;letter-spacing:0;color:var(--color-text-tertiary)}
 .vd-bank-name{font-size:12.5px;font-weight:600;color:var(--color-text-primary)}
+.vd-bank-btn{margin-top:12px}
 .vd-bank-acc{font-family:var(--font-mono);font-size:13px;font-weight:700;color:var(--color-text-primary);margin-top:3px;letter-spacing:.04em}
 .vd-bank-holder{font-size:11px;color:var(--color-text-tertiary);margin-top:3px}
 

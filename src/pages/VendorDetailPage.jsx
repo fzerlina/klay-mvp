@@ -47,7 +47,7 @@ const BLANK_BANK = { name: "", code: "", acc: "", holder: "" };
 export default function VendorDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { vendorById, setVendorStatus, setVendorApproval, setVendorBank, changeLog } = useVendors();
+  const { vendorById, setVendorStatus, setVendorApproval, setVendorBank, setCompanyBank, changeLog, versionsOf } = useVendors();
   const { user, hasCapability, hasLevel } = useCurrentUser();
   const { statusOf } = usePayments();
 
@@ -59,9 +59,10 @@ export default function VendorDetailPage() {
   const canBill = hasLevel("ap", "transact");
 
   const [tab, setTab] = useState("overview");
+  const [openVer, setOpenVer] = useState(null); // expanded version snapshot id
   const [dialog, setDialog] = useState(null); // confirmation modal config
   const [reason, setReason] = useState("");
-  const [bankOpen, setBankOpen] = useState(false);
+  const [bankTarget, setBankTarget] = useState(null); // null | "vendor" | "company"
   const [bankForm, setBankForm] = useState(BLANK_BANK);
   const [toast, setToast] = useState("");
   function flash(msg) { setToast(msg); setTimeout(() => setToast(""), 2200); }
@@ -74,6 +75,7 @@ export default function VendorDetailPage() {
   }, [vendor]);
   const outstanding = useMemo(() => txns.filter((b) => b.pay !== "paid").reduce((s, b) => s + (b.sisa || 0), 0), [txns]);
   const log = (vendor && changeLog[vendor.id]) || [];
+  const vlist = vendor ? versionsOf(vendor.id) : [];
 
   if (!vendor) {
     return (
@@ -117,12 +119,23 @@ export default function VendorDetailPage() {
 
   // Add bank account (Tier 3 — vendor.manage_bank; here gated to managers). The
   // PRD flow: a manager adds the payout bank at confirmation, then activates.
-  const openBank = () => { setBankForm(vendor.banks?.[0] ? { ...BLANK_BANK, ...vendor.banks[0] } : BLANK_BANK); setBankOpen(true); };
+  // Both bank accounts are single. "vendor" is the payee (approval-gated);
+  // "company" is our paying account (logged, not gated).
+  const openBank = (target) => {
+    const existing = target === "company" ? vendor.company_bank : vendor.banks?.[0];
+    setBankForm(existing ? { ...BLANK_BANK, ...existing } : BLANK_BANK);
+    setBankTarget(target);
+  };
   function saveBank() {
     if (!bankForm.name.trim() || digitsOnly(bankForm.acc).length < 4) return;
-    setVendorBank(vendor.id, { ...bankForm }, { actor: user.name });
-    setBankOpen(false);
-    flash("Bank / payee updated — pending approval");
+    if (bankTarget === "company") {
+      setCompanyBank(vendor.id, { ...bankForm }, { actor: user.name });
+      flash("Company bank account updated");
+    } else {
+      setVendorBank(vendor.id, { ...bankForm }, { actor: user.name });
+      flash("Vendor bank / payee updated — pending approval");
+    }
+    setBankTarget(null);
   }
 
   return (
@@ -181,10 +194,11 @@ export default function VendorDetailPage() {
 
         {/* ── Tabs ────────────────────────────────────────────────── */}
         <div className="vd-tabs">
-          {[["overview", "Details"], ["transactions", "Bills & Payment History"], ["activity", "Audit log"]].map(([k, lbl]) => (
+          {[["overview", "Details"], ["transactions", "Bills & Payment History"], ["versions", "Versions"], ["activity", "Audit log"]].map(([k, lbl]) => (
             <button key={k} className={`vd-tab${tab === k ? " active" : ""}`} onClick={() => setTab(k)}>
               {lbl}
               {k === "transactions" && txns.length > 0 && <span className="vd-tab-count">{txns.length}</span>}
+              {k === "versions" && vlist.length > 0 && <span className="vd-tab-count">{vlist.length}</span>}
               {k === "activity" && log.length > 0 && <span className="vd-tab-count">{log.length}</span>}
             </button>
           ))}
@@ -193,19 +207,23 @@ export default function VendorDetailPage() {
         {/* ── OVERVIEW ────────────────────────────────────────────── */}
         {tab === "overview" && (
           <div className="vd-body">
+            <div className="vd-gate-legend">
+              <span className="vd-gate">⚷</span> Changing a marked field starts a new approval cycle — the vendor stays usable to create bills but is blocked at posting &amp; payment until re-approved.
+            </div>
             <div className="vd-grid">
               {/* Status — the two axes */}
               <div className="vd-card">
                 <div className="vd-card-title">Status</div>
                 <Row l="Lifecycle status" v={st.lbl} />
                 <Row l="Approval status" v={appr.lbl} />
+                <Row l="Current version" v={vlist[0]?.versionId || "— none yet"} />
               </div>
 
               {/* Identity */}
               <div className="vd-card">
                 <div className="vd-card-title">Identity</div>
                 <Row l="Vendor code" v={vendor.code} mono />
-                <Row l="Legal name" v={vendor.legal_name || vendor.name} />
+                <Row l="Legal name" v={vendor.legal_name || vendor.name} gated />
                 <Row l="Entity type" v={TYPE_LABEL[vendor.type] || vendor.type} />
                 <Row l="Address" v={vendor.address || "—"} />
                 <Row l="Relationship tier" v={TIER_LABEL[vendor.relationship_tier] || "Standard"} />
@@ -214,10 +232,10 @@ export default function VendorDetailPage() {
               {/* Tax & Compliance */}
               <div className="vd-card">
                 <div className="vd-card-title">Tax &amp; Compliance</div>
-                <Row l={vendor.type === "individual" ? "NIK" : "NPWP"} v={vendor.tax_id || "—"} mono />
-                <Row l="PKP status" v={PKP_LABEL[vendor.pkp] || vendor.pkp} />
+                <Row l={vendor.type === "individual" ? "NIK" : "NPWP"} v={vendor.tax_id || "—"} mono gated />
+                <Row l="PKP status" v={PKP_LABEL[vendor.pkp] || vendor.pkp} gated />
                 <Row l="Tax Invoice (Faktur Pajak)" v={vendor.pkp === "PKP" ? "Required" : "Not required"} />
-                <Row l="Withholding" v={withholdingLabel(vendor.pph, !!vendor.tax_id)} />
+                <Row l="Withholding" v={withholdingLabel(vendor.pph, !!vendor.tax_id)} gated />
               </div>
 
               {/* Payment */}
@@ -225,13 +243,13 @@ export default function VendorDetailPage() {
                 <div className="vd-card-title">Payment</div>
                 <Row l="Payment terms" v={termLabel(vendor.payment_terms)} />
                 <Row l="Currency" v={vendor.currency || "IDR"} />
-                <Row l="AP account" v={ACCT_LABELS[vendor.acct] || vendor.acct || "—"} />
+                <Row l="AP account" v={ACCT_LABELS[vendor.acct] || vendor.acct || "—"} gated />
               </div>
 
               {/* Bank accounts — vendor (pay to) + company (pay from) */}
               <div className="vd-card">
                 <div className="vd-card-title">Bank Accounts</div>
-                <div className="vd-bank-lbl">Vendor bank account <span className="vd-bank-hint">— paid to</span></div>
+                <div className="vd-bank-lbl">Vendor bank account <span className="vd-gate" title="Changing this field requires manager approval">⚷</span> <span className="vd-bank-hint">— paid to</span></div>
                 {vendor.banks && vendor.banks.length > 0 ? (
                   <div className="vd-bank">
                     <div className="vd-bank-name">{vendor.banks[0].name}{vendor.banks[0].branch ? ` — ${vendor.banks[0].branch}` : ""}</div>
@@ -243,20 +261,27 @@ export default function VendorDetailPage() {
                     No bank account on file.{!canApprove && " Added by a manager before the vendor is used."}
                   </div>
                 )}
-                {vendor.company_bank && (
-                  <>
-                    <div className="vd-bank-lbl" style={{ marginTop: 14 }}>Company bank account <span className="vd-bank-hint">— paid from</span></div>
-                    <div className="vd-bank">
-                      <div className="vd-bank-name">{vendor.company_bank.name}{vendor.company_bank.branch ? ` — ${vendor.company_bank.branch}` : ""}</div>
-                      <div className="vd-bank-acc">{bankAcc(vendor.company_bank.acc)}</div>
-                      <div className="vd-bank-holder">a/n {vendor.company_bank.holder || "—"}</div>
-                    </div>
-                  </>
-                )}
                 {canApprove && (
-                  <button className="vd-btn" style={{ marginTop: 12 }} onClick={openBank}>
+                  <button className="vd-btn vd-bank-btn" onClick={() => openBank("vendor")}>
                     <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
                     {vendor.banks && vendor.banks.length > 0 ? "Change bank account" : "Add bank account"}
+                  </button>
+                )}
+
+                <div className="vd-bank-lbl" style={{ marginTop: 16 }}>Company bank account <span className="vd-bank-hint">— paid from</span></div>
+                {vendor.company_bank ? (
+                  <div className="vd-bank">
+                    <div className="vd-bank-name">{vendor.company_bank.name}{vendor.company_bank.branch ? ` — ${vendor.company_bank.branch}` : ""}</div>
+                    <div className="vd-bank-acc">{bankAcc(vendor.company_bank.acc)}</div>
+                    <div className="vd-bank-holder">a/n {vendor.company_bank.holder || "—"}</div>
+                  </div>
+                ) : (
+                  <div className="vd-row-val dim" style={{ textAlign: "left", fontSize: 12 }}>No paying account set.</div>
+                )}
+                {canApprove && (
+                  <button className="vd-btn vd-bank-btn" onClick={() => openBank("company")}>
+                    <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+                    {vendor.company_bank ? "Change company account" : "Set company account"}
                   </button>
                 )}
               </div>
@@ -328,6 +353,41 @@ export default function VendorDetailPage() {
           </div>
         )}
 
+        {/* ── VERSIONS ────────────────────────────────────────────── */}
+        {tab === "versions" && (
+          <div className="vd-body">
+            <div className="vd-card">
+              <div className="vd-card-title">Version history</div>
+              <div className="vd-ver-intro">Each completed approval cycle freezes the vendor's full record as a version.</div>
+              {vlist.length === 0 ? (
+                <div className="vd-empty">No approved version yet — this vendor has never completed an approval cycle.</div>
+              ) : (
+                <div className="vd-ver-list">
+                  {vlist.map((ver, i) => {
+                    const open = openVer === ver.versionId;
+                    return (
+                      <div className={`vd-ver${open ? " open" : ""}`} key={ver.versionId}>
+                        <button className="vd-ver-head" onClick={() => setOpenVer(open ? null : ver.versionId)}>
+                          <span className="vd-ver-caret">{open ? "▾" : "▸"}</span>
+                          <span className="vd-ver-id">{ver.versionId}</span>
+                          {i === 0 && <span className="vd-ver-current">Current</span>}
+                          <span className="vd-ver-meta">approved {formatDate(ver.approvedAt)} · {ver.approvedBy}</span>
+                          <span className="vd-ver-changed">
+                            {ver.changedFields.length > 0
+                              ? `changed: ${ver.changedFields.map((f) => VER_FIELD_LABEL[f] || f).join(", ")}`
+                              : "initial version"}
+                          </span>
+                        </button>
+                        {open && <VersionSnapshot data={ver.data} reason={ver.reason} />}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* ── ACTIVITY ────────────────────────────────────────────── */}
         {tab === "activity" && (
           <div className="vd-body">
@@ -383,13 +443,19 @@ export default function VendorDetailPage() {
         </div>
       )}
 
-      {/* ── Add bank account modal (Tier 3 — vendor.manage_bank) ──── */}
-      {bankOpen && (
-        <div className="vd-modal-overlay" onClick={() => setBankOpen(false)}>
+      {/* ── Change bank account modal (vendor payee = gated · company = logged) ── */}
+      {bankTarget && (
+        <div className="vd-modal-overlay" onClick={() => setBankTarget(null)}>
           <div className="vd-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="vd-modal-title">{vendor.banks && vendor.banks.length > 0 ? "Change bank account" : "Add bank account"}</div>
+            <div className="vd-modal-title">
+              {bankTarget === "company"
+                ? (vendor.company_bank ? "Change company account" : "Set company account")
+                : (vendor.banks && vendor.banks.length > 0 ? "Change bank account" : "Add bank account")}
+            </div>
             <div className="vd-modal-body">
-              Bank / payee details are a high-sensitivity change. Saving this sends the vendor back to <strong>Pending approval</strong> — an approver must confirm the new payee before it can post or pay.
+              {bankTarget === "company"
+                ? <>The company account this vendor's bills are paid <strong>from</strong>. This is our own account — the change is logged but doesn't require approval.</>
+                : <>Bank / payee details are a high-sensitivity change. Saving this sends the vendor back to <strong>Pending approval</strong> — an approver must confirm the new payee before it can post or pay.</>}
             </div>
             <div className="vd-bank-form">
               <label>Bank name</label>
@@ -408,8 +474,10 @@ export default function VendorDetailPage() {
               <input value={bankForm.holder} onChange={(e) => setBankForm({ ...bankForm, holder: e.target.value })} placeholder="Registered account name" />
             </div>
             <div className="vd-modal-actions">
-              <button className="vd-btn" onClick={() => setBankOpen(false)}>Cancel</button>
-              <button className="vd-btn primary" onClick={saveBank} disabled={!bankForm.name.trim() || digitsOnly(bankForm.acc).length < 4}>Save — send for approval</button>
+              <button className="vd-btn" onClick={() => setBankTarget(null)}>Cancel</button>
+              <button className="vd-btn primary" onClick={saveBank} disabled={!bankForm.name.trim() || digitsOnly(bankForm.acc).length < 4}>
+                {bankTarget === "company" ? "Save account" : "Save — send for approval"}
+              </button>
             </div>
           </div>
         </div>
@@ -420,11 +488,60 @@ export default function VendorDetailPage() {
   );
 }
 
-function Row({ l, v, mono }) {
+function Row({ l, v, mono, gated }) {
   return (
     <div className="vd-row">
-      <span className="vd-row-lbl">{l}</span>
+      <span className="vd-row-lbl">
+        {l}
+        {gated && <span className="vd-gate" title="Changing this field requires manager approval">⚷</span>}
+      </span>
       <span className={`vd-row-val${mono ? " mono" : ""}`}>{v}</span>
+    </div>
+  );
+}
+
+// Human labels for changed-field keys shown on a version row.
+const VER_FIELD_LABEL = {
+  code: "Code", name: "Display name", legal_name: "Legal name", type: "Entity type",
+  address: "Address", tax_id: "NPWP/NIK", pkp: "PKP status", pph: "Withholding",
+  payment_terms: "Payment terms", currency: "Currency", acct: "AP account",
+  banks: "Bank account", company_bank: "Company bank", contact: "Contact",
+  contact_role: "Contact role", email: "Email", phone: "Phone", notes: "Notes",
+  relationship_tier: "Relationship tier", relationship_tier_note: "Tier note",
+  status: "Lifecycle", approval: "Approval",
+};
+
+// Read-only full record of a frozen version — mirrors the Details tab layout.
+function VersionSnapshot({ data, reason }) {
+  const bank = data.banks && data.banks[0];
+  return (
+    <div className="vd-ver-snap">
+      {reason && <div className="vd-ver-reason">Reason: {reason}</div>}
+      <div className="vd-ver-grp">Identity</div>
+      <Row l="Vendor code" v={data.code} mono />
+      <Row l="Legal name" v={data.legal_name || data.name} />
+      <Row l="Entity type" v={TYPE_LABEL[data.type] || data.type} />
+      <Row l="Address" v={data.address || "—"} />
+      <Row l="Relationship tier" v={TIER_LABEL[data.relationship_tier] || "Standard"} />
+      <div className="vd-ver-grp">Tax &amp; Compliance</div>
+      <Row l={data.type === "individual" ? "NIK" : "NPWP"} v={data.tax_id || "—"} mono />
+      <Row l="PKP status" v={PKP_LABEL[data.pkp] || data.pkp} />
+      <Row l="Tax Invoice (Faktur Pajak)" v={data.pkp === "PKP" ? "Required" : "Not required"} />
+      <Row l="Withholding" v={withholdingLabel(data.pph, !!data.tax_id)} />
+      <div className="vd-ver-grp">Payment</div>
+      <Row l="Payment terms" v={termLabel(data.payment_terms)} />
+      <Row l="Currency" v={data.currency || "IDR"} />
+      <Row l="AP account" v={ACCT_LABELS[data.acct] || data.acct || "—"} />
+      <div className="vd-ver-grp">Bank Accounts</div>
+      <Row l="Vendor bank (paid to)" v={bank ? `${bank.name}${bank.branch ? ` — ${bank.branch}` : ""} · ${bankAcc(bank.acc)} · a/n ${bank.holder || "—"}` : "—"} />
+      <Row l="Company bank (paid from)" v={data.company_bank ? `${data.company_bank.name}${data.company_bank.branch ? ` — ${data.company_bank.branch}` : ""} · ${bankAcc(data.company_bank.acc)}` : "—"} />
+      <div className="vd-ver-grp">Primary Contact</div>
+      <Row l="Name" v={data.contact || "—"} />
+      <Row l="Role" v={data.contact_role || "—"} />
+      <Row l="Email" v={data.email || "—"} />
+      <Row l="Phone" v={data.phone || "—"} mono />
+      <div className="vd-ver-grp">Internal Notes</div>
+      <div className="vd-ver-notes">{data.notes || "—"}</div>
     </div>
   );
 }

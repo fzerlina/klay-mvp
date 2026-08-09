@@ -17,6 +17,7 @@ export const DEFAULT_COMPANY_BANK = {
 // (relationship tier, lifecycle + approval status, paying account) onto each
 // record so the vendor stays the single source of truth.
 function withDerived(v) {
+  const approval = v.approval || seedApprovalFor(v.id);
   return {
     ...v,
     // Entity type collapses to two kinds for MVP: company | individual.
@@ -24,13 +25,73 @@ function withDerived(v) {
     type: v.type === "individual" ? "individual" : "company",
     // Two independent status axes (see vendorHealth.js).
     status: seedStatusFor(v.id, v.status),        // lifecycle: active | inactive
-    approval: v.approval || seedApprovalFor(v.id), // approved | pending_approval
+    approval,                                      // approved | pending_approval
+    // An approved vendor already has one frozen version (seeded below); a
+    // pending one has never completed an approval cycle.
+    current_version: v.current_version ?? (approval === "approved" ? 1 : 0),
     company_bank: v.company_bank || DEFAULT_COMPANY_BANK,
     relationship_tier: v.relationship_tier || seedTierFor(v.id),
     relationship_tier_note: v.relationship_tier_note || seedTierNoteFor(v.id),
     relationship_tier_set_by: v.relationship_tier_set_by || null,
     relationship_tier_set_at: v.relationship_tier_set_at || null,
   };
+}
+
+// Master-data fields whose creation or change requires a fresh approval cycle
+// (SoD-sensitive: payee, tax identity, legal identity, and posting account).
+// Any OTHER field (address, contact, notes, terms, currency, tier, company
+// paying account…) is logged but does not gate.
+export const APPROVAL_TRIGGER_FIELDS = ["legal_name", "tax_id", "pkp", "pph", "acct", "banks"];
+export const APPROVAL_TRIGGER_LABEL = {
+  legal_name: "Legal name", tax_id: "NPWP/NIK", pkp: "PKP status",
+  pph: "Withholding", acct: "AP account", banks: "Vendor bank account",
+};
+
+// Fields captured in an approved-version snapshot — the vendor's complete
+// business record at the moment an approval cycle completes.
+const VERSIONED_FIELDS = [
+  "code", "name", "legal_name", "type", "address",
+  "tax_id", "pkp", "pph",
+  "payment_terms", "currency", "acct",
+  "banks", "company_bank",
+  "contact", "contact_role", "email", "phone",
+  "notes", "relationship_tier", "relationship_tier_note",
+  "status", "approval",
+];
+
+// Deep, immutable copy of the versioned fields (banks/company_bank are cloned).
+function snapshotData(vendor) {
+  const out = {};
+  for (const k of VERSIONED_FIELDS) {
+    const val = vendor[k];
+    out[k] = val && typeof val === "object" ? JSON.parse(JSON.stringify(val)) : val;
+  }
+  return out;
+}
+
+// Field-level diff between two snapshots — the keys whose values changed.
+function diffFields(prev, next) {
+  if (!prev) return [];
+  return VERSIONED_FIELDS.filter((k) => JSON.stringify(prev[k]) !== JSON.stringify(next[k]));
+}
+
+// Seed v1 for every vendor that is already Approved, so the version history is
+// populated on load. Pending vendors have no completed version yet.
+function seedVersions(vendors) {
+  const map = {};
+  for (const v of vendors) {
+    if (v.approval !== "approved") continue;
+    map[v.id] = [{
+      versionId: `${v.code}·v1`,
+      version: 1,
+      approvedAt: v.lastTx || "2025-01-01",
+      approvedBy: "Imported record",
+      reason: "",
+      changedFields: [],
+      data: snapshotData(v),
+    }];
+  }
+  return map;
 }
 
 function nextId(list) {
@@ -51,6 +112,8 @@ function nextCode(list) {
 
 export function VendorsProvider({ children }) {
   const [vendors, setVendors] = useState(() => SEED_VENDORS.map(withDerived));
+  // Frozen snapshots per vendor, newest-first — one per completed approval.
+  const [versions, setVersions] = useState(() => seedVersions(SEED_VENDORS.map(withDerived)));
 
   const addVendor = useCallback((draft) => {
     const id = nextId(vendors);
@@ -77,6 +140,7 @@ export function VendorsProvider({ children }) {
       // Pending approval — a manager signs it off (SoD: creator ≠ approver).
       status: "active",
       approval: "pending_approval",
+      current_version: 0, // no completed approval cycle yet
       source: draft.source || "MANUAL",
       lastTx: null,
       notes: draft.notes || "",
@@ -122,15 +186,37 @@ export function VendorsProvider({ children }) {
 
   // APPROVAL axis — sign off (or bounce back) the current version of the record.
   // Independent of lifecycle: approving doesn't change active/inactive.
+  // Completing an approval cycle (→ approved) FREEZES a new version snapshot.
   const setVendorApproval = useCallback((id, approval, meta = {}) => {
+    if (approval === "approved") {
+      const vendor = vendors.find((v) => v.id === id);
+      if (vendor) {
+        const prevList = versions[id] || [];
+        const n = prevList.length + 1;
+        const data = snapshotData({ ...vendor, approval: "approved" });
+        const snap = {
+          versionId: `${vendor.code}·v${n}`,
+          version: n,
+          approvedAt: TODAY.toISOString().slice(0, 10),
+          approvedBy: meta.actor || "—",
+          reason: meta.reason || "",
+          changedFields: diffFields(prevList[0]?.data, data),
+          data,
+        };
+        setVersions((prev) => ({ ...prev, [id]: [snap, ...(prev[id] || [])] }));
+        setVendors((prev) => prev.map((v) => (v.id === id ? { ...v, approval, current_version: n } : v)));
+        logEvent(id, meta.event || "Approved", `${snap.versionId}${snap.changedFields.length ? ` · ${snap.changedFields.length} field(s) changed` : ""}`, meta.actor);
+        return;
+      }
+    }
     setVendors((prev) => prev.map((v) => (v.id === id ? { ...v, approval } : v)));
-    const label = approval === "approved" ? "Approved" : "Pending approval";
-    logEvent(id, meta.event || label, meta.reason || "", meta.actor);
-  }, [logEvent]);
+    logEvent(id, meta.event || (approval === "approved" ? "Approved" : "Pending approval"), meta.reason || "", meta.actor);
+  }, [vendors, versions, logEvent]);
 
   // Set the vendor's payout bank account (single). A bank/payee change is a
-  // sensitive (Type-3) change: it always bounces the record back to Pending
-  // approval — an approver must confirm the new payee before it can post/pay.
+  // sensitive change (banks ∈ APPROVAL_TRIGGER_FIELDS): it always bounces the
+  // record back to Pending approval — an approver must confirm the new payee
+  // before it can post/pay.
   const setVendorBank = useCallback((id, bank, meta = {}) => {
     setVendors((prev) => prev.map((v) => (
       v.id === id ? { ...v, banks: [{ ...bank, isDefault: true }], approval: "pending_approval" } : v
@@ -139,12 +225,43 @@ export function VendorsProvider({ children }) {
     logEvent(id, "Bank / payee changed — pending approval", `${bank.name}${last4 ? ` ••••${last4}` : ""}`, meta.actor);
   }, [logEvent]);
 
+  // Set the company (paying) bank account — the account we settle this vendor's
+  // bills FROM. Single account. NOT approval-gated: it's our own account, not a
+  // payee, so it's logged but doesn't start an approval cycle.
+  const setCompanyBank = useCallback((id, bank, meta = {}) => {
+    setVendors((prev) => prev.map((v) => (v.id === id ? { ...v, company_bank: { ...bank } } : v)));
+    const last4 = (bank.acc || "").replace(/\D/g, "").slice(-4);
+    logEvent(id, "Company bank account changed", `${bank.name}${last4 ? ` ••••${last4}` : ""}`, meta.actor);
+  }, [logEvent]);
+
+  // Generic vendor edit. Applies a field patch and, if any APPROVAL_TRIGGER_FIELD
+  // changed, bounces the vendor back to Pending approval (SoD re-review of the
+  // sensitive change). Non-gated edits are logged but leave approval untouched.
+  const updateVendor = useCallback((id, patch, meta = {}) => {
+    const vendor = vendors.find((v) => v.id === id);
+    if (!vendor) return { changed: [], triggered: [] };
+    const changed = Object.keys(patch).filter((k) => JSON.stringify(vendor[k]) !== JSON.stringify(patch[k]));
+    const triggered = changed.filter((k) => APPROVAL_TRIGGER_FIELDS.includes(k));
+    if (!changed.length) return { changed, triggered };
+    setVendors((prev) => prev.map((v) => (
+      v.id === id ? { ...v, ...patch, approval: triggered.length ? "pending_approval" : v.approval } : v
+    )));
+    if (triggered.length) {
+      logEvent(id, "Sensitive change — pending approval", triggered.map((k) => APPROVAL_TRIGGER_LABEL[k] || k).join(", "), meta.actor);
+    } else {
+      logEvent(id, "Vendor updated", changed.map((k) => APPROVAL_TRIGGER_LABEL[k] || k).join(", "), meta.actor);
+    }
+    return { changed, triggered };
+  }, [vendors, logEvent]);
+
   const vendorById = useCallback((id) => vendors.find((v) => v.id === id) || null, [vendors]);
   const tierOf = useCallback((id) => vendors.find((v) => v.id === id)?.relationship_tier || "standard", [vendors]);
 
+  const versionsOf = useCallback((id) => versions[id] || [], [versions]);
+
   const value = useMemo(
-    () => ({ vendors, addVendor, setVendorTier, setVendorStatus, setVendorApproval, setVendorBank, changeLog, vendorById, tierOf }),
-    [vendors, addVendor, setVendorTier, setVendorStatus, setVendorApproval, setVendorBank, changeLog, vendorById, tierOf],
+    () => ({ vendors, addVendor, setVendorTier, setVendorStatus, setVendorApproval, setVendorBank, setCompanyBank, updateVendor, changeLog, versions, versionsOf, vendorById, tierOf }),
+    [vendors, addVendor, setVendorTier, setVendorStatus, setVendorApproval, setVendorBank, setCompanyBank, updateVendor, changeLog, versions, versionsOf, vendorById, tierOf],
   );
   return <VendorsContext.Provider value={value}>{children}</VendorsContext.Provider>;
 }

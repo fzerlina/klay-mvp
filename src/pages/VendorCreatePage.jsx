@@ -264,6 +264,10 @@ export default function VendorCreatePage() {
       <div className="ap-s1" style={{ alignItems: "stretch", padding: "28px 24px 96px" }}>
         <div style={{ width: "100%", maxWidth: 680, margin: "0 auto" }}>
 
+          <div className="vc-approval-note">
+            <strong>Approval-gated:</strong> legal name, NPWP/NIK, PKP status, withholding, AP account, and the vendor bank account. A manager signs these off before the vendor can post or pay; later changes to any of them start a new approval cycle.
+          </div>
+
           {/* 1 — Identity (Tier 1) */}
           <div className="form-sec card">
             <div className="form-sec-title">Identity</div>
