@@ -10,6 +10,7 @@ const SKU_PREFIX = {
   finished_goods: "FIN",
   supplies:       "SUP",
   packaging:      "PKG",
+  service:        "SVC",
 };
 
 function nextId(list) {
@@ -38,20 +39,40 @@ export function InventoryProvider({ children }) {
     const id = nextId(items);
     const category = draft.category || "supplies";
     const sku = draft.sku?.trim() || nextSku(items, category);
-    const qty = Number(draft.qty) || 0;
+    const isService = category === "service";
     const unit_cost = Number(draft.unit_cost) || 0;
+
+    // Services carry no stock or location; everything else rolls up its
+    // per-location quantities (falling back to a single Main Warehouse entry).
+    const locations = Array.isArray(draft.locations)
+      ? draft.locations
+          .filter((l) => (l.loc || "").trim())
+          .map((l) => ({ loc: l.loc.trim(), qty: Number(l.qty) || 0 }))
+      : [];
+    const qty = isService
+      ? null
+      : (locations.length ? locations.reduce((s, l) => s + l.qty, 0) : Number(draft.qty) || 0);
+
     const record = {
       id,
       sku,
       name: draft.name?.trim() || "Untitled item",
       category,
-      uom: draft.uom || "pcs",
+      uom: isService ? null : (draft.uom || "pcs"),
       qty,
       unit_cost,
-      value: qty * unit_cost,
+      value: isService ? null : (qty || 0) * unit_cost,
+      status: draft.status || "active",
       tax_code: draft.tax_code || "ppn_masukan",
       updated: TODAY.toISOString().slice(0, 10),
+      locations: isService ? [] : (locations.length ? locations : [{ loc: "Main Warehouse", qty: qty || 0 }]),
       notes: draft.notes?.trim() || "",
+      // Optional cost/pricing overrides — only stored when provided, otherwise
+      // Product Detail derives them (see lib/productDetail.js).
+      ...(draft.costing_method ? { costing_method: draft.costing_method } : {}),
+      ...(draft.cost_price != null ? { cost_price: Number(draft.cost_price) } : {}),
+      ...(draft.purchase_price != null ? { purchase_price: Number(draft.purchase_price) } : {}),
+      ...(draft.sales_price != null ? { sales_price: Number(draft.sales_price) } : {}),
     };
     setItems((prev) => [record, ...prev]);
     return record;
