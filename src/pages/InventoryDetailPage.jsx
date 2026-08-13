@@ -1,14 +1,22 @@
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { useInventory } from "../state/InventoryContext";
 import { INV_CAT_LABELS, INV_UOM_LABELS } from "../data/seed/inventory";
-import { DEFTAX_LABELS } from "../data/labels";
+import {
+  productUom, productCost, productAccounts, productHistory,
+  isServiceItem, ACTION_LABELS,
+} from "../lib/productDetail";
 import { formatRupiah, formatNumber, formatDate } from "../lib/format";
 import "./vendor-detail.css";
+import "./inventory.css";
+import "./product-detail.css";
 
-// ── Inventory Detail ─────────────────────────────────────────────────────────
+// ── Inventory / Product Detail ───────────────────────────────────────────────
 // Full page at /inventory/:id, built on the shared vd-* detail layout. Read-only
-// master-data view for a single stock item: identity, stock level, and valuation.
-// Stock state (out of stock / in stock) drives the header chip and an alert.
+// master-data view for a single product across four sections:
+//   1. Information  — identity, location, stock, unit of measure, valuation
+//   2. Cost         — costing method + sales / cost / purchase pricing
+//   3. Accounts     — GL account mapping (read-only; set in Category Settings)
+//   4. History      — the item's stock-movement ledger with journal links
 
 export default function InventoryDetailPage() {
   const { id } = useParams();
@@ -27,10 +35,22 @@ export default function InventoryDetailPage() {
     );
   }
 
-  const out = item.qty <= 0;
+  const service = isServiceItem(item);
+  const out = !service && (item.qty || 0) <= 0;
+  const inactive = (item.status || "active") === "inactive";
   const catLabel = INV_CAT_LABELS[item.category] || item.category;
-  const uomLabel = INV_UOM_LABELS[item.uom] || item.uom;
-  const taxLabel = DEFTAX_LABELS[item.tax_code] || "Not set";
+
+  const uom = productUom(item);
+  const cost = productCost(item);
+  const accounts = productAccounts(item);
+  const history = productHistory(item);
+
+  const primaryLabel = uom.primary ? (INV_UOM_LABELS[uom.primary] || uom.primary) : "—";
+  const secondaryLabel = uom.secondary ? (INV_UOM_LABELS[uom.secondary] || uom.secondary) : "—";
+
+  const locs = service
+    ? []
+    : (Array.isArray(item.locations) && item.locations.length ? item.locations : [{ loc: "Main Warehouse", qty: item.qty || 0 }]);
 
   return (
     <div className="vd-page">
@@ -43,6 +63,7 @@ export default function InventoryDetailPage() {
           <div className="vd-headinfo">
             <div className="vd-title-row">
               <span className="vd-title">{item.name}</span>
+              <span className={`iv-status iv-status-${inactive ? "inactive" : "active"}`}>{inactive ? "Inactive" : "Active"}</span>
               {out && <span className="vd-status blocked">Out of stock</span>}
             </div>
             <div className="vd-sub">
@@ -67,40 +88,90 @@ export default function InventoryDetailPage() {
         {/* ── Body ────────────────────────────────────────────────── */}
         <div className="vd-body">
           <div className="vd-grid">
-            {/* Item */}
-            <div className="vd-card">
-              <div className="vd-card-title">Item</div>
-              <Row l="Item name" v={item.name} />
-              <Row l="SKU" v={item.sku} mono />
-              <Row l="Category" v={catLabel} />
-              <Row l="Unit of measure" v={uomLabel} />
-            </div>
 
-            {/* Stock & Valuation */}
-            <div className="vd-card">
-              <div className="vd-card-title">Stock &amp; Valuation</div>
-              <Row l="Quantity on hand" v={`${formatNumber(item.qty)} ${uomLabel}`} />
-              <Row l="Unit cost" v={formatRupiah(item.unit_cost)} mono />
-              <Row l="Stock value" v={formatRupiah(item.value)} mono />
-              <Row l="Last updated" v={item.updated ? formatDate(item.updated) : "—"} />
-            </div>
-
-            {/* Tax mapping — read-only; editing the map happens elsewhere */}
-            <div className="vd-card">
-              <div className="vd-card-title">Tax Mapping</div>
-              <Row l="Default tax treatment" v={taxLabel} />
-              <div style={{ fontSize: 11.5, color: "var(--color-text-tertiary)", lineHeight: 1.6, marginTop: 8 }}>
-                Pre-fills the tax on <strong>Create New Bill</strong> lines for this item (final PPN still depends on the vendor's PKP status). Read-only here — the mapping is edited in item tax settings.
-              </div>
-            </div>
-
-            {/* Notes */}
+            {/* ── Section 1: Information ─────────────────────────── */}
             <div className="vd-card span2">
-              <div className="vd-card-title">Notes</div>
-              <div style={{ fontSize: 12.5, color: "var(--color-text-secondary)", lineHeight: 1.6 }}>
-                {item.notes || <span className="vd-row-val dim">No notes.</span>}
+              <div className="vd-card-title">Information</div>
+              <div className="pd-fields2">
+                <Row l="Product ID" v={item.sku} mono />
+                <Row l="Product Name" v={item.name} />
+                <Row l="Category" v={<span className={`cat-badge inv-${item.category}`}>{catLabel}</span>} />
+                <LocationRow service={service} locs={locs} uomLabel={primaryLabel} />
+                <Row l="Stock Count" v={service ? "—" : `${(item.qty || 0).toLocaleString("id-ID")} ${primaryLabel}`} />
+                <Row l="Unit of Measurement — Primary" v={primaryLabel} />
+                <Row l="Secondary Unit" v={secondaryLabel} />
+                <Row l="Conversion Ratio" v={uom.ratio ? `1 ${primaryLabel} = ${uom.ratio} ${secondaryLabel}` : "—"} />
+                <Row l="Cost / Unit" v={formatRupiah(item.unit_cost)} mono />
+                <Row l="Stock Value" v={service ? "—" : formatRupiah(item.value)} mono />
+                <Row l="Status" v={inactive ? "Inactive" : "Active"} />
               </div>
             </div>
+
+            {/* ── Section 2: Cost ───────────────────────────────── */}
+            <div className="vd-card">
+              <div className="vd-card-title">Cost</div>
+              <Row l="Costing Method" v={service ? "—" : cost.costing_label} />
+              <Row l="Sales Price" v={formatRupiah(cost.sales_price)} mono />
+              <Row l="Cost Price" v={formatRupiah(cost.cost_price)} mono />
+              <Row l="Purchase Price" v={formatRupiah(cost.purchase_price)} mono />
+            </div>
+
+            {/* ── Section 3: Accounts ───────────────────────────── */}
+            <div className="vd-card">
+              <div className="vd-card-title">
+                Accounts
+                <span className="pd-ro-tag">Read-only</span>
+              </div>
+              {accounts.map((a) => (
+                <div className="vd-row" key={a.key}>
+                  <span className="vd-row-lbl">{a.label}</span>
+                  <span className="vd-row-val pd-acct">
+                    {a.name
+                      ? <>{a.name} <span className="pd-acct-code">{a.code}</span></>
+                      : <span className="dim">Not applicable</span>}
+                  </span>
+                </div>
+              ))}
+              <div className="pd-ro-note">Editable in Product Category Settings.</div>
+            </div>
+
+            {/* ── Section 4: History ────────────────────────────── */}
+            <div className="vd-card span2">
+              <div className="vd-tx-head">
+                <div className="vd-card-title" style={{ marginBottom: 0 }}>History</div>
+                <div className="pd-hist-sub">Stock movements for this item</div>
+              </div>
+              <div className="vd-tx-tablewrap">
+                <table className="vd-tx-table">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Action</th>
+                      <th className="num">Unit</th>
+                      <th className="num">Cost / Unit</th>
+                      <th className="num">Adjusted Value</th>
+                      <th>Journal Entry</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {history.length === 0 && (
+                      <tr><td colSpan={6} className="dim" style={{ textAlign: "center", padding: 20 }}>No movements recorded.</td></tr>
+                    )}
+                    {history.map((h, i) => (
+                      <tr className="vd-tx-row" key={i}>
+                        <td>{formatDate(h.date)}</td>
+                        <td><span className={`pd-act pd-act-${h.action}`}>{ACTION_LABELS[h.action] || h.action}</span></td>
+                        <td className="num">{h.unit > 0 ? "+" : ""}{h.unit.toLocaleString("id-ID")}</td>
+                        <td className="num">{formatRupiah(h.unit_cost)}</td>
+                        <td className="num">{h.value < 0 ? "−" : ""}{formatRupiah(Math.abs(h.value))}</td>
+                        <td><Link className="pd-je" to="/journal-entry">{h.je}</Link></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
           </div>
         </div>
       </div>
@@ -113,6 +184,30 @@ function Row({ l, v, mono }) {
     <div className="vd-row">
       <span className="vd-row-lbl">{l}</span>
       <span className={`vd-row-val${mono ? " mono" : ""}`}>{v}</span>
+    </div>
+  );
+}
+
+// Location row — a single warehouse names it; multiple warehouses stack with
+// their per-location quantity.
+function LocationRow({ service, locs, uomLabel }) {
+  let value;
+  if (service) value = <span className="dim">—</span>;
+  else if (locs.length === 1) value = locs[0].loc;
+  else value = (
+    <div className="pd-loclist">
+      {locs.map((l, i) => (
+        <div className="pd-loc" key={i}>
+          <span>{l.loc}</span>
+          <span className="pd-loc-qty">{formatNumber(l.qty)} {uomLabel}</span>
+        </div>
+      ))}
+    </div>
+  );
+  return (
+    <div className="vd-row">
+      <span className="vd-row-lbl">Location</span>
+      <span className="vd-row-val">{value}</span>
     </div>
   );
 }

@@ -1,0 +1,33 @@
+/* ── Product Detail — extends the shared vd-* detail layout ──────────────── */
+
+.dim { color: var(--color-text-tertiary); font-weight: 400; }
+
+/* Section 1: two-column field grid inside the Information card */
+.pd-fields2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 32px; }
+@media (max-width: 720px) { .pd-fields2 { grid-template-columns: 1fr; } }
+
+/* Location breakdown (multi-warehouse) */
+.pd-loclist { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
+.pd-loc { display: flex; gap: 10px; align-items: baseline; }
+.pd-loc-qty { font-family: var(--font-mono); font-size: 11.5px; color: var(--color-text-tertiary); }
+
+/* Section 3: Accounts — read-only GL mapping */
+.pd-ro-tag {
+  margin-left: 8px; font-size: 9px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--color-text-tertiary); background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-default); border-radius: 9999px; padding: 2px 7px; vertical-align: middle;
+}
+.pd-acct { display: inline-flex; align-items: baseline; gap: 8px; justify-content: flex-end; }
+.pd-acct-code { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-tertiary); }
+.pd-ro-note { margin-top: 10px; font-size: 11.5px; color: var(--color-text-tertiary); }
+
+/* Section 4: History */
+.pd-hist-sub { font-size: 11.5px; color: var(--color-text-tertiary); }
+.pd-je { font-family: var(--font-mono); font-size: 11.5px; color: var(--color-action); text-decoration: none; }
+.pd-je:hover { text-decoration: underline; }
+
+/* Movement action badge */
+.pd-act { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 9999px; font-size: 10px; font-weight: 700; letter-spacing: .02em; border: 1px solid transparent; }
+.pd-act-buy { background: var(--success-surface); color: var(--success-text); border-color: var(--success-border); }
+.pd-act-sell { background: var(--ai-surface); color: var(--color-action); border-color: var(--ai-border); }
+.pd-act-adjust { background: var(--warning-surface); color: var(--warning-text); border-color: var(--warning-border); }
