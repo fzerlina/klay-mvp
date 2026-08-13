@@ -16,6 +16,11 @@
 //                   location quantities. Single-location items still carry one
 //                   entry so the row model is uniform. In the list these
 //                   collapse to one row that expands to the per-location split.
+//
+// The "service" category is non-stock: a service has a cost/unit (its rate) but
+// no on-hand quantity, location, or stock value. Its qty/value/locations are
+// left null so the list renders "—" and the stock/location filters skip it —
+// this keeps services out of the "No Stock" bucket (they were never stocked).
 export const INVENTORY = [
   {id:"INV001",sku:"RAW-0001",name:"Steel Sheet 1.2mm",category:"raw_material",qty:340,uom:"kg",unit_cost:18500,value:6290000,tax_code:"ppn_masukan",status:"active",updated:"2025-04-18",locations:[{loc:"Jakarta Warehouse",qty:200},{loc:"Surabaya Warehouse",qty:140}]},
   {id:"INV002",sku:"RAW-0002",name:"Epoxy Resin Grade A",category:"raw_material",qty:85,uom:"liter",unit_cost:96000,value:8160000,tax_code:"ppn_masukan",status:"active",updated:"2025-03-30",locations:[{loc:"Jakarta Warehouse",qty:85}]},
@@ -33,6 +38,9 @@ export const INVENTORY = [
   {id:"INV014",sku:"PKG-0002",name:"Pallet Stretch Wrap",category:"packaging",qty:140,uom:"ream",unit_cost:62000,value:8680000,tax_code:"ppn_masukan",status:"active",updated:"2025-03-25",locations:[{loc:"Jakarta Warehouse",qty:140}]},
   {id:"INV015",sku:"PKG-0003",name:"Thermal Barcode Label",category:"packaging",qty:52,uom:"box",unit_cost:145000,value:7540000,tax_code:"ppn_masukan",status:"active",updated:"2025-04-08",locations:[{loc:"Jakarta Warehouse",qty:52}]},
   {id:"INV016",sku:"PKG-0004",name:"Clear Packing Tape 2 inch",category:"packaging",qty:8,uom:"box",unit_cost:96000,value:768000,tax_code:"ppn_masukan",status:"inactive",updated:"2025-02-28",locations:[{loc:"Jakarta Warehouse",qty:8}]},
+  {id:"INV017",sku:"SVC-0001",name:"Equipment Maintenance Visit",category:"service",qty:null,uom:null,unit_cost:1500000,value:null,tax_code:"ppn_masukan",status:"active",updated:"2025-04-16",locations:[]},
+  {id:"INV018",sku:"SVC-0002",name:"Annual Software Support",category:"service",qty:null,uom:null,unit_cost:4200000,value:null,tax_code:"ppn_masukan",status:"active",updated:"2025-03-18",locations:[]},
+  {id:"INV019",sku:"SVC-0003",name:"Machine Installation Service",category:"service",qty:null,uom:null,unit_cost:2750000,value:null,tax_code:"ppn_masukan",status:"inactive",updated:"2025-02-05",locations:[]},
 ];
 
 // Display labels for the inventory category badge.
@@ -41,13 +49,60 @@ export const INV_CAT_LABELS = {
   finished_goods: "Finished Goods",
   supplies:       "Supplies",
   packaging:      "Packaging",
+  service:        "Service",
 };
 
-// Unit-of-measure labels (shown beside the quantity on hand).
+// Unit-of-measure labels (shown beside the quantity on hand). The lower block
+// are secondary/base units a primary unit converts down to (1 box = 24 pcs).
 export const INV_UOM_LABELS = {
   pcs:   "pcs",
   kg:    "kg",
   box:   "box",
   ream:  "ream",
   liter: "liter",
+  sheet: "sheet",
+  g:     "g",
+  ml:    "ml",
 };
+
+// Default secondary unit + conversion ratio per primary unit — "1 <primary> =
+// <ratio> <secondary>". Drives the Unit of Measurement block on Product Detail.
+// A primary with no entry (e.g. pcs) has no secondary unit.
+export const INV_UOM_SECONDARY = {
+  box:   { unit: "pcs",   ratio: 24 },
+  ream:  { unit: "sheet", ratio: 500 },
+  kg:    { unit: "g",     ratio: 1000 },
+  liter: { unit: "ml",    ratio: 1000 },
+};
+
+// Costing method labels (Product Detail → Cost).
+export const INV_COSTING_LABELS = {
+  weighted_average: "Weighted Average",
+  fifo:             "FIFO",
+  standard:         "Standard Cost",
+};
+
+// GL account mapping per product category. These are configured once in Product
+// Category Settings and shown read-only on Product Detail → Accounts. Values are
+// Chart-of-Accounts codes (see data/seed/coa.js); the detail page resolves each
+// code to its account name. `null` means the account does not apply to the
+// category (e.g. a Service has no inventory or goods-in-transit account).
+export const INV_CATEGORY_ACCOUNTS = {
+  raw_material:   { inventory: "1-3100", sales: "4-1200", sales_return: "4-3100", sales_discount: "4-3200", goods_in_transit: "1-5200", cogs: "5-1100", purchase_return: "5-1500", grni: "2-1200" },
+  finished_goods: { inventory: "1-3300", sales: "4-1100", sales_return: "4-3100", sales_discount: "4-3200", goods_in_transit: "1-5200", cogs: "5-1100", purchase_return: "5-1500", grni: "2-1200" },
+  supplies:       { inventory: "1-3100", sales: "4-2300", sales_return: "4-3100", sales_discount: "4-3200", goods_in_transit: "1-5200", cogs: "5-1100", purchase_return: "5-1500", grni: "2-1200" },
+  packaging:      { inventory: "1-3100", sales: "4-1300", sales_return: "4-3100", sales_discount: "4-3200", goods_in_transit: "1-5200", cogs: "5-1900", purchase_return: "5-1500", grni: "2-1200" },
+  service:        { inventory: null,     sales: "4-1500", sales_return: "4-3100", sales_discount: "4-3200", goods_in_transit: null,     cogs: "5-1700", purchase_return: null,     grni: null     },
+};
+
+// Ordered rows for the Accounts section: [key, label]. Order matches the PRD.
+export const INV_ACCOUNT_ROWS = [
+  ["inventory",        "Inventory"],
+  ["sales",            "Sales"],
+  ["sales_return",     "Sales Return"],
+  ["sales_discount",   "Sales Discount"],
+  ["goods_in_transit", "Goods In Transit"],
+  ["cogs",             "COGS Account"],
+  ["purchase_return",  "Purchase Return"],
+  ["grni",             "Goods Received Not Invoiced"],
+];

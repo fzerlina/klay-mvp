@@ -12,9 +12,14 @@ import "./inventory.css";
 // whose stock is split across warehouses collapses to a single row that expands
 // to the per-location breakdown (a product can have many inventory locations).
 
+// A service is non-stock: no quantity, location, or stock value — only a rate.
+const isService = (it) => it.category === "service";
+
 // Locations for a product — fall back to a single synthetic location for items
-// created before the field existed, so the row model stays uniform.
+// created before the field existed, so the row model stays uniform. Services
+// carry no location.
 function locationsOf(it) {
+  if (isService(it)) return [];
   if (Array.isArray(it.locations) && it.locations.length) return it.locations;
   return [{ loc: "Main Warehouse", qty: it.qty || 0 }];
 }
@@ -29,16 +34,21 @@ function StatusPill({ status }) {
   return <span className={`iv-status iv-status-${meta.tone}`}>{meta.label}</span>;
 }
 
-function StockCell({ it, locs }) {
-  const out = (it.qty || 0) <= 0;
-  if (out) return <span className="iv-stock-out">Out of stock</span>;
-  return (
-    <span className="iv-stock">
-      <span className="iv-stock-qty">{formatNumber(it.qty)}</span>
-      <span className="iv-stock-uom">{INV_UOM_LABELS[it.uom] || it.uom}</span>
-      {locs.length > 1 && <span className="iv-stock-locs">· {locs.length} locations</span>}
-    </span>
-  );
+// Location column — services show "—"; a multi-warehouse product summarizes to a
+// count (the row expands to the split); a single-warehouse product names it.
+function LocationCell({ it, locs }) {
+  if (isService(it)) return <span className="iv-dash">—</span>;
+  if (locs.length > 1) return <span className="iv-loc-summary">{locs.length} warehouses</span>;
+  return <span className="iv-loc-single">{locs[0]?.loc || "—"}</span>;
+}
+
+// Stock count — services show "—"; an out-of-stock product shows a muted 0 so it
+// stays visually distinct from a service (which has no stock concept at all).
+function StockCountCell({ it }) {
+  if (isService(it)) return <span className="iv-dash">—</span>;
+  const q = it.qty || 0;
+  if (q <= 0) return <span className="iv-stock-out-num">0</span>;
+  return <span className="iv-stock-qty">{formatNumber(q)}</span>;
 }
 
 function InventoryRow({ it, expanded, onToggle, onOpen }) {
@@ -57,10 +67,12 @@ function InventoryRow({ it, expanded, onToggle, onOpen }) {
         <div className="iv-sku">{it.sku}</div>
         <div className="iv-name">{it.name}</div>
         <div><span className={`cat-badge inv-${it.category}`}>{INV_CAT_LABELS[it.category] || it.category}</span></div>
-        <div><StatusPill status={it.status || "active"} /></div>
-        <div className="iv-stock-cell"><StockCell it={it} locs={locs} /></div>
+        <div className="iv-loc-cell"><LocationCell it={it} locs={locs} /></div>
+        <div className="iv-num"><StockCountCell it={it} /></div>
+        <div className="iv-uom">{isService(it) ? "—" : (INV_UOM_LABELS[it.uom] || it.uom || "—")}</div>
         <div className="iv-num">{formatRupiah(it.unit_cost)}</div>
-        <div className="iv-num iv-value">{formatRupiah(it.value)}</div>
+        <div className="iv-num iv-value">{isService(it) ? <span className="iv-dash">—</span> : formatRupiah(it.value)}</div>
+        <div><StatusPill status={it.status || "active"} /></div>
       </div>
       {multi && expanded && (
         <div className="iv-loc-wrap">
@@ -93,9 +105,11 @@ const SORT_LABELS = {
   "updated-desc": "Last updated",
   "name-asc":     "Name A–Z",
   "name-desc":    "Name Z–A",
-  "sku-asc":      "SKU A–Z",
+  "sku-asc":      "Product ID A–Z",
   "qty-desc":     "Stock high → low",
   "qty-asc":      "Stock low → high",
+  "cost-desc":    "Cost/unit high → low",
+  "cost-asc":     "Cost/unit low → high",
   "value-desc":   "Stock value high → low",
   "value-asc":    "Stock value low → high",
 };
@@ -118,15 +132,15 @@ function SortPopover({ value, onPick, onClose }) {
 }
 
 const STOCK_OPTIONS = [
-  { k: "in",  lbl: "In stock" },
-  { k: "out", lbl: "Out of stock" },
+  { k: "in",  lbl: "With Stock" },
+  { k: "out", lbl: "No Stock" },
 ];
 const STATUS_OPTIONS = [
   { k: "active",   lbl: "Active" },
   { k: "inactive", lbl: "Inactive" },
 ];
 
-function FilterPopover({ values, onChange, onClose }) {
+function FilterPopover({ values, locationOptions, onChange, onClose }) {
   const ref = useRef(null);
   useClickOutside(ref, onClose);
   const [draft, setDraft] = useState(values);
@@ -137,7 +151,7 @@ function FilterPopover({ values, onChange, onClose }) {
     return { ...d, [key]: next };
   });
 
-  const reset = () => setDraft({ categories: new Set(), stock: new Set(), status: new Set() });
+  const reset = () => setDraft({ categories: new Set(), stock: new Set(), status: new Set(), locations: new Set() });
   const apply = () => { onChange(draft); onClose(); };
 
   const categories = Object.keys(INV_CAT_LABELS);
@@ -176,6 +190,16 @@ function FilterPopover({ values, onChange, onClose }) {
             ))}
           </div>
         </div>
+        <div className="lg-filter-fld">
+          <div className="lg-filter-fld-lbl">Location ({summary(draft.locations)})</div>
+          <div className="lg-toggle-row">
+            {locationOptions.map((loc) => (
+              <button key={loc} className={`lg-toggle${draft.locations.has(loc) ? " on" : ""}`} onClick={() => toggleIn("locations", loc)}>
+                {loc}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
       <div className="lg-filter-foot">
         <button className="lg-filter-reset" onClick={reset}>Reset</button>
@@ -191,7 +215,7 @@ export default function InventoryPage() {
 
   const [search, setSearch] = useState("");
   const [sortChoice, setSortChoice] = useState(null);
-  const emptyFilters = { categories: new Set(), stock: new Set(), status: new Set() };
+  const emptyFilters = { categories: new Set(), stock: new Set(), status: new Set(), locations: new Set() };
   const [filterValues, setFilterValues] = useState(emptyFilters);
   const [sortPopOpen, setSortPopOpen] = useState(false);
   const [filterPopOpen, setFilterPopOpen] = useState(false);
@@ -199,11 +223,19 @@ export default function InventoryPage() {
 
   const effectiveSort = sortChoice || "updated-desc";
 
+  // Distinct warehouses across all (non-service) stock — feeds the Location filter.
+  const locationOptions = useMemo(() => {
+    const s = new Set();
+    items.forEach((it) => { if (!isService(it)) locationsOf(it).forEach((l) => l.loc && s.add(l.loc)); });
+    return [...s].sort();
+  }, [items]);
+
   const activeFilterCount = useMemo(() => {
     let n = 0;
     if (filterValues.categories.size > 0) n++;
     if (filterValues.stock.size > 0) n++;
     if (filterValues.status.size > 0) n++;
+    if (filterValues.locations.size > 0) n++;
     return n;
   }, [filterValues]);
 
@@ -214,10 +246,15 @@ export default function InventoryPage() {
     if (filterValues.status.size > 0) list = list.filter((it) => filterValues.status.has(it.status || "active"));
     if (filterValues.categories.size > 0) list = list.filter((it) => filterValues.categories.has(it.category));
     if (filterValues.stock.size > 0) {
+      // Services have no stock concept — never match a With/No Stock filter.
       list = list.filter((it) => {
+        if (isService(it)) return false;
         const isOut = (it.qty || 0) <= 0;
         return (filterValues.stock.has("out") && isOut) || (filterValues.stock.has("in") && !isOut);
       });
+    }
+    if (filterValues.locations.size > 0) {
+      list = list.filter((it) => !isService(it) && locationsOf(it).some((l) => filterValues.locations.has(l.loc)));
     }
     const q = search.toLowerCase().trim();
     if (q) list = list.filter((it) =>
@@ -238,6 +275,8 @@ export default function InventoryPage() {
       case "sku-asc":    arr.sort((a, b) => a.sku.localeCompare(b.sku)); break;
       case "qty-desc":   arr.sort((a, b) => (b.qty || 0) - (a.qty || 0)); break;
       case "qty-asc":    arr.sort((a, b) => (a.qty || 0) - (b.qty || 0)); break;
+      case "cost-desc":  arr.sort((a, b) => (b.unit_cost || 0) - (a.unit_cost || 0)); break;
+      case "cost-asc":   arr.sort((a, b) => (a.unit_cost || 0) - (b.unit_cost || 0)); break;
       case "value-desc": arr.sort((a, b) => (b.value || 0) - (a.value || 0)); break;
       case "value-asc":  arr.sort((a, b) => (a.value || 0) - (b.value || 0)); break;
       default: break;
@@ -273,7 +312,7 @@ export default function InventoryPage() {
             <div className="lg-head-actions">
               <button className="lg-btn-brand" onClick={() => navigate("/inventory/new")}>
                 <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                Add New Inventory
+                Add New Product
               </button>
             </div>
           </div>
@@ -285,7 +324,7 @@ export default function InventoryPage() {
             <div className="lg-filter-row">
               <div className="lg-search">
                 <svg viewBox="0 0 14 14"><circle cx="6" cy="6" r="3.5"/><path d="M9 9l3 3" strokeLinecap="round"/></svg>
-                <input placeholder="Search item, SKU, category, or location…" value={search} onChange={(e) => setSearch(e.target.value)} />
+                <input placeholder="Search product name, Product ID, category, or location…" value={search} onChange={(e) => setSearch(e.target.value)} />
               </div>
               <div className="lg-filter-meta">
                 <div className="lg-meta-static">
@@ -297,7 +336,7 @@ export default function InventoryPage() {
                     Filter
                     {activeFilterCount > 0 && <span className="lg-filter-badge">{activeFilterCount}</span>}
                   </button>
-                  {filterPopOpen && <FilterPopover values={filterValues} onChange={setFilterValues} onClose={() => setFilterPopOpen(false)} />}
+                  {filterPopOpen && <FilterPopover values={filterValues} locationOptions={locationOptions} onChange={setFilterValues} onClose={() => setFilterPopOpen(false)} />}
                 </div>
                 <div className="lg-meta-btn-wrap">
                   <button className="lg-meta-btn" onClick={() => { setSortPopOpen(!sortPopOpen); setFilterPopOpen(false); }}>
@@ -314,13 +353,15 @@ export default function InventoryPage() {
               <div className="iv-inner">
                 <div className="iv-col-header">
                   <div />
-                  <div>SKU</div>
-                  <div>Item Name</div>
+                  <div>Product ID</div>
+                  <div>Product Name</div>
                   <div>Category</div>
-                  <div>Inventory Status</div>
-                  <div>Stock Available</div>
-                  <div className="iv-num">Unit Cost</div>
+                  <div>Location</div>
+                  <div className="iv-num">Stock Count</div>
+                  <div>UoM</div>
+                  <div className="iv-num">Cost / Unit</div>
                   <div className="iv-num">Stock Value</div>
+                  <div>Status</div>
                 </div>
 
                 {rows.length === 0 && <div className="lg-empty">No products match your search</div>}

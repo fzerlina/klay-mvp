@@ -157,6 +157,7 @@
 .cat-badge.inv-finished_goods{background:var(--success-surface);color:var(--success-text);border-color:var(--success-border)}
 .cat-badge.inv-supplies{background:var(--warning-surface);color:var(--warning-text);border-color:var(--warning-border)}
 .cat-badge.inv-packaging{background:var(--color-surface-sunken);color:var(--color-text-tertiary);border-color:var(--color-border-default)}
+.cat-badge.inv-service{background:var(--danger-surface);color:var(--color-brand);border-color:#EDD5C4}
 /* Static meta text in the filter row (e.g. "16 item · Rp …") */
 .lg-meta-static{font-size:11.5px;color:var(--color-text-secondary);white-space:nowrap}
 /* Bills table — checkbox · Bill/Invoice · Date · Vendor · Due · Journal Status · Posting Date · Payment Status · Total · kebab */
