@@ -244,6 +244,7 @@ const settingsSections = [
       { label: "Bank accounts", to: "/bank-accounts" },
       { label: "Dimensions", to: "/dimensions" },
       { label: "Posting periods", to: "/posting-periods" },
+      { label: "Inventory", to: "/inventory-settings" },
       { label: "Tax codes" },
       { label: "Tax rates" },
       { label: "Fiscal year" },

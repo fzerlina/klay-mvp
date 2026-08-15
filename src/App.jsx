@@ -31,12 +31,14 @@ import BankAccountsSettingsPage from "./pages/BankAccountsSettingsPage";
 import UsersPage from "./pages/UsersPage";
 import AccessPolicyPage from "./pages/AccessPolicyPage";
 import PostingPeriodsSettingsPage from "./pages/PostingPeriodsSettingsPage";
+import InventorySettingsPage from "./pages/InventorySettingsPage";
 import { InvoicesProvider } from "./state/InvoicesContext";
 import { BillsProvider } from "./state/BillsContext";
 import { PaymentsProvider } from "./state/PaymentsContext";
 import { VendorsProvider } from "./state/VendorsContext";
 import { CustomersProvider } from "./state/CustomersContext";
 import { InventoryProvider } from "./state/InventoryContext";
+import { AccountingSettingsProvider } from "./state/AccountingSettingsContext";
 import { JournalEntriesProvider } from "./state/JournalEntriesContext";
 import { ClosePeriodProvider } from "./state/ClosePeriodContext";
 
@@ -99,6 +101,7 @@ export default function App() {
         <VendorsProvider>
           <CustomersProvider>
           <InventoryProvider>
+            <AccountingSettingsProvider>
             <JournalEntriesProvider>
             <ClosePeriodProvider>
             <PaymentsProvider>
@@ -141,12 +144,14 @@ export default function App() {
                 <Route path="/users" element={<UsersPage />} />
                 <Route path="/access-policy" element={<AccessPolicyPage />} />
                 <Route path="/posting-periods" element={<PostingPeriodsSettingsPage />} />
+                <Route path="/inventory-settings" element={<InventorySettingsPage />} />
                 <Route path="*" element={<RoleLanding />} />
               </Route>
             </Routes>
             </PaymentsProvider>
             </ClosePeriodProvider>
             </JournalEntriesProvider>
+            </AccountingSettingsProvider>
           </InventoryProvider>
           </CustomersProvider>
         </VendorsProvider>

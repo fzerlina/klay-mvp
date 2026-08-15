@@ -2,7 +2,7 @@ import { useState, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useInventory } from "../state/InventoryContext";
 import {
-  INV_CAT_LABELS, INV_UOM_LABELS, INV_UOM_SECONDARY, INV_COSTING_LABELS,
+  INV_CAT_LABELS, INV_UOM_LABELS, INV_UOM_SECONDARY,
 } from "../data/seed/inventory";
 import { productAccounts } from "../lib/productDetail";
 import { formatRupiah } from "../lib/format";
@@ -22,7 +22,6 @@ import "./inventory.css";
 const CATEGORY_OPTIONS = Object.entries(INV_CAT_LABELS).map(([v, label]) => ({ v, label }));
 // Only primary (stocking) units are pickable; secondary units derive from these.
 const PRIMARY_UOM_OPTIONS = Object.keys(INV_UOM_LABELS).filter((u) => !["sheet", "g", "ml"].includes(u));
-const COSTING_OPTIONS = Object.entries(INV_COSTING_LABELS).map(([v, label]) => ({ v, label }));
 
 const SKU_PREFIX = { raw_material: "RAW", finished_goods: "FIN", supplies: "SUP", packaging: "PKG", service: "SVC" };
 
@@ -42,7 +41,6 @@ export default function InventoryCreatePage() {
   const [locations, setLocations] = useState([{ loc: "", qty: "" }]);
 
   // Cost
-  const [costingMethod, setCostingMethod] = useState("weighted_average");
   const [salesPrice, setSalesPrice] = useState("");
   const [costPrice, setCostPrice] = useState("");
   const [purchasePrice, setPurchasePrice] = useState("");
@@ -100,7 +98,6 @@ export default function InventoryCreatePage() {
       uom: isService ? null : uom,
       unit_cost: Number(unitCost) || 0,
       locations: isService ? [] : locations,
-      costing_method: isService ? undefined : costingMethod,
       cost_price: costPrice !== "" ? costPrice : undefined,
       purchase_price: purchasePrice !== "" ? purchasePrice : undefined,
       sales_price: salesPrice !== "" ? salesPrice : undefined,
@@ -230,32 +227,22 @@ export default function InventoryCreatePage() {
                 </div>
               </div>
             ) : (
-              <>
-                <div className="fg2">
-                  <div className="form-fld">
-                    <label>Costing Method</label>
-                    <select value={costingMethod} onChange={(e) => setCostingMethod(e.target.value)}>
-                      {COSTING_OPTIONS.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
-                    </select>
-                  </div>
-                  <div className="form-fld">
-                    <label>Sales Price (Rp)</label>
-                    <input type="number" min="0" value={salesPrice} onChange={(e) => setSalesPrice(e.target.value)} placeholder="Auto from cost" style={{ fontFamily: "var(--font-mono)" }} />
-                  </div>
+              <div className="fg3" style={{ marginBottom: 0 }}>
+                <div className="form-fld">
+                  <label>Sales Price (Rp)</label>
+                  <input type="number" min="0" value={salesPrice} onChange={(e) => setSalesPrice(e.target.value)} placeholder="Auto from cost" style={{ fontFamily: "var(--font-mono)" }} />
                 </div>
-                <div className="fg2" style={{ marginBottom: 0 }}>
-                  <div className="form-fld">
-                    <label>Cost Price (Rp)</label>
-                    <input type="number" min="0" value={costPrice} onChange={(e) => setCostPrice(e.target.value)} placeholder="Defaults to Cost / Unit" style={{ fontFamily: "var(--font-mono)" }} />
-                  </div>
-                  <div className="form-fld">
-                    <label>Purchase Price (Rp)</label>
-                    <input type="number" min="0" value={purchasePrice} onChange={(e) => setPurchasePrice(e.target.value)} placeholder="Auto from cost" style={{ fontFamily: "var(--font-mono)" }} />
-                  </div>
+                <div className="form-fld">
+                  <label>Cost Price (Rp)</label>
+                  <input type="number" min="0" value={costPrice} onChange={(e) => setCostPrice(e.target.value)} placeholder="Defaults to Cost / Unit" style={{ fontFamily: "var(--font-mono)" }} />
                 </div>
-              </>
+                <div className="form-fld">
+                  <label>Purchase Price (Rp)</label>
+                  <input type="number" min="0" value={purchasePrice} onChange={(e) => setPurchasePrice(e.target.value)} placeholder="Auto from cost" style={{ fontFamily: "var(--font-mono)" }} />
+                </div>
+              </div>
             )}
-            <span className="vc-hint" style={{ marginTop: 10, display: "block" }}>Prices left blank are estimated from the cost when the product is created.</span>
+            <span className="vc-hint" style={{ marginTop: 10, display: "block" }}>Costing method is set company-wide in Accounting Settings. Prices left blank are estimated from the cost when the product is created.</span>
           </div>
 
           {/* 4 — Accounts (read-only preview) */}
