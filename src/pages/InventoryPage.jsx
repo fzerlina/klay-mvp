@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useInventory } from "../state/InventoryContext";
-import { INV_CAT_LABELS, INV_UOM_LABELS } from "../data/seed/inventory";
+import { INV_CAT_LABELS, INV_UOM_LABELS, INV_STATUS_META, INV_STATUS_ORDER } from "../data/seed/inventory";
 import { formatRupiah, formatNumber, formatDate } from "../lib/format";
 import "./modules.css";
 import "./invoices-ledger.css";
@@ -24,13 +24,8 @@ function locationsOf(it) {
   return [{ loc: "Main Warehouse", qty: it.qty || 0 }];
 }
 
-const STATUS_META = {
-  active:   { label: "Active",   tone: "active" },
-  inactive: { label: "Inactive", tone: "inactive" },
-};
-
 function StatusPill({ status }) {
-  const meta = STATUS_META[status] || STATUS_META.active;
+  const meta = INV_STATUS_META[status] || INV_STATUS_META.active;
   return <span className={`iv-status iv-status-${meta.tone}`}>{meta.label}</span>;
 }
 
@@ -135,10 +130,6 @@ const STOCK_OPTIONS = [
   { k: "in",  lbl: "With Stock" },
   { k: "out", lbl: "No Stock" },
 ];
-const STATUS_OPTIONS = [
-  { k: "active",   lbl: "Active" },
-  { k: "inactive", lbl: "Inactive" },
-];
 
 function FilterPopover({ values, locationOptions, onChange, onClose }) {
   const ref = useRef(null);
@@ -151,7 +142,7 @@ function FilterPopover({ values, locationOptions, onChange, onClose }) {
     return { ...d, [key]: next };
   });
 
-  const reset = () => setDraft({ categories: new Set(), stock: new Set(), status: new Set(), locations: new Set() });
+  const reset = () => setDraft({ categories: new Set(), stock: new Set(), locations: new Set() });
   const apply = () => { onChange(draft); onClose(); };
 
   const categories = Object.keys(INV_CAT_LABELS);
@@ -160,16 +151,6 @@ function FilterPopover({ values, locationOptions, onChange, onClose }) {
   return (
     <div className="lg-popover lg-filter-pop" ref={ref}>
       <div className="lg-filter-body">
-        <div className="lg-filter-fld">
-          <div className="lg-filter-fld-lbl">Inventory status ({summary(draft.status)})</div>
-          <div className="lg-toggle-row">
-            {STATUS_OPTIONS.map((s) => (
-              <button key={s.k} className={`lg-toggle${draft.status.has(s.k) ? " on" : ""}`} onClick={() => toggleIn("status", s.k)}>
-                {s.lbl}
-              </button>
-            ))}
-          </div>
-        </div>
         <div className="lg-filter-fld">
           <div className="lg-filter-fld-lbl">Category ({summary(draft.categories)})</div>
           <div className="lg-toggle-row">
@@ -213,9 +194,10 @@ export default function InventoryPage() {
   const navigate = useNavigate();
   const { items } = useInventory();
 
+  const [tab, setTab] = useState("active");
   const [search, setSearch] = useState("");
   const [sortChoice, setSortChoice] = useState(null);
-  const emptyFilters = { categories: new Set(), stock: new Set(), status: new Set(), locations: new Set() };
+  const emptyFilters = { categories: new Set(), stock: new Set(), locations: new Set() };
   const [filterValues, setFilterValues] = useState(emptyFilters);
   const [sortPopOpen, setSortPopOpen] = useState(false);
   const [filterPopOpen, setFilterPopOpen] = useState(false);
@@ -230,11 +212,18 @@ export default function InventoryPage() {
     return [...s].sort();
   }, [items]);
 
+  // Status tabs scope the list; counts drive the tab badges.
+  const statusCounts = useMemo(() => {
+    const c = { active: 0, draft: 0, pending_review: 0, inactive: 0 };
+    for (const it of items) { const s = it.status || "active"; if (c[s] != null) c[s]++; }
+    return c;
+  }, [items]);
+  const tabs = INV_STATUS_ORDER.map((k) => ({ k, lbl: INV_STATUS_META[k].label, count: statusCounts[k] }));
+
   const activeFilterCount = useMemo(() => {
     let n = 0;
     if (filterValues.categories.size > 0) n++;
     if (filterValues.stock.size > 0) n++;
-    if (filterValues.status.size > 0) n++;
     if (filterValues.locations.size > 0) n++;
     return n;
   }, [filterValues]);
@@ -242,8 +231,7 @@ export default function InventoryPage() {
   const hasActiveFilters = activeFilterCount > 0 || sortChoice !== null || search.trim() !== "";
 
   const filtered = useMemo(() => {
-    let list = items;
-    if (filterValues.status.size > 0) list = list.filter((it) => filterValues.status.has(it.status || "active"));
+    let list = items.filter((it) => (it.status || "active") === tab);
     if (filterValues.categories.size > 0) list = list.filter((it) => filterValues.categories.has(it.category));
     if (filterValues.stock.size > 0) {
       // Services have no stock concept — never match a With/No Stock filter.
@@ -264,7 +252,7 @@ export default function InventoryPage() {
       locationsOf(it).some((l) => (l.loc || "").toLowerCase().includes(q)),
     );
     return list;
-  }, [items, filterValues, search]);
+  }, [items, tab, filterValues, search]);
 
   const rows = useMemo(() => {
     const arr = [...filtered];
@@ -285,7 +273,6 @@ export default function InventoryPage() {
   }, [filtered, effectiveSort]);
 
   const totalValue = useMemo(() => rows.reduce((s, r) => s + (r.value || 0), 0), [rows]);
-  const activeCount = useMemo(() => rows.filter((r) => (r.status || "active") === "active").length, [rows]);
 
   const toggleExpand = (id) => setExpanded((prev) => {
     const next = new Set(prev);
@@ -321,6 +308,15 @@ export default function InventoryPage() {
         {/* ── Table card ─────────────────────────────────────────────── */}
         <div className="lg-table-wrap">
           <div className="lg-card">
+            {/* Status tabs */}
+            <div className="bp-tabs-row">
+              {tabs.map((t) => (
+                <button key={t.k} className={`bp-tab${tab === t.k ? " active" : ""}`} onClick={() => setTab(t.k)}>
+                  {t.lbl}
+                  <span className="bp-tab-count">{t.count}</span>
+                </button>
+              ))}
+            </div>
             <div className="lg-filter-row">
               <div className="lg-search">
                 <svg viewBox="0 0 14 14"><circle cx="6" cy="6" r="3.5"/><path d="M9 9l3 3" strokeLinecap="round"/></svg>
@@ -328,7 +324,7 @@ export default function InventoryPage() {
               </div>
               <div className="lg-filter-meta">
                 <div className="lg-meta-static">
-                  {rows.length} {rows.length === 1 ? "product" : "products"} · {activeCount} active · <span style={{ fontFamily: "var(--font-mono)" }}>{formatRupiah(totalValue)}</span>
+                  {rows.length} {rows.length === 1 ? "product" : "products"} · <span style={{ fontFamily: "var(--font-mono)" }}>{formatRupiah(totalValue)}</span>
                 </div>
                 <div className="lg-meta-btn-wrap">
                   <button className={`lg-meta-btn${activeFilterCount > 0 ? " active" : ""}`} onClick={() => { setFilterPopOpen(!filterPopOpen); setSortPopOpen(false); }}>

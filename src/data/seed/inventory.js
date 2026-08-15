@@ -30,18 +30,29 @@ export const INVENTORY = [
   {id:"INV006",sku:"FIN-0002",name:"Multifunction Folding Table",category:"finished_goods",qty:120,uom:"pcs",unit_cost:385000,value:46200000,tax_code:"ppn_masukan",status:"active",updated:"2025-04-22",locations:[{loc:"Jakarta Warehouse",qty:50},{loc:"Surabaya Warehouse",qty:40},{loc:"Bandung Warehouse",qty:30}]},
   {id:"INV007",sku:"FIN-0003",name:"5-Tier Steel Rack",category:"finished_goods",qty:15,uom:"pcs",unit_cost:540000,value:8100000,tax_code:"ppn_masukan",status:"active",updated:"2025-01-28",locations:[{loc:"Jakarta Warehouse",qty:15}]},
   {id:"INV008",sku:"FIN-0004",name:"Snack Pack 250g",category:"finished_goods",qty:2400,uom:"pcs",unit_cost:8500,value:20400000,tax_code:"ppn_masukan",status:"active",updated:"2025-04-19",locations:[{loc:"Jakarta Warehouse",qty:1500},{loc:"Surabaya Warehouse",qty:900}]},
-  {id:"INV009",sku:"SUP-0001",name:"A4 Paper 80gsm",category:"supplies",qty:180,uom:"ream",unit_cost:48000,value:8640000,tax_code:"ppn_masukan",status:"active",updated:"2025-04-05",locations:[{loc:"Jakarta Warehouse",qty:180}]},
+  {id:"INV009",sku:"SUP-0001",name:"A4 Paper 80gsm",category:"supplies",qty:180,uom:"ream",unit_cost:48000,value:8640000,tax_code:"ppn_masukan",status:"draft",updated:"2025-04-05",locations:[{loc:"Jakarta Warehouse",qty:180}]},
   {id:"INV010",sku:"SUP-0002",name:"Original Printer Ink",category:"supplies",qty:64,uom:"pcs",unit_cost:210000,value:13440000,tax_code:"ppn_masukan",status:"active",updated:"2025-03-12",locations:[{loc:"Jakarta Warehouse",qty:64}]},
   {id:"INV011",sku:"SUP-0003",name:"Nitrile Gloves",category:"supplies",qty:0,uom:"box",unit_cost:85000,value:0,tax_code:"ppn_masukan",status:"active",updated:"2025-04-15",locations:[{loc:"Jakarta Warehouse",qty:0}]},
-  {id:"INV012",sku:"SUP-0004",name:"Industrial Cleaning Fluid",category:"supplies",qty:36,uom:"liter",unit_cost:38000,value:1368000,tax_code:"ppn_masukan",status:"active",updated:"2025-04-01",locations:[{loc:"Jakarta Warehouse",qty:36}]},
-  {id:"INV013",sku:"PKG-0001",name:"Medium Cardboard Box",category:"packaging",qty:3200,uom:"pcs",unit_cost:3200,value:10240000,tax_code:"ppn_masukan",status:"active",updated:"2025-04-20",locations:[{loc:"Jakarta Warehouse",qty:2000},{loc:"Surabaya Warehouse",qty:1200}]},
+  {id:"INV012",sku:"SUP-0004",name:"Industrial Cleaning Fluid",category:"supplies",qty:36,uom:"liter",unit_cost:38000,value:1368000,tax_code:"ppn_masukan",status:"pending_review",updated:"2025-04-01",locations:[{loc:"Jakarta Warehouse",qty:36}]},
+  {id:"INV013",sku:"PKG-0001",name:"Medium Cardboard Box",category:"packaging",qty:3200,uom:"pcs",unit_cost:3200,value:10240000,tax_code:"ppn_masukan",status:"draft",updated:"2025-04-20",locations:[{loc:"Jakarta Warehouse",qty:2000},{loc:"Surabaya Warehouse",qty:1200}]},
   {id:"INV014",sku:"PKG-0002",name:"Pallet Stretch Wrap",category:"packaging",qty:140,uom:"ream",unit_cost:62000,value:8680000,tax_code:"ppn_masukan",status:"active",updated:"2025-03-25",locations:[{loc:"Jakarta Warehouse",qty:140}]},
-  {id:"INV015",sku:"PKG-0003",name:"Thermal Barcode Label",category:"packaging",qty:52,uom:"box",unit_cost:145000,value:7540000,tax_code:"ppn_masukan",status:"active",updated:"2025-04-08",locations:[{loc:"Jakarta Warehouse",qty:52}]},
+  {id:"INV015",sku:"PKG-0003",name:"Thermal Barcode Label",category:"packaging",qty:52,uom:"box",unit_cost:145000,value:7540000,tax_code:"ppn_masukan",status:"pending_review",updated:"2025-04-08",locations:[{loc:"Jakarta Warehouse",qty:52}]},
   {id:"INV016",sku:"PKG-0004",name:"Clear Packing Tape 2 inch",category:"packaging",qty:8,uom:"box",unit_cost:96000,value:768000,tax_code:"ppn_masukan",status:"inactive",updated:"2025-02-28",locations:[{loc:"Jakarta Warehouse",qty:8}]},
   {id:"INV017",sku:"SVC-0001",name:"Equipment Maintenance Visit",category:"service",qty:null,uom:null,unit_cost:1500000,value:null,tax_code:"ppn_masukan",status:"active",updated:"2025-04-16",locations:[]},
   {id:"INV018",sku:"SVC-0002",name:"Annual Software Support",category:"service",qty:null,uom:null,unit_cost:4200000,value:null,tax_code:"ppn_masukan",status:"active",updated:"2025-03-18",locations:[]},
   {id:"INV019",sku:"SVC-0003",name:"Machine Installation Service",category:"service",qty:null,uom:null,unit_cost:2750000,value:null,tax_code:"ppn_masukan",status:"inactive",updated:"2025-02-05",locations:[]},
 ];
+
+// Inventory status lifecycle: Draft → Pending Review → Active, plus Inactive
+// (retired). `tone` maps to the pill styles in inventory.css.
+export const INV_STATUS_META = {
+  draft:          { label: "Draft",          tone: "draft" },
+  pending_review: { label: "Pending Review", tone: "pending" },
+  active:         { label: "Active",         tone: "active" },
+  inactive:       { label: "Inactive",       tone: "inactive" },
+};
+// Tab / display order for the list and any status pickers.
+export const INV_STATUS_ORDER = ["active", "draft", "pending_review", "inactive"];
 
 // Display labels for the inventory category badge.
 export const INV_CAT_LABELS = {

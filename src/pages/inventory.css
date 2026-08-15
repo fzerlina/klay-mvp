@@ -53,6 +53,8 @@
 .iv-status { display: inline-flex; align-items: center; padding: 2px 10px; border-radius: 9999px; font-size: 10px; font-weight: 700; letter-spacing: .02em; border: 1px solid transparent; }
 .iv-status-active { background: var(--color-success-surface, #E7F3EC); color: var(--color-success-text, #1B7A46); border-color: #C5E4D1; }
 .iv-status-inactive { background: var(--color-surface-sunken, #EFEBE4); color: var(--color-text-tertiary); border-color: var(--color-border-default); }
+.iv-status-draft { background: var(--color-surface-sunken, #EFEBE4); color: var(--color-text-secondary); border-color: var(--color-border-default); border-style: dashed; }
+.iv-status-pending { background: var(--warning-surface); color: var(--warning-text); border-color: var(--warning-border); }
 
 /* Stock available */
 .iv-stock-cell { min-width: 0; }
