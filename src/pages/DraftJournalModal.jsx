@@ -25,14 +25,28 @@ function blankLine() {
   return { id: ++LINE_SEQ, account_code: "", debit: "", credit: "", description: "", dims: {} };
 }
 
-export default function DraftJournalModal({ open, intentQuery, nextJeNumber, createdBy, onClose, onSave }) {
+// Map pre-filled lines (from a stock adjustment or other flow) into the modal's
+// internal line shape. Amounts come in as numbers; the inputs want strings.
+function seedLines(initialLines) {
+  if (!Array.isArray(initialLines) || !initialLines.length) return [blankLine(), blankLine()];
+  return initialLines.map((l) => ({
+    id: ++LINE_SEQ,
+    account_code: l.account_code || "",
+    debit: l.debit ? String(l.debit) : "",
+    credit: l.credit ? String(l.credit) : "",
+    description: l.description || "",
+    dims: {},
+  }));
+}
+
+export default function DraftJournalModal({ open, intentQuery, initialLines, initialMemo, nextJeNumber, createdBy, onClose, onSave }) {
   const accounts = useMemo(() => {
     return getActiveAccounts().slice().sort((a, b) => a.code.localeCompare(b.code));
   }, []);
 
   const [jeDate, setJeDate] = useState(TODAY_ISO);
-  const [memo, setMemo] = useState(intentQuery || "");
-  const [lines, setLines] = useState(() => [blankLine(), blankLine()]);
+  const [memo, setMemo] = useState(initialMemo || intentQuery || "");
+  const [lines, setLines] = useState(() => seedLines(initialLines));
   const [showErrors, setShowErrors] = useState(false);
 
   function applicableDims(code) {

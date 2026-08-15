@@ -450,7 +450,7 @@ function KlayActionModal({ intent, onClose }) {
 }
 
 export default function JournalEntryPage() {
-  const { entries: JOURNAL_ENTRIES, addJournalEntry, peekNextJeNumber } = useJournalEntries();
+  const { entries: JOURNAL_ENTRIES, addJournalEntry, peekNextJeNumber, pendingDraft, clearPendingDraft } = useJournalEntries();
   const { hasLevel, user } = useCurrentUser();
   const canApprove = hasLevel("gl", "approve+post");
   const canTransact = hasLevel("gl", "transact");
@@ -505,6 +505,8 @@ export default function JournalEntryPage() {
   const [klayAction, setKlayAction] = useState(null); // { query } when action modal open
   const [draftOpen, setDraftOpen] = useState(false);
   const [draftSeedMemo, setDraftSeedMemo] = useState("");
+  const [draftInitialLines, setDraftInitialLines] = useState(null);
+  const [draftKey, setDraftKey] = useState(0); // remounts the modal so pre-filled state re-seeds
   const [highlightedRef, setHighlightedRef] = useState(null);
   const klayInputRef = useRef(null);
 
@@ -541,8 +543,21 @@ export default function JournalEntryPage() {
   function openDraft(seedMemo = "") {
     setKlayAction(null);
     setDraftSeedMemo(seedMemo);
+    setDraftInitialLines(null);
+    setDraftKey((k) => k + 1);
     setDraftOpen(true);
   }
+
+  // A stock adjustment (or other page) can stage a pre-filled draft, then route
+  // here — open the draft modal seeded with its lines for review + post.
+  useEffect(() => {
+    if (!pendingDraft) return;
+    setDraftSeedMemo(pendingDraft.memo || "");
+    setDraftInitialLines(pendingDraft.lines || null);
+    setDraftKey((k) => k + 1);
+    setDraftOpen(true);
+    clearPendingDraft();
+  }, [pendingDraft, clearPendingDraft]);
   function handleSaveDraft(je) {
     addJournalEntry(je);
     setDraftOpen(false);
@@ -1437,11 +1452,14 @@ export default function JournalEntryPage() {
 
       <KlayActionModal intent={klayAction} onClose={() => setKlayAction(null)} />
       <DraftJournalModal
+        key={draftKey}
         open={draftOpen}
         intentQuery={draftSeedMemo}
+        initialMemo={draftSeedMemo}
+        initialLines={draftInitialLines}
         nextJeNumber={peekNextJeNumber()}
         createdBy={user?.name}
-        onClose={() => { setDraftOpen(false); setDraftSeedMemo(""); }}
+        onClose={() => { setDraftOpen(false); setDraftSeedMemo(""); setDraftInitialLines(null); }}
         onSave={handleSaveDraft}
       />
 

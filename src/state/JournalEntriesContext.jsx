@@ -26,6 +26,9 @@ function nextJeNumber(list) {
 
 export function JournalEntriesProvider({ children }) {
   const [entries, setEntries] = useState(() => SEED_JES);
+  // A draft staged from another page (e.g. a stock adjustment) for the Journal
+  // Entry page to open pre-filled: { memo, lines: [{account_code, debit, credit, description}] }.
+  const [pendingDraft, setPendingDraft] = useState(null);
 
   const addJournalEntry = useCallback((je) => {
     setEntries((prev) => [je, ...prev]);
@@ -34,9 +37,12 @@ export function JournalEntriesProvider({ children }) {
 
   const peekNextJeNumber = useCallback(() => nextJeNumber(entries), [entries]);
 
+  const stagePendingDraft = useCallback((draft) => setPendingDraft(draft), []);
+  const clearPendingDraft = useCallback(() => setPendingDraft(null), []);
+
   const value = useMemo(
-    () => ({ entries, addJournalEntry, peekNextJeNumber }),
-    [entries, addJournalEntry, peekNextJeNumber],
+    () => ({ entries, addJournalEntry, peekNextJeNumber, pendingDraft, stagePendingDraft, clearPendingDraft }),
+    [entries, addJournalEntry, peekNextJeNumber, pendingDraft, stagePendingDraft, clearPendingDraft],
   );
 
   return <JournalEntriesContext.Provider value={value}>{children}</JournalEntriesContext.Provider>;

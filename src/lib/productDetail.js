@@ -15,9 +15,10 @@ import {
   INV_UOM_SECONDARY,
   INV_CATEGORY_ACCOUNTS,
   INV_ACCOUNT_ROWS,
-  INV_COSTING_LABELS,
+  INV_STATUS_META,
 } from "../data/seed/inventory";
 import { COA_BY_CODE } from "../data/seed/coa";
+import { ACCOUNTING_SETTINGS, COSTING_METHOD_LABELS } from "../data/seed/accountingSettings";
 
 export const isServiceItem = (it) => it?.category === "service";
 
@@ -55,19 +56,17 @@ export function productUom(it) {
 const SALES_MARKUP = {
   raw_material: 1.25, finished_goods: 1.55, supplies: 1.35, packaging: 1.4, service: 1.7,
 };
-const COSTING_BY_CATEGORY = {
-  finished_goods: "fifo", service: "standard",
-};
 
 export function productCost(it) {
   const cost = it.unit_cost || 0;
   const rnd = seededRandom(idNum(it));
   const drift = 0.95 + rnd() * 0.08;            // 0.95–1.03 of cost
-  const method = it.costing_method || COSTING_BY_CATEGORY[it.category] || "weighted_average";
+  // Costing method is a company-wide policy (Accounting Settings), not per-item.
+  const method = ACCOUNTING_SETTINGS.inventory_costing_method;
   const markup = SALES_MARKUP[it.category] || 1.4;
   return {
     costing_method: method,
-    costing_label: INV_COSTING_LABELS[method] || method,
+    costing_label: COSTING_METHOD_LABELS[method] || method,
     cost_price: it.cost_price ?? cost,
     purchase_price: it.purchase_price ?? roundTo(cost * drift, 100),
     sales_price: it.sales_price ?? roundTo(cost * markup, 500),
@@ -137,3 +136,32 @@ export function productHistory(it) {
 }
 
 export const ACTION_LABELS = { buy: "Buy", sell: "Sell", adjust: "Adjust" };
+
+// ── Audit trail ──────────────────────────────────────────────────────────────
+// The master-data change log for the product — who created it, edited it, and
+// moved it through the status lifecycle (Draft → Pending Review → Active →
+// Inactive). Distinct from Movement History (which tracks stock), this tracks
+// changes to the record itself. Deterministic per item for the prototype.
+const AUDIT_ACTORS = ["Rina Kusuma", "Budi Santoso", "Sarah Wijaya", "Andi Prasetyo"];
+const AUDIT_DATES = ["2025-01-15", "2025-02-03", "2025-02-20", "2025-03-10", "2025-03-28", "2025-04-12"];
+const STATUS_RANK = { draft: 0, pending_review: 1, active: 2, inactive: 3 };
+
+export function productAudit(item) {
+  const rnd = seededRandom(idNum(item) + 202);
+  const actor = () => AUDIT_ACTORS[Math.floor(rnd() * AUDIT_ACTORS.length)];
+  const status = item.status || "active";
+  const rank = STATUS_RANK[status] ?? 2;
+
+  const events = [{ action: "Created", detail: `Added as ${INV_STATUS_META.draft.label}`, actor: actor() }];
+  if (!isServiceItem(item)) events.push({ action: "Updated", detail: "Set cost / unit and opening stock", actor: actor() });
+  if (rank >= 1) events.push({ action: "Submitted for review", detail: "Sent to a manager for approval", actor: actor() });
+  if (rank >= 2) events.push({ action: "Approved", detail: "Status set to Active", actor: actor() });
+  if (status === "inactive") events.push({ action: "Deactivated", detail: "Status set to Inactive", actor: actor() });
+
+  // Oldest → newest; the final event is stamped with the item's last-updated date.
+  const dates = AUDIT_DATES.slice(-events.length);
+  return events.map((e, i) => ({
+    ...e,
+    date: (i === events.length - 1 && item.updated) ? item.updated : (dates[i] || AUDIT_DATES[AUDIT_DATES.length - 1]),
+  }));
+}
