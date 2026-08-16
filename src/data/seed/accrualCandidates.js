@@ -27,7 +27,6 @@ function buildCandidate({ id, vendorId, signal, basis, basisLabel, basisHistory,
   const isPph23 = vendor.pph === "pph23_2";
   const pphAmount = isPph23 ? Math.round(grossAmount * PPH23_RATE) : 0;
   const netToVendor = grossAmount - pphAmount;
-  const isPkp = vendor.pkp === "PKP";
 
   return {
     id,
@@ -49,7 +48,6 @@ function buildCandidate({ id, vendorId, signal, basis, basisLabel, basisHistory,
     expense_account: expenseAccount,
     expense_account_label: expenseAccountLabel,
     accrual_reversal_date: reversalDate,
-    no_faktur_pajak_flag: isPkp,               // PKP vendors flag PPN-deferred treatment
     status: dismissReason ? "DISMISSED" : "PENDING_REVIEW",
     dismiss_reason: dismissReason || null,
   };
@@ -102,8 +100,7 @@ export const ACCRUAL_CANDIDATES = [
     reversalDate: "2025-05-01",
   }),
   // Utility accrual — electricity consumed in April, PLN invoices in arrears
-  // (bill arrives in May, after close). PKP vendor but electricity carries no
-  // PPh; PPN is excluded from the accrual until the Faktur Pajak arrives.
+  // (bill arrives in May, after close). PKP vendor but electricity carries no PPh.
   // MANUAL_FLAG = the "always accrue this vendor every month" signal (Signal 3).
   // Hand-built (PLN isn't in the generic vendor seed).
   {
@@ -130,7 +127,6 @@ export const ACCRUAL_CANDIDATES = [
     expense_account: "6-2400",
     expense_account_label: "Utilities — Electricity",
     accrual_reversal_date: "2025-05-01",
-    no_faktur_pajak_flag: true,
     status: "PENDING_REVIEW",
     dismiss_reason: null,
   },
@@ -180,8 +176,8 @@ export const CLOSE_HISTORY = [
   },
 ];
 
-// Exception sub-indicators for Gate 2 — PPh remittance, Faktur Pajak completeness,
-// no-document bills. PRD: informational flags, don't block Gate 2 from being green.
+// Exception sub-indicators for Gate 2 — PPh remittance, no-document bills.
+// PRD: informational flags, don't block Gate 2 from being green.
 export const GATE_2_SUB_INDICATORS = {
   pph_remittance: {
     label: "PPh remittance",
@@ -189,15 +185,6 @@ export const GATE_2_SUB_INDICATORS = {
     count: 1,
     items: [
       { id: "PPH-23-APR", amount: 14200000, due: "2025-05-10", account: "2-1500", account_label: "PPh 23 Payable" },
-    ],
-  },
-  faktur_pajak: {
-    label: "Faktur Pajak completeness",
-    detail: "2 invoices missing serial number",
-    count: 2,
-    items: [
-      { bill_id: "BILL-0234", vendor_name: "PT Sejahtera Makmur", amount: 12000000 },
-      { bill_id: "BILL-0241", vendor_name: "PT Global Prima", amount: 8000000 },
     ],
   },
   no_document_bills: {

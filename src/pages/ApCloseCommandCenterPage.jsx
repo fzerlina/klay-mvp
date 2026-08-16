@@ -71,16 +71,13 @@ function Avatar({ initials, tone }) {
 }
 
 
-// ─── Status cell — reason clause + optional statutory countdown (red) ─────────
+// ─── Status cell — reason clause ─────────────────────────────────────────────
 
 function StatusCell({ r }) {
   const emphasized = r.status_clause.includes("Klay");
   return (
     <div className="apc-status">
       <span className="apc-status-clause">{r.status_clause}</span>
-      {r.statutory_days != null && (
-        <span className="apc-status-statutory"> — PPN credit expires in {r.statutory_days} days</span>
-      )}
       {emphasized && <Spark size={10} />}
     </div>
   );
@@ -326,9 +323,9 @@ export default function ApCloseCommandCenterPage() {
   const [activeGate, setActiveGate] = useState(null); // gate id → card filter
   const [search, setSearch] = useState("");
   const [picFilter, setPicFilter] = useState("all"); // "all" | initials
-  const [statusFilter, setStatusFilter] = useState("all"); // all|needs|statutory
+  const [statusFilter, setStatusFilter] = useState("all"); // all|needs
   const [groupBy, setGroupBy] = useState("gate"); // "gate" (item group) | "pic" (assignee)
-  const [insightRecordIds, setInsightRecordIds] = useState(null); // from PPN insight
+  const [insightRecordIds, setInsightRecordIds] = useState(null); // from an insight card
 
   const [closed, setClosed] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -403,7 +400,6 @@ export default function ApCloseCommandCenterPage() {
     if (insightRecordIds) list = list.filter((r) => insightRecordIds.includes(r.id));
     if (picFilter !== "all") list = list.filter((r) => r.assignee?.id === picFilter);
     if (statusFilter === "needs") list = list.filter((r) => r.is_blocker);
-    else if (statusFilter === "statutory") list = list.filter((r) => r.statutory_days != null);
     const q = search.trim().toLowerCase();
     if (q) {
       list = list.filter((r) =>
@@ -743,7 +739,6 @@ export default function ApCloseCommandCenterPage() {
                   <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
                     <option value="all">All</option>
                     <option value="needs">Blocking</option>
-                    <option value="statutory">Statutory deadline</option>
                   </select>
                 </label>
                 <label className="apc-select">
@@ -913,10 +908,6 @@ export default function ApCloseCommandCenterPage() {
                   </div>
                 )}
               </div>
-
-              {c.no_faktur_pajak_flag && (
-                <div className="apc-drawer-note"><Spark size={11} /> PPN excluded — Faktur Pajak not yet received. PPN input credit is captured when the actual invoice arrives.</div>
-              )}
 
               {skipping ? (
                 <div className="apc-drawer-skip">

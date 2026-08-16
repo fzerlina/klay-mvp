@@ -8,8 +8,7 @@
 // displayed value is read from the source record.
 //
 // Period is April 2025 — the app's demo close period (lib/clock TODAY 2025-04-23,
-// universal Close page CLOSE_PERIOD "2025-04"). No working-day math; the only
-// time signal is statutory PPN / faktur-pajak expiry (literal countdown, red).
+// universal Close page CLOSE_PERIOD "2025-04"). No working-day math.
 
 import { BILLS } from "./bills";
 import { ACCRUAL_CANDIDATES } from "./accrualCandidates";
@@ -30,8 +29,6 @@ const ASSIGNEES = {
   // Exceptions
   BILL028: "U002", // Sari Dewanti — Finance Manager
   BILL008: "U003", // Budi Santoso
-  // Missing faktur pajak — split
-  BILL033: "U003", BILL165: "U011", BILL166: "U003", BILL170: "U011",
   // Locked-period
   BILL203: "U011", // Hana Wijoyo
   // Accruals — the owner/FM books them
@@ -63,7 +60,6 @@ export const AP_CLOSE_TARGET_LABEL = "5 May 2025";
 export const GATES_CONFIG = [
   { id: "bills", label: "Bills to post",       pic: "DN" },
   { id: "exc",   label: "Exceptions",          pic: "LK" },
-  { id: "doc",   label: "Missing faktur pajak", pic: "NB" },
   { id: "lock",  label: "Locked-period",       pic: "DN" },
   { id: "accr",  label: "Accruals",            pic: "NB" },
 ];
@@ -86,7 +82,6 @@ export const FM_USER = { initials: "HD", name: "Hadi Santoso" };
 export const GATE_ACTION = {
   bills: { label: "Review & post", route: (r) => `/bills/${r.ref}` },
   exc:   { label: "Open exception", route: (r) => `/bills/${r.ref}` },
-  doc:   { label: "Open bill", route: (r) => `/bills/${r.ref}` },
   lock:  { label: "Reassign", route: (r) => `/bills/${r.ref}` },
   accr:  { label: "Review draft", route: () => `/journal-entry` },
 };
@@ -94,7 +89,6 @@ export const GATE_ACTION = {
 export const GATE_EMPTY_LINE = {
   bills: "No bills waiting to be posted",
   exc:   "No open exceptions",
-  doc:   "Every posted bill has its faktur pajak",
   lock:  "No bills stuck in a locked period",
   accr:  "No accruals pending for this period",
 };
@@ -103,19 +97,12 @@ export const GATE_EMPTY_LINE = {
 // Curated real bill ids per gate. Each set is verifiable against the seed:
 //  • bills  — approved, no je_number → unposted (blocks close)
 //  • exc    — workflow EXCEPTION / high "duplicate" anomaly (blocks close)
-//  • doc    — posted (has je_number) but fakturNo missing → PPN credit not yet
-//             claimable; Bill Detail shows no Faktur Pajak tab
 //  • lock   — unposted bill dated in a locked period (≤ 2025-02) → needs reassign
 const GATE_BILLS = {
   bills: ["BILL057", "BILL149", "BILL188"],
   exc:   ["BILL028", "BILL008"],
-  doc:   ["BILL033", "BILL165", "BILL166", "BILL170"],
   lock:  ["BILL203"],
 };
-
-// Faktur-pajak / PPN credit expiry in days, per bill (statutory — the only red
-// time signal). BILL165 (UD Budi Cahyono) is the at-risk one.
-const STATUTORY_DAYS = { BILL165: 12 };
 
 const LOCKED_PERIOD_LABEL = { BILL203: "Feb 2025" };
 
@@ -134,7 +121,6 @@ function highAnomaly(b) {
 // Status clause per gate — the close-relevant reason, drawn from the real bill
 // so it never contradicts Bill Detail.
 function clauseFor(b, gate) {
-  if (gate === "doc") return "Posted — faktur pajak not yet received";
   if (gate === "lock") return `Sits in a locked period (${LOCKED_PERIOD_LABEL[b.id] || "prior"}) — reassign to post`;
   if (gate === "exc") {
     const anom = highAnomaly(b);
@@ -170,7 +156,6 @@ function billRecord(id, gate) {
       ? { code: b.original_currency, amount: b.original_total }
       : null,
     status_clause: clauseFor(b, gate),
-    statutory_days: STATUTORY_DAYS[id] ?? null,
     age_days: Math.max(0, daysSince(b.date)),
     is_blocker: isBlocker,
     workflow: workflowStatus(b),
@@ -194,7 +179,6 @@ function accrualRecord(c) {
     currency: "IDR",
     original: null,
     status_clause: `Accrual pending review — Klay suggested from ${BASIS_SHORT[c.suggested_basis] || "history"}`,
-    statutory_days: null,
     age_days: 1,
     is_blocker: false,
     workflow: "ACCRUAL",
@@ -207,7 +191,6 @@ function accrualRecord(c) {
 export const AP_CLOSE_RECORDS = [
   ...GATE_BILLS.bills.map((id) => billRecord(id, "bills")),
   ...GATE_BILLS.exc.map((id) => billRecord(id, "exc")),
-  ...GATE_BILLS.doc.map((id) => billRecord(id, "doc")),
   ...GATE_BILLS.lock.map((id) => billRecord(id, "lock")),
   ...ACCRUAL_CANDIDATES.map(accrualRecord),
 ].filter(Boolean);
@@ -239,12 +222,12 @@ export const LAST_MONTH_ACCRUALS = {
   vendors: ["PT Penyedia Layanan Konsultasi", "PT Jasa Logistik Cepat", "PT Teknologi Solusi Digital"],
 };
 
-// Recurring offender — UD Budi Cahyono repeatedly posts without a faktur pajak
-// (real: BILL049 Feb, BILL070 Mar, BILL165 Apr all have fakturNo missing).
+// Recurring offender — UD Budi Cahyono repeatedly submits bills that land in
+// review (real: BILL049 Feb, BILL070 Mar, BILL165 Apr).
 export const VENDOR_HISTORY = [
   {
     vendor: "UD Budi Cahyono",
-    exception_type: "missing_faktur_pajak",
+    exception_type: "recurring_exception",
     periods: ["Feb 2025", "Mar 2025", "Apr 2025"],
   },
 ];
@@ -427,7 +410,7 @@ export function computeInsights(records = AP_CLOSE_RECORDS) {
 
   // 2) Recurring offender — a vendor slipping the same way month after month.
   const offender = VENDOR_HISTORY.find(
-    (v) => v.exception_type === "missing_faktur_pajak" && v.periods.length >= 2,
+    (v) => v.exception_type === "recurring_exception" && v.periods.length >= 2,
   );
   if (offender) {
     out.push({
@@ -435,22 +418,8 @@ export function computeInsights(records = AP_CLOSE_RECORDS) {
       rank: 3,
       label: "Recurring offender",
       stat: offender.vendor,
-      explanation: `Missing faktur pajak ${offender.periods.length} months running — same as last month. Worth a vendor follow-up.`,
+      explanation: `Bills held in review ${offender.periods.length} months running — same as last month. Worth a vendor follow-up.`,
       action: { kind: "route", label: "View vendor", to: "/vendors" },
-    });
-  }
-
-  // 3) PPN credit at risk — statutory deadline (kept, lower priority than MoM).
-  const atRisk = records.filter((r) => r.statutory_days != null && r.statutory_days <= 30);
-  if (atRisk.length > 0) {
-    const sum = atRisk.reduce((s, r) => s + r.amount, 0);
-    out.push({
-      id: "ppn",
-      rank: 2,
-      label: "PPN credit at risk",
-      stat: formatRp(sum),
-      explanation: `Tax credit on ${atRisk.length} bill${atRisk.length === 1 ? "" : "s"} expires within 30 days.`,
-      action: { kind: "filterRecords", label: "View bills", recordIds: atRisk.map((r) => r.id), toast: `Showing ${atRisk.length} bill${atRisk.length === 1 ? "" : "s"} with PPN credit at risk` },
     });
   }
 
@@ -499,7 +468,7 @@ export function computeClosedInsights(periodKey) {
       id: "offender",
       label: "Recurring offender",
       stat: p.offender,
-      explanation: `Missing faktur pajak in ${m} — the repeat pattern Klay flagged for a vendor follow-up.`,
+      explanation: `Bills held in review in ${m} — the repeat pattern Klay flagged for a vendor follow-up.`,
       action: { kind: "route", label: "View vendor", to: "/vendors" },
     });
   }
