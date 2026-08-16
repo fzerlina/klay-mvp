@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useBills } from "../state/BillsContext";
 import { useVendors } from "../state/VendorsContext";
+import { useInventory, isUsableInBills } from "../state/InventoryContext";
+import { INV_CATEGORY_ACCOUNTS, INV_CAT_LABELS } from "../data/seed/inventory";
 import { formatDate, initials } from "../lib/format";
 import { previewJournalLines } from "../lib/billJournalPreview";
 import { computeBillFlags } from "../lib/reviewWorkflow";
@@ -427,6 +429,10 @@ export default function BillCreatePage() {
   const navigate = useNavigate();
   const { addBill, bills } = useBills();
   const { vendors, addVendor } = useVendors();
+  const { items: inventoryItems } = useInventory();
+  // Only Active (approved) products can be put on a bill — Draft / Pending
+  // Review / Inactive items are excluded from the line-item picker.
+  const billableProducts = useMemo(() => inventoryItems.filter(isUsableInBills), [inventoryItems]);
 
   // Inline vendor creation state — opened from the vendor combobox when the
   // FM searches for a vendor that doesn't exist yet.
@@ -631,6 +637,18 @@ export default function BillCreatePage() {
   }
   function updateRow(i, patch)         { setItems((p) => p.map((it, idx) => (idx === i ? { ...it, ...patch } : it))); }
   function delRow(i)                   { setItems((p) => p.filter((_, idx) => idx !== i)); }
+
+  // Line description doubles as a product picker: if the typed/selected value
+  // matches a billable (Active) product, fill its unit cost and inventory GL
+  // account. Free text still works for non-inventory lines (services, expenses).
+  function onRowDesc(i, value) {
+    const p = billableProducts.find((x) => x.name.toLowerCase() === value.trim().toLowerCase());
+    if (!p) { updateRow(i, { desc: value }); return; }
+    const invAcct = INV_CATEGORY_ACCOUNTS[p.category]?.inventory;
+    const patch = { desc: p.name, price: p.unit_cost || 0 };
+    if (invAcct && EXPENSE_ACCOUNTS.some((a) => a.code === invAcct)) patch.acct = invAcct;
+    updateRow(i, patch);
+  }
   function addAttach() {
     const names = ["po_vendor.pdf", "berita_acara.pdf", "faktur_pajak.pdf"];
     setAttachments((p) => [...p, { name: names[Math.floor(Math.random() * names.length)], size: "PDF · 1.1 MB", fromOCR: false }]);
@@ -1094,7 +1112,7 @@ export default function BillCreatePage() {
                     return (
                       <tr key={i}>
                         <td>
-                          <input type="text" value={it.desc} onChange={(e) => updateRow(i, { desc: e.target.value })} placeholder="Item description…" />
+                          <input type="text" list="klay-inv-products" value={it.desc} onChange={(e) => onRowDesc(i, e.target.value)} placeholder="Search product or type a description…" />
                         </td>
                         <td><input type="text" value={it.qty} style={{ textAlign: "right" }} onChange={(e) => updateRow(i, { qty: parseInt(e.target.value) || 0 })} /></td>
                         <td><input type="text" value={fmtNum(it.price)} style={{ textAlign: "right", fontFamily: "var(--font-mono)" }} onChange={(e) => updateRow(i, { price: parseInt(e.target.value.replace(/\./g, "")) || 0 })} /></td>
@@ -1138,6 +1156,13 @@ export default function BillCreatePage() {
                   })}
                 </tbody>
               </table>
+              {/* Product picker source — only Active (approved) inventory items;
+                  picking one fills its unit cost + inventory account. */}
+              <datalist id="klay-inv-products">
+                {billableProducts.map((p) => (
+                  <option key={p.id} value={p.name}>{p.sku} · {INV_CAT_LABELS[p.category] || p.category}</option>
+                ))}
+              </datalist>
             </div>
             <button className="btn-add-row" onClick={addRow}>
               <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
