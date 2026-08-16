@@ -6,7 +6,6 @@ import { useVendors } from "../state/VendorsContext";
 import { usePayments, PAYMENT_STATUS_META } from "../state/PaymentsContext";
 import { useJournalEntries } from "../state/JournalEntriesContext";
 import { formatRupiah, formatDateEn, initials } from "../lib/format";
-import { ppnCreditLabel } from "../lib/ppnWindow";
 import {
   workflowStatus,
   statusCause,
@@ -256,7 +255,7 @@ function FlaggedNote({ confidence, rawValue, inputType, parser, onSave }) {
 // entries the bill will write to the GL on posting. Read-only — the FM edits
 // the bill fields above and the preview updates. Phase E surfaces the
 // derivation rule per line ("Mapped from CoA: 6-3100 (rule: bill item
-// category)" / "PPN 11% creditable: vendor is PKP" / etc) so the FM can see
+// category)" / "PPh 23 at 2% withheld: service invoice" / etc) so the FM can see
 // not just what will post but why.
 
 function JournalEntryPreview({ bill, vendor, onViewPostedJe }) {
@@ -493,7 +492,7 @@ function StatusStepper({ bill, paymentStage = "unpaid" }) {
 
 // ─── Source Documents (left panel) ──────────────────────────────────────────
 // The left panel shows the vendor invoice by default but is switchable: the
-// reference rows on the right (PO / GRN / Contract / Faktur Pajak) and a
+// reference rows on the right (PO / GRN / Contract) and a
 // segmented control in the toolbar swap in the matching source document.
 // Each is an HTML mock rendered from bill + vendor data — faithful enough that
 // the FM can compare the form on the right against the "scanned" source.
@@ -501,13 +500,12 @@ function StatusStepper({ bill, paymentStage = "unpaid" }) {
 const KLAY_NPWP = "01.234.567.8-901.000";
 const KLAY_ADDRESS = "Jl. Sudirman Kav. 52, Jakarta 12190";
 
-// MVP source documents: Invoice, PO, Faktur Pajak. GRN and Contract mocks are
-// deferred — their reference numbers still show as read-only rows, but the
-// rendered document views aren't part of the MVP cut.
+// MVP source documents: Invoice, PO. GRN and Contract mocks are deferred —
+// their reference numbers still show as read-only rows, but the rendered
+// document views aren't part of the MVP cut.
 const DOC_DEFS = [
   { key: "invoice",  label: "Vendor Invoice" },
   { key: "po",       label: "Purchase Order" },
-  { key: "faktur",   label: "Faktur Pajak" },
 ];
 
 // Which source documents exist for this bill — drives both the switcher and
@@ -516,7 +514,6 @@ function availableDocs(bill) {
   const has = {
     invoice:  true,
     po:       bill.poNo && bill.poNo !== "—",
-    faktur:   !!bill.fakturNo,
   };
   return DOC_DEFS.filter((d) => has[d.key]);
 }
@@ -557,7 +554,6 @@ function SourcePanel({ bill, vendor, docView, setDocView, onDownload }) {
       </div>
       {active === "invoice"  && <SourceInvoice  bill={bill} vendor={vendor} />}
       {active === "po"       && <SourcePO       bill={bill} vendor={vendor} />}
-      {active === "faktur"   && <SourceFaktur   bill={bill} vendor={vendor} />}
     </div>
   );
 }
@@ -632,7 +628,6 @@ function SourceInvoice({ bill, vendor }) {
       <div className="a4-total">
         <div className="a4-tb">
           <div className="a4-tr"><span className="lbl">DPP</span><span className="val">{bill.dpp.toLocaleString("id-ID")}</span></div>
-          <div className="a4-tr"><span className="lbl">PPN 11%</span><span className="val">{(bill.ppn || 0).toLocaleString("id-ID")}</span></div>
           {bill.pph23 > 0 && <div className="a4-tr"><span className="lbl">PPh 23 (potongan)</span><span className="val">− {bill.pph23.toLocaleString("id-ID")}</span></div>}
           <div className="a4-tr grand"><span className="lbl">Total</span><span className="val">Rp {bill.total.toLocaleString("id-ID")}</span></div>
         </div>
@@ -656,7 +651,6 @@ function SourceInvoice({ bill, vendor }) {
 
 // ── Purchase Order ────────────────────────────────────────────────────────
 function SourcePO({ bill, vendor }) {
-  const ppn = bill.ppn || 0;
   return (
     <div className="a4-doc">
       <div className="a4-head2">
@@ -719,8 +713,7 @@ function SourcePO({ bill, vendor }) {
       <div className="a4-total">
         <div className="a4-tb">
           <div className="a4-tr"><span className="lbl">Subtotal (DPP)</span><span className="val">{bill.dpp.toLocaleString("id-ID")}</span></div>
-          <div className="a4-tr"><span className="lbl">PPN</span><span className="val">{ppn.toLocaleString("id-ID")}</span></div>
-          <div className="a4-tr grand"><span className="lbl">PO Total</span><span className="val">Rp {(bill.dpp + ppn).toLocaleString("id-ID")}</span></div>
+          <div className="a4-tr grand"><span className="lbl">PO Total</span><span className="val">Rp {bill.dpp.toLocaleString("id-ID")}</span></div>
         </div>
       </div>
 
@@ -734,70 +727,6 @@ function SourcePO({ bill, vendor }) {
   );
 }
 
-// ── Faktur Pajak (Indonesian tax invoice) ──────────────────────────────────
-function SourceFaktur({ bill, vendor }) {
-  return (
-    <div className="a4-doc">
-      <div className="a4-head2">
-        <div className="a4-brand">
-          <div className="a4-brand-name">Faktur Pajak</div>
-          <div className="a4-brand-tag">DJP e-Faktur</div>
-        </div>
-        <div className="a4-head-meta">
-          <div className="a4-head-row"><span className="a4-head-lbl">Seri</span><span className="a4-head-val">{bill.fakturNo}</span></div>
-          <div className="a4-head-row"><span className="a4-head-lbl">Masa</span><span className="a4-head-val">{bill.taxReportingPeriod || formatDateEn(bill.date)}</span></div>
-        </div>
-      </div>
-
-      <div className="a4-addr-grid">
-        <div className="a4-addr">
-          <div className="a4-addr-lbl">PENGUSAHA KENA PAJAK</div>
-          <div className="a4-addr-name">{vendor?.name || bill.vendorName}</div>
-          {vendor?.address && <div className="a4-addr-line">{vendor.address}</div>}
-          <div className="a4-addr-line">NPWP {vendor?.tax_id || "—"}</div>
-        </div>
-        <div className="a4-addr">
-          <div className="a4-addr-lbl">PEMBELI BKP / JKP</div>
-          <div className="a4-addr-name">PT Klay Indonesia</div>
-          <div className="a4-addr-line">{KLAY_ADDRESS}</div>
-          <div className="a4-addr-line">NPWP {KLAY_NPWP}</div>
-        </div>
-      </div>
-
-      <div className="a4-items2">
-        <table>
-          <thead>
-            <tr>
-              <th className="a4-item-num">NO.</th>
-              <th>Nama Barang / Jasa Kena Pajak</th>
-              <th className="r">HARGA JUAL</th>
-            </tr>
-          </thead>
-          <tbody>
-            {bill.items.map((item, i) => (
-              <tr key={i}>
-                <td className="a4-item-num">{String(i + 1).padStart(2, "0")}</td>
-                <td><div className="a4-item-name">{item.desc}</div></td>
-                <td className="r mono">{item.subtotal.toLocaleString("id-ID")}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="a4-total">
-        <div className="a4-tb">
-          <div className="a4-tr"><span className="lbl">Dasar Pengenaan Pajak</span><span className="val">{bill.dpp.toLocaleString("id-ID")}</span></div>
-          <div className="a4-tr grand"><span className="lbl">PPN = 11% × DPP</span><span className="val">{(bill.ppn || 0).toLocaleString("id-ID")}</span></div>
-        </div>
-      </div>
-
-      <div className="a4-footer">
-        Masa Pajak {bill.taxReportingPeriod || formatDateEn(bill.date)} · Faktur Pajak ini sah sesuai ketentuan DJP.
-      </div>
-    </div>
-  );
-}
 
 // ─── Action bar ─────────────────────────────────────────────────────────────
 // Same status-aware shape as the drawer footer it replaces. The action set
@@ -1215,11 +1144,9 @@ export default function BillDetailPage() {
   // no rule flag already speaks to, so nothing is listed twice.
   const flags = billFlags(bill, vendor, { autoAssignLateBills });
   const FLAG_FIELD_COVER = {
-    faktur_missing: ["faktur"],
     price_anomaly: ["total", "poNo"],
-    tax_amount_mismatch: ["ppn", "total"],
-    tax_omitted: ["ppn"],
-    tax_mismatch_obligation: ["ppn"],
+    tax_omitted: ["pph23"],
+    tax_mismatch_obligation: ["pph23"],
     vendor_data: ["vendor"],
   };
   const coveredFields = new Set(flags.flatMap((f) => FLAG_FIELD_COVER[f.key] || []));
@@ -1473,24 +1400,8 @@ export default function BillDetailPage() {
   const parseText = (v) => String(v).trim();
 
   // ── Tax-rate edits (Item Details) — changing a rate recomputes the
-  // downstream amounts. PPN drives Total (and Remaining); PPh is a
-  // withholding that only affects Net Payable, not Total.
-  function setPpnRate(r) {
-    const ppn = Math.round(bill.dpp * r);
-    const total = bill.dpp + ppn;
-    updateBill(bill.id, {
-      ppnRate: r,
-      ppn,
-      total,
-      sisa: bill.pay === "paid" ? 0 : total,
-    }, {
-      type:   "edited",
-      action: `PPN rate set to ${(r * 100).toFixed(2)}% — recalculated to ${formatRupiah(ppn)}`,
-      by:     AP_USER,
-      ...nowAuditStamp(),
-    });
-    showToast(`PPN recalculated at ${(r * 100).toFixed(2)}%`);
-  }
+  // downstream amounts. PPh is a withholding that only affects Net Payable,
+  // not Total.
   function setPphRate(r) {
     const pph23 = Math.round(bill.dpp * r);
     updateBill(bill.id, { pphRate: r, pph23 }, {
@@ -1504,7 +1415,6 @@ export default function BillDetailPage() {
 
   // Effective rates — prefer the stored rate, fall back to deriving from the
   // amount (covers bills created before the rate fields existed).
-  const ppnRate = bill.ppnRate != null ? bill.ppnRate : (bill.dpp > 0 && bill.ppn ? bill.ppn / bill.dpp : 0);
   const pphRate = bill.pphRate != null ? bill.pphRate : (bill.dpp > 0 && bill.pph23 ? bill.pph23 / bill.dpp : 0);
   const netPayable = bill.total - (bill.pph23 || 0);
 
@@ -1519,7 +1429,6 @@ export default function BillDetailPage() {
 
   // Compliance / status label maps for the new Detail rows.
   const RECON_LABEL = { reconciled: "Reconciled", unreconciled: "Unreconciled" };
-  const TAX_STATUS_LABEL = { reported: "Reported", pending: "Pending", "not-applicable": "Not applicable" };
 
   return (
     <div className="bd-page">
@@ -1679,37 +1588,10 @@ export default function BillDetailPage() {
                 </div>
 
                 <div className="drawer-section">
-                  <div className="drawer-section-title">Tax</div>
-                  <PlainRow
-                    label="Tax Reporting Period"
-                    value={bill.taxReportingPeriod ? periodLabel(bill.taxReportingPeriod) : "—"}
-                  />
-                  <div className="drawer-row">
-                    <div className="drawer-label">Tax Reporting Status</div>
-                    <div className="drawer-value">
-                      <span className={`bd-tax-status bd-tax-${bill.taxReportingStatus || "not-applicable"}`}>
-                        {TAX_STATUS_LABEL[bill.taxReportingStatus] || "—"}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="drawer-section">
                   <div className="drawer-section-title">References</div>
                   <RefRow label="PO #"           value={bill.poNo}       onClick={() => setDocView("po")} confidence={fields.poNo} rawValue={bill.poNo === "—" ? "" : bill.poNo} parser={parseText} onSave={(v) => editField("poNo", v)} />
                   <RefRow label="GRN #"          value={bill.grnNo} />
                   <RefRow label="Contract #"     value={bill.contractNo} />
-                  <FieldRow
-                    label="Faktur Pajak"
-                    value={bill.fakturNo && bill.fakturNo !== "—" ? bill.fakturNo : "—"}
-                    confidence={fields.faktur}
-                    rawValue={bill.fakturNo === "—" ? "" : bill.fakturNo}
-                    inputType="text"
-                    parser={parseText}
-                    onSave={(v) => editField("fakturNo", v)}
-                    canEdit={canEditAp}
-                  />
-                  <PlainRow label="Faktur pajak (PPN) window" value={ppnCreditLabel(bill.date)} />
                 </div>
 
                 <div className="drawer-section">
@@ -1741,7 +1623,6 @@ export default function BillDetailPage() {
                   </table>
                   <div className="bd-amounts">
                     <PlainRow label="DPP" value={formatRupiah(bill.dpp)} mono confidence={fields.dpp} rawValue={String(bill.dpp)} inputType="number" parser={parseInt0} onSave={(v) => editField("dpp", v)} />
-                    <RateRow label="PPN" rate={ppnRate} amount={bill.ppn} onSaveRate={setPpnRate} canEdit={canEditAp} confidence={fields.ppn} />
                     <RateRow label="PPh" rate={pphRate} amount={bill.pph23} onSaveRate={setPphRate} canEdit={canEditAp} confidence={fields.pph23} />
                     <div className={`drawer-row bd-amt-strong${confidenceRowClass(fields.total)}`}>
                       <div className="drawer-label">Total</div>

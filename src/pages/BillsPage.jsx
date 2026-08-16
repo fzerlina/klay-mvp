@@ -17,8 +17,6 @@ import {
 import { flagSummary } from "../lib/reviewWorkflow";
 import { useBills } from "../state/BillsContext";
 import { useVendors } from "../state/VendorsContext";
-import { ppnFilterKey } from "../lib/ppnWindow";
-import PpnChip from "../components/PpnChip";
 import { useClosePeriod } from "../state/ClosePeriodContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
 import { usePayments, PAYMENT_STATUS_META } from "../state/PaymentsContext";
@@ -206,7 +204,6 @@ function LedgerRow({ r, bucket, flags, isChecked, onCheck, onClick, onKebab, isS
       </div>
       <div className="lg-cell-date bp-cell-date">
         <div>{r.tgl}</div>
-        <PpnChip invoiceDate={r.raw.date} />
       </div>
       <div className="lg-cell-customer">
         <span
@@ -362,13 +359,8 @@ function FilterPopover({ values, onChange, vendors: vendorList, exceptionOnly, o
     next.has(k) ? next.delete(k) : next.add(k);
     return { ...d, tier: next };
   });
-  const togglePpn = (k) => setDraft((d) => {
-    const next = new Set(d.ppn || []);
-    next.has(k) ? next.delete(k) : next.add(k);
-    return { ...d, ppn: next };
-  });
   const filteredV = vendorList.filter((v) => !vendorSearch || v.name.toLowerCase().includes(vendorSearch.toLowerCase()));
-  const reset = () => { setDraft({ vendors: new Set(), tier: new Set(), ppn: new Set(), minAmount: "", maxAmount: "", dateFrom: "", dateTo: "", dateField: "date" }); setDraftException(false); };
+  const reset = () => { setDraft({ vendors: new Set(), tier: new Set(), minAmount: "", maxAmount: "", dateFrom: "", dateTo: "", dateField: "date" }); setDraftException(false); };
   const apply = () => { onChange(draft); onExceptionToggle(draftException); onClose(); };
 
   return (
@@ -414,27 +406,6 @@ function FilterPopover({ values, onChange, vendors: vendorList, exceptionOnly, o
                   border: (draft.tier && draft.tier.has(k)) ? "1px solid var(--color-action)" : "1px solid var(--color-border-default)",
                   background: (draft.tier && draft.tier.has(k)) ? "var(--color-action-wash)" : "transparent",
                   color: (draft.tier && draft.tier.has(k)) ? "var(--color-action)" : "var(--color-text-secondary)",
-                }}
-              >
-                {lbl}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="lg-filter-fld">
-          <div className="lg-filter-fld-lbl">Tax — faktur pajak (PPN) window ({(draft.ppn && draft.ppn.size) > 0 ? `${draft.ppn.size} selected` : "all"})</div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {[["d7", "≤ 7 days"], ["d14", "8–14 days"]].map(([k, lbl]) => (
-              <button
-                type="button"
-                key={k}
-                onClick={() => togglePpn(k)}
-                style={{
-                  padding: "5px 11px", borderRadius: 9999, cursor: "pointer", fontSize: 11.5, fontWeight: 600,
-                  border: (draft.ppn && draft.ppn.has(k)) ? "1px solid var(--color-action)" : "1px solid var(--color-border-default)",
-                  background: (draft.ppn && draft.ppn.has(k)) ? "var(--color-action-wash)" : "transparent",
-                  color: (draft.ppn && draft.ppn.has(k)) ? "var(--color-action)" : "var(--color-text-secondary)",
                 }}
               >
                 {lbl}
@@ -568,7 +539,7 @@ export default function BillsPage() {
   const [exceptionFilter, setExceptionFilter] = useState(false);
   const [sortChoice, setSortChoice] = useState(null);
   const [groupChoice, setGroupChoice] = useState(null);
-  const emptyFilters = { vendors: new Set(), tier: new Set(), ppn: new Set(), minAmount: "", maxAmount: "", dateFrom: "", dateTo: "", dateField: "date" };
+  const emptyFilters = { vendors: new Set(), tier: new Set(), minAmount: "", maxAmount: "", dateFrom: "", dateTo: "", dateField: "date" };
   const [filterValues, setFilterValues] = useState(emptyFilters);
 
   const [checked, setChecked] = useState(() => new Set());
@@ -823,7 +794,6 @@ export default function BillsPage() {
     filterValues.dateFrom !== "" ||
     filterValues.dateTo !== "" ||
     filterValues.tier.size > 0 ||
-    filterValues.ppn.size > 0 ||
     sortChoice !== null ||
     groupChoice !== null
   ), [filterValues, sortChoice, groupChoice]);
@@ -834,7 +804,6 @@ export default function BillsPage() {
     if (filterValues.minAmount !== "" || filterValues.maxAmount !== "") n++;
     if (filterValues.dateFrom !== "" || filterValues.dateTo !== "") n++;
     if (filterValues.tier.size > 0) n++;
-    if (filterValues.ppn.size > 0) n++;
     return n;
   }, [filterValues]);
 
@@ -843,7 +812,6 @@ export default function BillsPage() {
     let list = corpus;
     if (filterValues.vendors.size > 0) list = list.filter((b) => filterValues.vendors.has(b.vendor));
     if (filterValues.tier && filterValues.tier.size > 0) list = list.filter((b) => filterValues.tier.has(tierOf(b.vendor)));
-    if (filterValues.ppn && filterValues.ppn.size > 0) list = list.filter((b) => filterValues.ppn.has(ppnFilterKey(b.date)));
     const min = filterValues.minAmount === "" ? null : Number(filterValues.minAmount);
     const max = filterValues.maxAmount === "" ? null : Number(filterValues.maxAmount);
     if (min != null && !isNaN(min)) list = list.filter((b) => b.total >= min);

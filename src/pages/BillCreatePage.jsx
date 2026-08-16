@@ -406,13 +406,6 @@ function InlineVendorCreatePanel({ initialName, vendors, onCancel, onConfirm }) 
 // Triggered by vendor selection. No raw scores, no codes — sentence form
 // only, exactly as the FM would read them aloud.
 
-function ppnSentence(vendor) {
-  if (!vendor) return "Pick a vendor above to see PPN treatment.";
-  if (vendor.pkp === "PKP")     return `PPN 11% applied — ${vendor.name} is PKP (confirmed in vendor master).`;
-  if (vendor.pkp === "NON_PKP") return `PPN not applicable — ${vendor.name} is Non-PKP, no VAT collectable.`;
-  return `PKP status unknown for ${vendor.name} — PPN applicability cannot be determined. Set PKP status before posting.`;
-}
-
 function pphSentence(vendor) {
   if (!vendor) return "Pick a vendor above to see PPh withholding rules.";
   const entity = vendor.type === "company" ? "corporate entity"
@@ -461,9 +454,7 @@ export default function BillCreatePage() {
   const [due, setDue] = useState(addDays(TODAY_ISO, 30));
   const [keterangan, setDescription] = useState("");
   const [items, setItems] = useState([]); // {desc,qty,price,acct}
-  const [ppnRate, setPpnRate] = useState(0.11);
   const [pphChoice, setPphChoice] = useState("none");
-  const [fakturPajak, setFakturPajak] = useState("");
   const [attachments, setAttachments] = useState([]);
 
   // Exception engine state: per-field OCR confidence (from the scan), the set
@@ -500,9 +491,8 @@ export default function BillCreatePage() {
   }
 
   // Vendor cascade — PRD Zone 2. When the FM picks a vendor (or the OCR
-  // assigns one), pre-fill PPh / PPN from the vendor master. Faktur Pajak
-  // clears for Non-PKP vendors. User can still override the dropdowns
-  // afterward; this just makes the default match the vendor master.
+  // assigns one), pre-fill PPh from the vendor master. User can still override
+  // the dropdown afterward; this just makes the default match the master.
   const prevVendorIdRef = useRef(null);
   useEffect(() => {
     if (prevVendorIdRef.current === vendorId) return;
@@ -510,9 +500,7 @@ export default function BillCreatePage() {
     // Re-evaluate exceptions against the newly selected vendor.
     setResolvedFx({});
     if (!vendor) return;
-    setPpnRate(vendor.pkp === "PKP" ? 0.11 : 0);
     setPphChoice(vendor.pph || "none");
-    if (vendor.pkp !== "PKP") setFakturPajak("");
     // Due date from vendor payment terms — PRD "Due Date (from terms)".
     setDue(addDays(date, termDays(vendor.payment_terms)));
   }, [vendor, vendorId]);
@@ -565,7 +553,6 @@ export default function BillCreatePage() {
       { desc: "Komponen Elektronik - Panel LCD 24 inch", qty: 50, price: 20000000, acct: "1-3100" },
     ]);
     setEntryMode("detailed");           // OCR extracted a line item
-    setPpnRate(0.11);
     setPphChoice("none");
     setAttachments([{ name: "invoice_supplier_elektronik.pdf", size: "PDF · 2.4 MB", fromOCR: true }]);
     // Simulated extraction confidence: invoice number unreadable (red → blocking),
@@ -579,16 +566,14 @@ export default function BillCreatePage() {
   // Totals (all IDR).
   //   subtotal = sum of line items
   //   dpp      = subtotal               (taxable base)
-  //   ppn      = dpp × ppnRate           (output VAT charged by vendor)
   //   pph      = dpp × pphRate           (income tax we withhold)
-  //   total    = dpp + ppn               (gross invoice — matches seed)
+  //   total    = dpp                     (gross invoice — matches seed)
   //   netPayable = total − pph           (what we actually transfer)
   const subtotal = items.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.price) || 0), 0);
   const dpp = subtotal;
-  const ppn = Math.round(dpp * ppnRate);
   const pphRate = PPH_OPTIONS.find((o) => o.v === pphChoice)?.rate || 0;
   const pph = Math.round(dpp * pphRate);
-  const total = dpp + ppn;
+  const total = dpp;
   const netPayable = total - pph;
 
   // ── Duplicate detection (PRD Zone 8) ────────────────────────────────────
@@ -650,7 +635,7 @@ export default function BillCreatePage() {
     updateRow(i, patch);
   }
   function addAttach() {
-    const names = ["po_vendor.pdf", "berita_acara.pdf", "faktur_pajak.pdf"];
+    const names = ["po_vendor.pdf", "berita_acara.pdf", "surat_jalan.pdf"];
     setAttachments((p) => [...p, { name: names[Math.floor(Math.random() * names.length)], size: "PDF · 1.1 MB", fromOCR: false }]);
   }
   function delAttach(i)                { setAttachments((p) => p.filter((_, idx) => idx !== i)); }
@@ -683,7 +668,6 @@ export default function BillCreatePage() {
     return {
       total,
       dpp,
-      ppn,
       pph23: pph,
       vendorName: vendor?.name || "",
       items: items.map((it) => {
@@ -699,7 +683,7 @@ export default function BillCreatePage() {
         };
       }),
     };
-  }, [total, dpp, ppn, pph, vendor, items]);
+  }, [total, dpp, pph, vendor, items]);
 
   const { lines: jeLines, totalDr, totalCr, balanced, anyFlag } = useMemo(
     () => previewJournalLines(previewBill, vendor),
@@ -721,9 +705,7 @@ export default function BillCreatePage() {
     poNo: poNo || "—",
     invNo: invNo || "—",
     date, due,
-    dpp, ppn, pph23: pph, total,
-    ppnRate,
-    faktur_pajak: fakturPajak || undefined,
+    dpp, pph23: pph, total,
     grn: poNo ? "matched" : "pending",
     approval: "draft",
     anomalies: [],
@@ -733,7 +715,7 @@ export default function BillCreatePage() {
       acct: it.acct,
       acctName: (EXPENSE_ACCOUNTS.find((a) => a.code === it.acct) || {}).name,
     })),
-  }), [vendor, poNo, invNo, date, due, dpp, ppn, pph, total, ppnRate, fakturPajak, items]);
+  }), [vendor, poNo, invNo, date, due, dpp, pph, total, items]);
 
   const exceptions = useMemo(() => {
     const list = [];
@@ -751,8 +733,6 @@ export default function BillCreatePage() {
       list.push({ id: "duplicate", severity: "review", field: "invNo", title: "Possible duplicate", detail: `Invoice ${duplicateMatch.bill.invNo} from ${vendor?.name} for Rp ${fmtNum(duplicateMatch.bill.total)} already exists (${duplicateMatch.reason}).` });
     if (variance)
       list.push({ id: "variance", severity: "review", field: "items", title: "Amount looks unusual", detail: `Rp ${fmtNum(total)} is ${variance.deviation > 0 ? `${variance.multiple.toFixed(1)}× higher` : `${(1 / variance.multiple).toFixed(1)}× lower`} than this vendor's typical invoice (avg Rp ${fmtNum(Math.round(variance.avg))} across ${variance.count} bills).` });
-    if (vendor && vendor.pkp !== "PKP" && vendor.pkp !== "NON_PKP")
-      list.push({ id: "pkp-unknown", severity: "review", field: "vendor", title: "PKP status unknown", detail: "PPN applicability can't be determined until this vendor's PKP status is set." });
     if (attachments.length === 0)
       list.push({ id: "no-document", severity: "review", field: "attachments", title: "No source document", detail: "This bill has no attachment — attach one or record a justification." });
     if (ocrConfidence.date === "yellow")
@@ -776,7 +756,7 @@ export default function BillCreatePage() {
       }
     }
     return list;
-  }, [vendor, invNo, date, items, total, ppn, fakturPajak, attachments, balanced, duplicateMatch, variance, ocrConfidence, itemSuggestions, flagDraft]);
+  }, [vendor, invNo, date, items, total, attachments, balanced, duplicateMatch, variance, ocrConfidence, itemSuggestions, flagDraft]);
 
   const ackable = (sev) => sev === "review" || sev === "advisory";
   const activeExceptions = exceptions.filter((e) => !(ackable(e.severity) && resolvedFx[e.id]));
@@ -816,14 +796,12 @@ export default function BillCreatePage() {
       due,
       keterangan,
       dpp,
-      ppn,
       pph23:             pph,
-      total,                                   // IDR gross (DPP + PPN)
+      total,                                   // IDR gross (= DPP)
       sisa:              total,                // outstanding AP balance = gross
       netPayable,                              // display only — total − PPh withheld
       approval,
       grn:               poNo ? "matched" : "pending",
-      faktur_pajak:      fakturPajak || undefined,
       no_document_flag:          attachments.length === 0,
       no_document_justification: attachments.length === 0 ? noDocJustification.trim() : "",
       items: items.map((it) => {
@@ -1171,7 +1149,7 @@ export default function BillCreatePage() {
             </>
             )}
 
-            {/* Totals + tax summary (shared). The PPN / PPh explanation sits
+            {/* Totals + tax summary (shared). The PPh explanation sits
                 right next to the numbers (was a separate Tax card). */}
             {items.length > 0 && (
               <div className={`total-block${flagClass("tax")}`} data-fx="tax">
@@ -1185,30 +1163,6 @@ export default function BillCreatePage() {
                   <span className="t-row-lbl">DPP</span>
                   <span className="t-row-val">{fmtNum(dpp)}</span>
                 </div>
-                <div className="t-row">
-                  <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                    <span className="t-row-lbl">PPN (input VAT)</span>
-                    <select className="ppn-select" value={ppnRate} onChange={(e) => setPpnRate(parseFloat(e.target.value))}>
-                      <option value="0.11">11%</option>
-                      <option value="0.10">10%</option>
-                      <option value="0">0%</option>
-                    </select>
-                  </div>
-                  <span className="t-row-val" style={{ color: "var(--danger-text)" }}>+ {fmtNum(ppn)}</span>
-                </div>
-                {vendor && <div className="tax-explain">{ppnSentence(vendor)}</div>}
-                {vendor && vendor.pkp === "PKP" && (
-                  <div className="form-fld" style={{ margin: "2px 0 8px" }}>
-                    <label>Faktur Pajak Number</label>
-                    <input
-                      type="text"
-                      value={fakturPajak}
-                      onChange={(e) => setFakturPajak(e.target.value)}
-                      placeholder="010.000-25.12345678"
-                      style={{ fontFamily: "var(--font-mono)" }}
-                    />
-                  </div>
-                )}
                 <div className="t-row grand">
                   <span className="t-row-lbl">Total</span>
                   <span className="t-row-val">{fmtNum(total)}</span>
@@ -1230,8 +1184,8 @@ export default function BillCreatePage() {
             )}
           </div>
 
-          {/* Tax explanation + Faktur Pajak + Net Payable now live inline in the
-              totals block above, next to the PPN / PPh numbers. */}
+          {/* Tax explanation + Net Payable now live inline in the totals block
+              above, next to the PPh numbers. */}
 
           {/* ── Payment Info ─── Auto-populated from the selected vendor's
               master record. Read-only here — bank changes happen in
@@ -1453,7 +1407,6 @@ export default function BillCreatePage() {
             <div className="a4-total">
               <div className="a4-tb">
                 <div className="a4-tr"><span className="lbl">DPP</span><span className="val">{fmtNum(dpp)}</span></div>
-                <div className="a4-tr"><span className="lbl">PPN ({Math.round(ppnRate * 100)}%)</span><span className="val">{fmtNum(ppn)}</span></div>
                 {pph > 0 && <div className="a4-tr"><span className="lbl">PPh (withholding)</span><span className="val">− {fmtNum(pph)}</span></div>}
                 <div className="a4-tr grand"><span className="lbl">Total</span><span className="val">Rp {fmtNum(total)}</span></div>
               </div>
