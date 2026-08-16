@@ -54,8 +54,18 @@
 
 /* Section 4: History */
 .pd-hist-sub { font-size: 11.5px; color: var(--color-text-tertiary); }
+.pd-hist-filter { margin-left: auto; font-size: 11.5px; padding: 4px 8px; border: 1px solid var(--color-border-default); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-primary); font-family: var(--font-sans); }
+.pd-hist-filter:focus { outline: none; border-color: var(--color-action); }
 .pd-je { font-family: var(--font-mono); font-size: 11.5px; color: var(--color-action); text-decoration: none; }
 .pd-je:hover { text-decoration: underline; }
+
+/* Journal-entry posting status on a movement row */
+.pd-je-cell { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pd-je-status { font-size: 9px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 1px 6px; border-radius: 9999px; border: 1px solid transparent; }
+.pd-je-posted { background: var(--success-surface); color: var(--success-text); border-color: var(--success-border); }
+.pd-je-draft { background: var(--color-surface-sunken); color: var(--color-text-secondary); border-color: var(--color-border-default); border-style: dashed; }
+.pd-je-pending { background: var(--warning-surface); color: var(--warning-text); border-color: var(--warning-border); }
+.pd-je-void { background: var(--color-surface-sunken); color: var(--color-text-tertiary); border-color: var(--color-border-default); }
 
 /* Movement action badge */
 .pd-act { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 9999px; font-size: 10px; font-weight: 700; letter-spacing: .02em; border: 1px solid transparent; }

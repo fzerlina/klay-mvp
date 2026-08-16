@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useInventory, VER_FIELD_LABEL } from "../state/InventoryContext";
 import { useJournalEntries } from "../state/JournalEntriesContext";
@@ -32,12 +32,13 @@ export default function InventoryDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { itemById, updateItem, submitItem, approveItem, rejectItem, adjustStock, versionsOf, changeLog, movementLog } = useInventory();
-  const { stagePendingDraft, peekNextJeNumber } = useJournalEntries();
+  const { entries: journalEntries, stagePendingDraft, peekNextJeNumber } = useJournalEntries();
   const { user, hasCapability } = useCurrentUser();
   const { inventoryCostingMethod } = useAccountingSettings();
   const item = itemById(id);
 
   const [tab, setTab] = useState("information");
+  const [histLoc, setHistLoc] = useState("all");
   const [openVer, setOpenVer] = useState(null);
   const [editOpen, setEditOpen] = useState(false);
   const [editCost, setEditCost] = useState("");
@@ -75,6 +76,13 @@ export default function InventoryDetailPage() {
   // Live stock movements (session) prepended to the seeded baseline.
   const history = [...(movementLog[item.id] || []), ...productHistory(item)];
   const inventoryAccountCode = accounts.find((a) => a.key === "inventory")?.code || null;
+  // A movement reaches the GL only once its journal entry posts. Surface each
+  // movement's JE status so History reads as a per-item ledger — any non-Posted
+  // row is stock the books haven't caught up to yet.
+  const jeStatusByNumber = useMemo(
+    () => Object.fromEntries(journalEntries.map((e) => [e.je_number, e.status])),
+    [journalEntries],
+  );
   const vlist = versionsOf(item.id);
   // Live change log (session) newest-first, then the seeded baseline (reversed).
   const auditLog = [...(changeLog[item.id] || []), ...productAudit(item).slice().reverse()];
@@ -90,6 +98,10 @@ export default function InventoryDetailPage() {
     ? []
     : (Array.isArray(item.locations) && item.locations.length ? item.locations : [{ loc: "Main Warehouse", qty: item.qty || 0 }]);
   const locRows = locs.map((l) => ({ loc: l.loc, qty: l.qty || 0, value: (l.qty || 0) * (item.unit_cost || 0) }));
+
+  // Movement History location filter.
+  const histLocOptions = locs.map((l) => l.loc);
+  const histRows = histLoc === "all" ? history : history.filter((h) => h.loc === histLoc);
 
   const meta = { actor: user.name };
 
@@ -357,27 +369,36 @@ export default function InventoryDetailPage() {
                 <div className="vd-tx-head">
                   <div className="vd-card-title" style={{ marginBottom: 0 }}>Movement History</div>
                   <div className="pd-hist-sub">Stock movements for this item</div>
+                  {histLocOptions.length > 1 && (
+                    <select className="pd-hist-filter" value={histLoc} onChange={(e) => setHistLoc(e.target.value)}>
+                      <option value="all">All locations</option>
+                      {histLocOptions.map((l) => <option key={l} value={l}>{l}</option>)}
+                    </select>
+                  )}
                 </div>
                 <div className="vd-tx-tablewrap">
                   <table className="vd-tx-table">
                     <thead>
                       <tr>
-                        <th>Date</th><th>Action</th><th className="num">Unit</th>
+                        <th>Date</th><th>Action</th><th>Location</th><th className="num">Unit</th>
                         <th className="num">Cost / Unit</th><th className="num">Adjusted Value</th><th>Journal Entry</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {history.length === 0 && (
-                        <tr><td colSpan={6} className="dim" style={{ textAlign: "center", padding: 20 }}>No movements recorded.</td></tr>
+                      {histRows.length === 0 && (
+                        <tr><td colSpan={7} className="dim" style={{ textAlign: "center", padding: 20 }}>No movements recorded.</td></tr>
                       )}
-                      {history.map((h, i) => (
+                      {histRows.map((h, i) => (
                         <tr className="vd-tx-row" key={i}>
                           <td>{formatDate(h.date)}</td>
                           <td><span className={`pd-act pd-act-${h.action}`}>{ACTION_LABELS[h.action] || h.action}</span></td>
+                          <td>{h.loc || <span className="dim">—</span>}</td>
                           <td className="num">{h.unit > 0 ? "+" : ""}{h.unit.toLocaleString("id-ID")}</td>
                           <td className="num">{formatRupiah(h.unit_cost)}</td>
                           <td className="num">{h.value < 0 ? "−" : ""}{formatRupiah(Math.abs(h.value))}</td>
-                          <td>{h.je ? <Link className="pd-je" to="/journal-entry">{h.je}</Link> : <span className="dim">—</span>}</td>
+                          <td>{h.je
+                            ? <span className="pd-je-cell"><Link className="pd-je" to="/journal-entry">{h.je}</Link><JeStatusChip status={jeStatusByNumber[h.je] || "draft"} /></span>
+                            : <span className="dim">—</span>}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -576,6 +597,19 @@ function Row({ l, v, mono }) {
       <span className={`vd-row-val${mono ? " mono" : ""}`}>{v}</span>
     </div>
   );
+}
+
+// Posting status of a movement's journal entry. A movement isn't reflected in
+// the GL until its JE is Posted; Draft means stock moved but the books haven't.
+const JE_STATUS_META = {
+  posted:  { label: "Posted",  tone: "posted" },
+  draft:   { label: "Draft",   tone: "draft" },
+  pending: { label: "Pending", tone: "pending" },
+  void:    { label: "Void",    tone: "void" },
+};
+function JeStatusChip({ status }) {
+  const m = JE_STATUS_META[status] || JE_STATUS_META.draft;
+  return <span className={`pd-je-status pd-je-${m.tone}`}>{m.label}</span>;
 }
 
 // Frozen snapshot of the price-bearing fields at approval time.

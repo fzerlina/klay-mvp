@@ -101,6 +101,10 @@ export function productHistory(it) {
   const seed = idNum(it);
   const rnd = seededRandom(seed + 101);
   const cost = it.unit_cost || 0;
+  // Warehouses this item's movements can hit (services have none).
+  const locNames = isServiceItem(it)
+    ? []
+    : (Array.isArray(it.locations) && it.locations.length ? it.locations.map((l) => l.loc) : ["Main Warehouse"]);
   const rows = [];
 
   if (isServiceItem(it)) {
@@ -128,6 +132,7 @@ export function productHistory(it) {
   return rows.map((r, i) => ({
     date: dates[i] || HIST_DATES[HIST_DATES.length - 1],
     action: r.action,
+    loc: locNames.length ? locNames[(seed + i) % locNames.length] : null,
     unit: r.unit,
     unit_cost: r.unit_cost,
     value: r.unit * r.unit_cost,

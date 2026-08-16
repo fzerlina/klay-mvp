@@ -247,7 +247,7 @@ export function InventoryProvider({ children }) {
     const reasonLabel = reason ? `${reason}${note ? ` — ${note}` : ""}` : (note || "");
     setMovementLog((prev) => ({
       ...prev,
-      [id]: [{ date: today(), action: "adjust", unit: delta, unit_cost: unitCost, value: valueDelta, je: je_number || null, note: reasonLabel }, ...(prev[id] || [])],
+      [id]: [{ date: today(), action: "adjust", loc: targetLoc.loc, unit: delta, unit_cost: unitCost, value: valueDelta, je: je_number || null, note: reasonLabel }, ...(prev[id] || [])],
     }));
     logEvent(id, "Stock adjusted", `${targetLoc.loc}: ${oldQty.toLocaleString("id-ID")} → ${nq.toLocaleString("id-ID")} (${delta >= 0 ? "+" : ""}${delta.toLocaleString("id-ID")})${reason ? ` · ${reason}` : ""}`, actor);
     return { delta, valueDelta, oldQty, newQty: nq, loc: targetLoc.loc };
