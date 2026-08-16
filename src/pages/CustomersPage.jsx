@@ -2,8 +2,8 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCustomers } from "../state/CustomersContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
-import { TODAY, daysSince } from "../lib/clock";
-import { formatDate, termLabel } from "../lib/format";
+import { TODAY } from "../lib/clock";
+import { termLabel } from "../lib/format";
 import AiChatDrawer from "./AiChatDrawer";
 import SummaryDrawer from "./SummaryDrawer";
 import { computeCustomersInsights, makeCustomersAiContext } from "./ai-customers-context";
@@ -41,7 +41,6 @@ function ApprovalBadge({ approval }) {
 }
 
 function CustomerRow({ r, onClick, onKebab, isAlt, showKebab = true }) {
-  const stale = r.lastInv && daysSince(r.lastInv) >= 60 && r.status === "active";
   const npwp = maskNpwp(r.npwp);
   return (
     <div className={`lg-row${isAlt ? " alt" : ""}`} onClick={onClick}>
@@ -60,16 +59,6 @@ function CustomerRow({ r, onClick, onKebab, isAlt, showKebab = true }) {
       <div style={{ fontSize: 11, color: "var(--color-text-secondary)", textAlign: "right", paddingRight: 14 }}>
         {r.creditLimit > 0 ? (
           <><span style={{ color: "var(--color-text-tertiary)", marginRight: 2 }}>Rp</span>{fmtRp(r.creditLimit)}</>
-        ) : (
-          <span className="lg-cell-em-dash">—</span>
-        )}
-      </div>
-      <div style={{ fontSize: 11, color: stale ? "var(--color-warning-text)" : "var(--color-text-tertiary)", fontWeight: stale ? 600 : 400 }}>
-        {r.lastInv ? (
-          <>
-            {formatDate(r.lastInv)}
-            {stale && <div style={{ fontSize: 10, marginTop: 1 }}>{daysSince(r.lastInv)} days ago</div>}
-          </>
         ) : (
           <span className="lg-cell-em-dash">—</span>
         )}
@@ -488,7 +477,6 @@ export default function CustomersPage() {
               <div>NPWP</div>
               <div>Terms</div>
               <div style={{ textAlign: "right", paddingRight: 14 }}>Credit Limit</div>
-              <div>Last Invoice</div>
               <div>Lifecycle</div>
               <div>Approval</div>
               <div />
