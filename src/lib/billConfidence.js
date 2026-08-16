@@ -19,11 +19,8 @@ export const FIELD_LABELS = {
   date:         "Invoice Date",
   due:          "Due Date",
   dpp:          "DPP",
-  ppn:          "PPN",
   pph23:        "PPh 23",
   total:        "Total",
-  faktur:       "Faktur Pajak",
-  faktur_pajak: "Faktur Pajak", // bill-record field name (vs confidence-map key)
   net_payable:  "Net Payable",
   items_qty:    "Line quantities",
 };
@@ -89,16 +86,8 @@ export function anomalyIndexesForField(bill, fieldName) {
 
 // Synthesize a one-line rule explanation for RULE_ENGINE-sourced fields.
 // In production these come from the rules engine's emitted reasoning.
-// PRD: "PPN 11% applied: PT [Vendor] is PKP (confirmed in vendor master)"
 // PRD: "PPh 23 at 2% withheld: service invoice, domestic vendor"
 export function ruleExplanation(fieldName, vendor) {
-  if (fieldName === "ppn") {
-    if (!vendor) return "PPN computed automatically";
-    if (vendor.pkp === "PKP") {
-      return `PPN 11% applied: ${vendor.name} is PKP (confirmed in vendor master)`;
-    }
-    return `PPN 0%: ${vendor.name} is Non-PKP — no VAT collectable`;
-  }
   if (fieldName === "pph23") {
     if (vendor?.pph === "pph23_2") {
       return `PPh 23 at 2% withheld: ${vendor.category === "service" ? "service" : "service/sewa"} invoice, domestic vendor`;
@@ -194,62 +183,15 @@ export function computeFieldConfidence(bill, vendor) {
   // DPP → OCR (extracted) or MANUAL
   fields.dpp = buildField("dpp", isAI ? "OCR" : "MANUAL", hits.dpp || [], vendor);
 
-  // PPN → RULE (computed from DPP × 0.11 per vendor PKP status)
-  fields.ppn = buildField("ppn", "RULE_ENGINE", hits.ppn || [], vendor);
-
   // PPh 23 → RULE (from vendor.pph)
   fields.pph23 = buildField("pph23", "RULE_ENGINE", hits.pph23 || [], vendor);
 
-  // Total → OCR (extracted; cross-checked against DPP + PPN − PPh) or MANUAL
+  // Total → OCR (extracted; cross-checked against DPP − PPh) or MANUAL
   fields.total = buildField("total", isAI ? "OCR" : "MANUAL", hits.total || [], vendor);
 
   // Line-item quantity flag (bill-level signal — Phase J surfaces per-line)
   if (hits.items_qty) {
     fields.items_qty = buildField("items_qty", "OCR", hits.items_qty, vendor);
-  }
-
-  // Faktur Pajak — required for PKP vendors per Indonesian tax rules.
-  // PRD: "If Faktur Pajak number is required (vendor is PKP) and not
-  // extracted, this is shown as a red required field." Once the FM enters a
-  // faktur number via the inline editor it persists on bill.faktur_pajak
-  // and the indicator flips to GREEN. Non-PKP vendors get BLUE "not
-  // applicable" regardless.
-  if (vendor?.pkp === "PKP") {
-    // Presence is read from the faktur number actually on the bill — manually
-    // confirmed (faktur_pajak) OR the number carried/extracted on the record
-    // (fakturNo). Only a genuinely-missing faktur on a PKP vendor is RED.
-    const fakturVal = bill.faktur_pajak || bill.fakturNo;
-    if (fakturVal && fakturVal !== "—") {
-      const manual = !!bill.faktur_pajak || !isAI;
-      fields.faktur = {
-        field_name:   "faktur",
-        source:       manual ? "MANUAL" : "OCR",
-        source_label: manual ? SOURCE_LABEL.MANUAL : SOURCE_LABEL.OCR,
-        score:        manual ? null : 0.9,
-        visual_state: "GREEN",
-        explanation:  manual
-          ? `Faktur Pajak on file · ${fakturVal}`
-          : `Faktur Pajak extracted from the invoice · ${fakturVal}`,
-      };
-    } else {
-      fields.faktur = {
-        field_name:   "faktur",
-        source:       "OCR",
-        source_label: SOURCE_LABEL.OCR,
-        score:        0.0,
-        visual_state: "RED",
-        explanation:  `Faktur Pajak required: ${vendor.name} is PKP, but no faktur number is on the bill — enter it to post`,
-      };
-    }
-  } else if (vendor) {
-    fields.faktur = {
-      field_name:   "faktur",
-      source:       "RULE_ENGINE",
-      source_label: SOURCE_LABEL.RULE_ENGINE,
-      score:        null,
-      visual_state: "BLUE",
-      explanation:  `Not applicable: ${vendor.name} is Non-PKP`,
-    };
   }
 
   // Net payable — derived rule (Total − PPh withheld)
@@ -268,7 +210,7 @@ export function computeFieldConfidence(bill, vendor) {
   const manualSet = new Set(bill.manual_fields || []);
   if (manualSet.size > 0) {
     for (const f of Object.values(fields)) {
-      const edited = manualSet.has(f.field_name) || (f.field_name === "faktur" && manualSet.has("fakturNo"));
+      const edited = manualSet.has(f.field_name);
       if (edited && f.visual_state !== "YELLOW" && f.visual_state !== "RED") {
         f.source       = "MANUAL";
         f.source_label = SOURCE_LABEL.MANUAL;

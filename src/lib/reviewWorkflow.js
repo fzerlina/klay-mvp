@@ -28,8 +28,6 @@ export const SEVERITY_RANK = { BLOCKING: 0, REVIEW: 1, ADVISORY: 2 };
 // Tunables — in production these come from system_config (IA-tunable).
 const BIG_TXN_THRESHOLD = 500_000_000; // Rp — "Big Transaction" advisory
 const APPROVAL_STALLED_DAYS = 3; // days in PENDING_REVIEW before "Approval Stalled"
-const PPN_RATE_DEFAULT = 0.11;
-const FAKTUR_WINDOW_DAYS = 90; // ~3-month VAT input-credit window
 
 // Demo-only signals for checks the seed has no field for yet. Kept small and
 // explicit so the inbox shows a realistic spread without inventing data.
@@ -54,14 +52,15 @@ export function getVendor(vendorId) {
   return VENDORS.find((v) => v.id === vendorId) || null;
 }
 
-// Does this vendor's profile create a tax obligation (PPN and/or withholding)?
+// Does this vendor's profile create a tax obligation (withholding)? PKP is not
+// consulted — bills carry no PPN, so VAT registration implies nothing on-invoice.
 function taxRequired(vendor) {
   if (!vendor) return false;
-  return vendor.pkp === "PKP" || (vendor.pph && vendor.pph !== "none");
+  return Boolean(vendor.pph && vendor.pph !== "none");
 }
 
 function anyTaxOnInvoice(bill) {
-  return (bill.ppn || 0) > 0 || (bill.pph23 || 0) > 0;
+  return (bill.pph23 || 0) > 0;
 }
 
 function isNonPosted(bill) {
@@ -83,7 +82,7 @@ function flag(bill, key, { label, severity, category, message, ownerRole = "ap_s
     ownerRole,
     blocking: severity === SEVERITY.BLOCKING,
     overridable,
-    side, // a "separate from the sequence" branch (withholding/faktur windows) — never blocks
+    side, // a "separate from the sequence" branch (withholding deadlines) — never blocks
   };
 }
 
@@ -220,43 +219,7 @@ export function computeBillFlags(bill, vendorArg, opts = {}) {
     }
   }
 
-  // 6) PPN faktur -------------------------------------------------------------
-  const fakturVal = bill.faktur_pajak || bill.fakturNo;
-  const fakturMissing = !fakturVal || fakturVal === "—";
-  if (vendor && vendor.pkp === "PKP" && (bill.ppn || 0) > 0 && fakturMissing) {
-    push("faktur_missing", {
-      label: "faktur missing", severity: SEVERITY.REVIEW, category: "Tax",
-      message: `${vendor.name} is PKP and the invoice has PPN, but no faktur pajak number is on the bill.`,
-    });
-    // faktur window (separate branch — never blocks)
-    const age = daysSince(bill.date);
-    if (age > FAKTUR_WINDOW_DAYS) {
-      push("faktur_forfeit", {
-        label: "VAT credit forfeited", severity: SEVERITY.ADVISORY, category: "Tax", side: true,
-        message: `Invoice is ${age}d old — past the ${FAKTUR_WINDOW_DAYS}d input-VAT credit window.`,
-      });
-    } else if (age > FAKTUR_WINDOW_DAYS - 30) {
-      push("faktur_critical", {
-        label: "faktur window critical", severity: SEVERITY.ADVISORY, category: "Tax", side: true,
-        message: `${FAKTUR_WINDOW_DAYS - age}d left to claim the input-VAT credit — enter the faktur soon.`,
-      });
-    }
-  }
-
-  // 7) Tax Amount Check -------------------------------------------------------
-  if ((bill.ppn || 0) > 0 && (bill.dpp || 0) > 0) {
-    const rate = bill.ppnRate || PPN_RATE_DEFAULT;
-    const expected = Math.round(bill.dpp * rate);
-    const drift = Math.abs((bill.ppn || 0) - expected);
-    if (drift > Math.max(1000, expected * 0.02)) {
-      push("tax_amount_mismatch", {
-        label: "Tax Amount Mismatch", severity: SEVERITY.BLOCKING, category: "Tax",
-        message: `PPN Rp ${(bill.ppn).toLocaleString("id-ID")} ≠ expected Rp ${expected.toLocaleString("id-ID")} (DPP × ${(rate * 100).toFixed(0)}%).`,
-      });
-    }
-  }
-
-  // 8) Additional flags (parallel) --------------------------------------------
+  // 6) Additional flags (parallel) --------------------------------------------
   // Returned — the approver (FM) sent the bill back to AP to fix and resubmit.
   // It's an EXCEPTION at the REVIEW tier, not a lifecycle status: the bill sits
   // at Draft (back with AP) and this flag carries the return reason, floats it

@@ -5,7 +5,6 @@
 //
 // Derivation rules (Indonesian AP standard):
 //   DR  per line item     →  item.acct, item.subtotal           (cost / asset)
-//   DR  PPN Masukan       →  bill.ppn  (1-5100)                  (creditable VAT)
 //   CR  AP Trade          →  total − pph23  (2-1100)             (vendor payable)
 //   CR  PPh withholding   →  bill.pph23  (2-2300 or 2-2400)      (tax payable to DJP)
 //
@@ -20,7 +19,6 @@ import { ruleExplanation } from "./billConfidence";
 // Canonical AP account codes — kept here as constants so the preview wires
 // up to the same chart the existing journal-entry seeds use. In production
 // these would come from a CoA mapping table per entity.
-const ACCT_PPN_MASUKAN = { code: "1-5100", name: "VAT Input (PPN Masukan)" };
 const ACCT_AP_TRADE    = { code: "2-1100", name: "Accounts Payable — Trade" };
 const ACCT_PPH23       = { code: "2-2300", name: "PPh 23 Payable" };
 const ACCT_PPH4_FINAL  = { code: "2-2400", name: "PPh 4(2) Payable" };
@@ -47,25 +45,7 @@ export function previewJournalLines(bill, vendor) {
     });
   }
 
-  // 2) PPN Masukan DR — only when bill carries PPN. Yellow-flag when the
-  //    bill's PPN amount conflicts with the vendor's PKP status — a real
-  //    error mode in Indonesian AP that the FM needs to catch before posting.
-  if (bill.ppn > 0) {
-    const pkpMismatch = vendor && vendor.pkp !== "PKP";
-    lines.push({
-      side:         "DR",
-      account_code: ACCT_PPN_MASUKAN.code,
-      account_name: ACCT_PPN_MASUKAN.name,
-      amount:       bill.ppn,
-      description:  "VAT input 11%",
-      rule:         pkpMismatch
-        ? `PPN booked but vendor ${vendor.name} is Non-PKP — verify before posting`
-        : `PPN 11% creditable: vendor ${vendor?.name || "vendor"} is PKP`,
-      flag:         pkpMismatch ? "YELLOW" : null,
-    });
-  }
-
-  // 3) AP Trade CR — what's actually owed to the vendor (total − pph23).
+  // 2) AP Trade CR — what's actually owed to the vendor (total − pph23).
   //    The vendor invoices the gross; we withhold PPh and pay them the net.
   const apAmount = bill.total - (bill.pph23 || 0);
   lines.push({
@@ -78,7 +58,7 @@ export function previewJournalLines(bill, vendor) {
     flag:         null,
   });
 
-  // 4) PPh withholding CR — when applicable. Account routes by article
+  // 3) PPh withholding CR — when applicable. Account routes by article
   //    (PPh 23 → 2-2300, PPh 4(2) → 2-2400). PPh 21 is out-of-scope for MVP
   //    per the latest PRD revision.
   if (bill.pph23 > 0) {
