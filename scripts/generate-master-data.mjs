@@ -318,9 +318,8 @@ function makeBill(idx) {
     });
     dpp += subtotal;
   }
-  const ppn = vendor.pkp === "PKP" ? Math.round(dpp * 0.11) : 0;
   const pph23 = vendor.pph === "pph23_2" ? Math.round(dpp * 0.02) : 0;
-  const total = dpp + ppn;
+  const total = dpp;
   const sisa = pay === "paid" ? 0 : total;
 
   const head = {
@@ -328,7 +327,7 @@ function makeBill(idx) {
     poNo: isDraft ? "—" : `PO${String(idx).padStart(3, "0")}`,
     invNo: isDraft ? "—" : `INV-${vendor.code.replace("V-", "V")}-${date.replace(/-/g, "")}`,
     date, due, grn,
-    dpp, ppn, pph23, total, sisa,
+    dpp, pph23, total, sisa,
     approval, pay, isAI,
     keterangan: chance(0.3) ? pick([
       "Pengadaan kebutuhan operasional rutin.",
@@ -475,7 +474,7 @@ for (const v of vendors) {
 // ── Validation ───────────────────────────────────────────────────────────
 const errors = [];
 for (const b of bills) {
-  if (b.total !== b.dpp + b.ppn) errors.push(`${b.id}: total ${b.total} != dpp ${b.dpp} + ppn ${b.ppn}`);
+  if (b.total !== b.dpp) errors.push(`${b.id}: total ${b.total} != dpp ${b.dpp}`);
   if (!vendors.find((v) => v.id === b.vendor)) errors.push(`${b.id}: vendor ${b.vendor} not found`);
   for (const it of b.items) {
     if (!COA_BY_CODE[it.acct]) errors.push(`${b.id}: item acct ${it.acct} not in CoA`);
