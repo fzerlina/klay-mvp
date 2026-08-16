@@ -5,7 +5,6 @@ import { usePayments, PAYMENT_STATUS_META } from "../state/PaymentsContext";
 import { useVendors } from "../state/VendorsContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
 import RelationshipTierControl from "../components/RelationshipTier";
-import PpnChip from "../components/PpnChip";
 import { buildAgingLines, AGE_BUCKETS, RELATIONSHIP_LABEL } from "../lib/apAging";
 import { TODAY, daysSince } from "../lib/clock";
 import { formatRupiah, formatDateEn } from "../lib/format";
@@ -109,7 +108,6 @@ function PaymentRow({ line, reqStatus, settleKey, roleCfg, selectable, selected,
       <div className="pm-cell-bill">
         <div className="pm-bill-top">
           <span className="pm-id">{line.invNo}</span>
-          <PpnChip invoiceDate={line.invoiceDate} />
         </div>
         <div className="pm-bill-sub">
           <span className="pm-vendor">{line.vendorName}</span>

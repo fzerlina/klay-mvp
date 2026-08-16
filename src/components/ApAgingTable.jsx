@@ -11,7 +11,6 @@ import {
   AGE_BUCKETS,
   RELATIONSHIP_LABEL,
 } from "../lib/apAging";
-import PpnChip from "./PpnChip";
 import "../pages/modules.css";
 import "../pages/ap-aging.css";
 
@@ -41,7 +40,6 @@ function ApAgingRow({ line, onOpen }) {
         <div className="apa-flat-top">
           <span className="apa-at-inv-no">{line.invNo}</span>
           {line.is_accrual && <span className="apa-inv-accrual">ACCRUAL</span>}
-          {!line.is_accrual && <PpnChip invoiceDate={line.invoiceDate} />}
         </div>
         <div className="apa-flat-sub">
           <span className="apa-flat-vendor">{line.vendorName}</span>

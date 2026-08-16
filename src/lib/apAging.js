@@ -15,7 +15,6 @@ import { VENDORS } from "../data/seed/vendors";
 import { seedTierFor } from "../data/seed/vendorTiers";
 import { TODAY, daysSince } from "./clock";
 import { workflowStatus } from "./billStatus";
-import { ppnSortTier, ppnDaysLeft } from "./ppnWindow";
 
 // ── Constants from PRD ─────────────────────────────────────────────────────
 // Age buckets — Current / 1–30 / 31–60 / 61–90 / 91–120 / >120
@@ -90,7 +89,6 @@ function buildAccrualRecords() {
       due: "2025-04-30",          // accruals have no real due date
       grn: "—",
       dpp: a.amount,
-      ppn: 0,                     // PPN excluded from accrual entries per PRD
       pph23: v?.pph === "pph23_2" ? Math.round(a.amount * 0.02) : 0,
       total: a.amount,
       sisa: a.amount,
@@ -263,22 +261,7 @@ export function decisionQueueSort(payMode = "view", detailOf) {
     roleCmp = byOverdueThenAmount;
   }
 
-  // Faktur-pajak (input-VAT) crediting window is Priority 1 for EVERY role
-  // (expert: Pak Hadi) — a hard tax deadline. Bills still inside the window and
-  // closing (≤ 7 days, then ≤ 14 days) float above the role-specific ordering,
-  // soonest-to-expire first. Already-expired bills are NOT urgent (the credit is
-  // gone) and fall through to the normal role comparator.
-  return (a, b) => {
-    const pa = ppnSortTier(a.invoiceDate);
-    const pb = ppnSortTier(b.invoiceDate);
-    if (pa !== pb) return pa - pb;
-    if (pa < 2) {
-      const da = ppnDaysLeft(a.invoiceDate) ?? 999;
-      const db = ppnDaysLeft(b.invoiceDate) ?? 999;
-      if (da !== db) return da - db;
-    }
-    return roleCmp(a, b);
-  };
+  return roleCmp;
 }
 
 // ── KPI snapshot — feeds the 5-tile command bar + recon badge ─────────────
