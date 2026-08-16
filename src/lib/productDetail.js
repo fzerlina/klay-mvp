@@ -97,6 +97,16 @@ function jeRef(seed, i) {
   return `JE-2025-${String(n).padStart(4, "0")}`;
 }
 
+// Posting status of a movement's journal entry. The newest movement is left
+// awaiting review (pending), the next not-yet-posted (draft), older ones posted,
+// with the odd reversal (void) — so History shows the full lifecycle.
+function movementStatus(seed, i, n) {
+  if (i === n - 1) return "pending";
+  if (i === n - 2) return "draft";
+  if ((seed + i) % 6 === 0) return "void";
+  return "posted";
+}
+
 export function productHistory(it) {
   const seed = idNum(it);
   const rnd = seededRandom(seed + 101);
@@ -137,6 +147,7 @@ export function productHistory(it) {
     unit_cost: r.unit_cost,
     value: r.unit * r.unit_cost,
     je: jeRef(seed, i),
+    status: movementStatus(seed, i, rows.length),
   }));
 }
 

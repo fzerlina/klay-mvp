@@ -397,7 +397,7 @@ export default function InventoryDetailPage() {
                           <td className="num">{formatRupiah(h.unit_cost)}</td>
                           <td className="num">{h.value < 0 ? "−" : ""}{formatRupiah(Math.abs(h.value))}</td>
                           <td>{h.je
-                            ? <span className="pd-je-cell"><Link className="pd-je" to="/journal-entry">{h.je}</Link><JeStatusChip status={jeStatusByNumber[h.je] || "draft"} /></span>
+                            ? <span className="pd-je-cell"><Link className="pd-je" to="/journal-entry">{h.je}</Link><JeStatusChip status={h.status || jeStatusByNumber[h.je] || "draft"} /></span>
                             : <span className="dim">—</span>}</td>
                         </tr>
                       ))}
@@ -602,10 +602,10 @@ function Row({ l, v, mono }) {
 // Posting status of a movement's journal entry. A movement isn't reflected in
 // the GL until its JE is Posted; Draft means stock moved but the books haven't.
 const JE_STATUS_META = {
-  posted:  { label: "Posted",  tone: "posted" },
-  draft:   { label: "Draft",   tone: "draft" },
-  pending: { label: "Pending", tone: "pending" },
-  void:    { label: "Void",    tone: "void" },
+  posted:  { label: "Posted",         tone: "posted" },
+  draft:   { label: "Draft",          tone: "draft" },
+  pending: { label: "Pending Review", tone: "pending" },
+  void:    { label: "Void",           tone: "void" },
 };
 function JeStatusChip({ status }) {
   const m = JE_STATUS_META[status] || JE_STATUS_META.draft;
