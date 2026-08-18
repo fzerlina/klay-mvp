@@ -89,6 +89,10 @@ export default function CustomerCreatePage() {
   const [entityForm, setEntityForm] = useState("PT");
   const [npwp, setNpwp] = useState("");
   const [address, setAddress] = useState("");
+  // Shipping address defaults to "same as billing" — the common case. Only a
+  // deliberate opt-out captures a second address on the record.
+  const [shipSame, setShipSame] = useState(true);
+  const [shippingAddress, setShippingAddress] = useState("");
   const [dedupDismissed, setDedupDismissed] = useState(false);
 
   // Tax — entity-type driven (mirror of New Vendor). Company picks a withholding
@@ -138,6 +142,7 @@ export default function CustomerCreatePage() {
 
   function resetForm() {
     setCode(""); setName(""); setLegalName(""); setEntityForm("PT"); setNpwp(""); setAddress(""); setDedupDismissed(false);
+    setShipSame(true); setShippingAddress("");
     setPph("none");
     setTop("NET 30"); setCreditLimit(""); setCurrency("IDR"); setRecon("1-1200");
     setContacts([blankContact(true)]);
@@ -158,6 +163,7 @@ export default function CustomerCreatePage() {
   const primary = contacts[0];
   const canSubmit =
     name.trim() && address.trim() &&
+    (shipSame || shippingAddress.trim()) &&
     primary?.name.trim() && primary?.phone.trim() && primary?.email.trim() &&
     !(tier !== "standard" && !tierNote.trim()) &&
     !npwpMatch;
@@ -166,6 +172,7 @@ export default function CustomerCreatePage() {
     if (!canCreateCustomer) return;
     if (!name.trim()) { showToast(isCompany ? "Company name is required" : "Full name is required"); return; }
     if (!address.trim()) { showToast("Billing address is required"); return; }
+    if (!shipSame && !shippingAddress.trim()) { showToast("Add a shipping address, or tick “Same as billing address”"); return; }
     if (!primary.name.trim() || !primary.phone.trim() || !primary.email.trim()) {
       showToast("Primary contact name, phone, and email are required"); return;
     }
@@ -182,6 +189,7 @@ export default function CustomerCreatePage() {
       pkp,
       pph: effectivePph,
       address: address.trim(),
+      shippingAddress: shipSame ? "" : shippingAddress.trim(),
       top,
       creditLimit: parseInt(String(creditLimit).replace(/[^\d]/g, ""), 10) || 0,
       currency,
@@ -355,9 +363,26 @@ export default function CustomerCreatePage() {
               </div>
             )}
 
-            <div className="form-fld" style={{ marginBottom: 0, marginTop: showDedup ? 4 : 0 }}>
+            <div className="form-fld" style={{ marginBottom: 12, marginTop: showDedup ? 4 : 0 }}>
               <label>Billing Address <span className="vc-req">*</span></label>
               <textarea value={address} onChange={(e) => setAddress(e.target.value)} rows={2} placeholder={isCompany ? "Jl. Sudirman No. 1, Jakarta Selatan 12930" : "Jl. Kemang Raya No. 8, Jakarta Selatan 12730"} />
+            </div>
+
+            <div className="form-fld" style={{ marginBottom: 0 }}>
+              <label>Shipping Address</label>
+              <label className="vc-check">
+                <input type="checkbox" checked={shipSame} onChange={(e) => setShipSame(e.target.checked)} />
+                <span>Same as billing address</span>
+              </label>
+              {!shipSame && (
+                <textarea
+                  value={shippingAddress}
+                  onChange={(e) => setShippingAddress(e.target.value)}
+                  rows={2}
+                  style={{ marginTop: 8 }}
+                  placeholder="Warehouse / delivery address — where goods are shipped"
+                />
+              )}
             </div>
           </div>
 

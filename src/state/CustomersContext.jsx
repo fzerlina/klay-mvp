@@ -20,6 +20,13 @@ export const AR_ACCT_LABELS = {
   "1-1220": "1-1220 · AR — Retail",
 };
 
+// Ship-to resolution. An empty shippingAddress means "ships to the billing
+// address" — the fallback lives here so no surface re-implements it.
+export function shipsToBilling(c) { return !(c?.shippingAddress || "").trim(); }
+export function shipToAddress(c) {
+  return (c?.shippingAddress || "").trim() || (c?.address || "").trim();
+}
+
 // Freshly-onboarded Draft customers (no transaction history). Lifecycle = Draft:
 // not usable on invoices until submitted → Active. Kept as their own seed so the
 // Draft tab is populated without faking history on transacted customers.
@@ -67,8 +74,8 @@ function withDerived(c) {
 
 // Master-data fields whose creation or change requires a fresh approval cycle
 // (SoD-sensitive: legal identity, tax identity, credit exposure, posting account,
-// terms). Any OTHER field (address, contacts, notes, currency, tier, receiving
-// account, invoicing…) is logged but does not gate.
+// terms). Any OTHER field (billing/shipping address, contacts, notes, currency,
+// tier, receiving account, invoicing…) is logged but does not gate.
 export const CUSTOMER_APPROVAL_TRIGGER_FIELDS = ["legalName", "npwp", "creditLimit", "acct", "top"];
 export const CUSTOMER_APPROVAL_TRIGGER_LABEL = {
   legalName: "Legal name", npwp: "NPWP/NIK", creditLimit: "Credit limit",
@@ -78,7 +85,7 @@ export const CUSTOMER_APPROVAL_TRIGGER_LABEL = {
 // Fields captured in an approved-version snapshot — the customer's complete
 // business record at the moment an approval cycle completes.
 const VERSIONED_FIELDS = [
-  "code", "name", "legalName", "type", "address",
+  "code", "name", "legalName", "type", "address", "shippingAddress",
   "npwp", "pkp", "pph",
   "top", "currency", "creditLimit", "acct",
   "company_bank", "contacts",
@@ -160,6 +167,9 @@ export function CustomersProvider({ children }) {
       currency: draft.currency || "IDR",
       contacts: draft.contacts || [],
       address: draft.address || "",
+      // Empty shipping address = ships to the billing address (the common case).
+      // Every surface renders the fallback rather than duplicating the string.
+      shippingAddress: draft.shippingAddress || "",
       invMode: draft.invMode || "manual",
       invCh: draft.invCh || [],
       invSch: draft.invSch || "",

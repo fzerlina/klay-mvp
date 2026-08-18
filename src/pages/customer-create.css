@@ -55,3 +55,7 @@
 .ch-chip:hover{border-color:#c8c2ba;color:var(--color-text-secondary)}
 .ch-chip.on{border-color:var(--color-action);background:var(--ai-surface);color:var(--color-action)}
 .ch-chip svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:1.5}
+
+/* Inline checkbox on a form field (e.g. "Same as billing address") */
+.form-fld label.vc-check{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--color-text-tertiary);cursor:pointer;font-weight:500;text-transform:none;letter-spacing:0}
+.form-fld label.vc-check input{accent-color:var(--color-action);cursor:pointer}
