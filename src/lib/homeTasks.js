@@ -140,7 +140,7 @@ function invoiceTasks(ctx) {
 
   const drafts = invoices.filter((v) => v.approval === "draft");
   const overdue = invoices.filter(
-    (v) => v.payStatus === "overdue" || (v.payStatus === "belumbayar" && v.due && v.due < tk),
+    (v) => v.payStatus === "overdue" || (v.payStatus === "unpaid" && v.due && v.due < tk),
   );
   if (drafts.length) {
     out.push({ ...g, id: "inv:draft", label: "Send invoices", count: drafts.length,

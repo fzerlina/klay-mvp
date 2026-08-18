@@ -28,7 +28,7 @@ export function InvoicesProvider({ children }) {
     const audit = [
       {
         type: "created",
-        action: draft.fromAI ? "Invoice dibuat otomatis oleh AI" : "Invoice dibuat",
+        action: draft.fromAI ? "Invoice created automatically by AI" : "Invoice created",
         by: draft.fromAI ? "Klay AI System" : "Sarah Wijaya",
         date,
         time,
@@ -45,10 +45,9 @@ export function InvoicesProvider({ children }) {
       date: draft.date,
       due: draft.due,
       dpp: draft.dpp,
-      ppn: draft.ppn,
       total: draft.total,
       approval: "draft",
-      payStatus: "belumbayar",
+      payStatus: "unpaid",
       isAI: !!draft.fromAI,
       items: draft.items,
       audit,
@@ -67,15 +66,15 @@ export function InvoicesProvider({ children }) {
           : inv.invNo;
         return {
           ...inv,
-          approval: "terkirim",
+          approval: "sent",
           invNo,
           audit: [
             ...inv.audit,
             {
               type: "sent",
               action: sendInfo.channel === "wa"
-                ? "Invoice dikirim via WhatsApp"
-                : "Invoice dikirim via Email",
+                ? "Invoice sent via WhatsApp"
+                : "Invoice sent via Email",
               by: "Sarah Wijaya",
               date,
               time,

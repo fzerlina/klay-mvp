@@ -348,7 +348,7 @@ function tplTaxProvision(amount) {
 //
 // For each invoice in seed/invoices.js:
 //   - Issuance JE (DR AR, CR Revenue, CR VAT-out) if not draft
-//   - Collection JE (DR Bank, CR AR) if pay status is lunas
+//   - Collection JE (DR Bank, CR AR) if pay status is paid
 //
 // Links are via reference_type + reference_id, so the GL drawer can show
 // the source document.
@@ -386,7 +386,7 @@ function emitBillJEs(bill) {
 }
 
 function emitInvoiceJEs(inv) {
-  const { id, customerName, total, dpp, ppn, date, due, approval, payStatus, items } = inv;
+  const { id, customerName, total, dpp, date, due, approval, payStatus, items } = inv;
   if (approval === "draft") return;
   const productLine = pick(PRODUCT_LINES);
   makeJE({
@@ -397,11 +397,10 @@ function emitInvoiceJEs(inv) {
     lines: [
       { ...acct(AR),             debit: total, credit: 0,  description: `Trade receivable from ${customerName}` },
       { ...acct(productLine.rev), debit: 0, credit: dpp,   description: `Revenue ${productLine.name}` },
-      { ...acct(VAT_OUT),        debit: 0, credit: ppn,    description: "VAT output 11%" },
     ],
     status: "posted",
   });
-  if (payStatus === "lunas") {
+  if (payStatus === "paid") {
     makeJE({
       je_date: offsetDays(due, -between(0, 8)),
       reference_type: "invoice_payment",

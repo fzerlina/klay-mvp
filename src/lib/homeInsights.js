@@ -77,7 +77,7 @@ function receivablesInsights(ctx) {
   const g = { group: "receivables", groupLabel: "Receivables", groupTo: "/invoices" };
   const out = [];
   const tk = todayKey();
-  const isOverdue = (v) => v.payStatus === "overdue" || (v.payStatus === "belumbayar" && v.due && v.due < tk);
+  const isOverdue = (v) => v.payStatus === "overdue" || (v.payStatus === "unpaid" && v.due && v.due < tk);
   const overdue = invoices.filter(isOverdue);
   const totalOverdue = sum(overdue, (v) => v.total);
 
@@ -107,7 +107,7 @@ function receivablesInsights(ctx) {
   }
 
   // Largest single open receivable.
-  const open = invoices.filter((v) => v.payStatus !== "lunas");
+  const open = invoices.filter((v) => v.payStatus !== "paid");
   if (open.length) {
     const largest = open.reduce((m, v) => (v.total > m.total ? v : m), open[0]);
     out.push({ ...g, id: "ar:largest", headline: formatRupiah(largest.total),

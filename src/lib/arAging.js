@@ -21,7 +21,7 @@ export { AGE_BUCKETS };
 export function isArAgingRow(inv) {
   if (!inv) return false;
   if (inv.approval === "draft") return false;
-  if (inv.payStatus === "lunas") return false;
+  if (inv.payStatus === "paid") return false;
   return (inv.total || 0) > 0;
 }
 

@@ -2,7 +2,8 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { CUSTOMERS } from "../data/seed/customers";
 import { useInvoices } from "../state/InvoicesContext";
-import { formatDate, formatRupiah, initials } from "../lib/format";
+import { shipToAddress, shipsToBilling } from "../state/CustomersContext";
+import { formatDateEn, formatRupiah, initials } from "../lib/format";
 import "./invoice-create.css";
 
 function CustomerCombobox({ value, onChange, customers }) {
@@ -56,7 +57,7 @@ function CustomerCombobox({ value, onChange, customers }) {
             />
           </div>
           <div className="cust-combo-list">
-            {list.length === 0 && <div className="cust-combo-empty">None customer matching</div>}
+            {list.length === 0 && <div className="cust-combo-empty">No matching customer</div>}
             {list.map((c) => (
               <div
                 key={c.id}
@@ -82,16 +83,16 @@ function CustomerCombobox({ value, onChange, customers }) {
 }
 
 const PRODS = [
-  { id: "P1", name: "Produk Divisi A - Paket Retail Premium", unit: "paket", price: 2500000, sku: "DIV-A-PREM" },
-  { id: "P2", name: "Produk Divisi A - Paket Retail Standard", unit: "paket", price: 2200000, sku: "DIV-A-STD" },
-  { id: "P3", name: "Produk Divisi B - Kemasan Premium", unit: "unit", price: 225000, sku: "DIV-B-PREM" },
-  { id: "P4", name: "Produk Divisi B - Kemasan Standar", unit: "unit", price: 175000, sku: "DIV-B-STD" },
-  { id: "P5", name: "Produk Divisi B - Paket Grosir", unit: "unit", price: 150000, sku: "DIV-B-GRO" },
-  { id: "P6", name: "Jasa Setup & Training", unit: "jasa", price: 2000000, sku: "SVC-SETUP" },
-  { id: "P7", name: "Jasa Konsultasi Monthan", unit: "jasa", price: 5000000, sku: "SVC-CONS" },
+  { id: "P1", name: "Division A — Premium Retail Pack", unit: "pack", price: 2500000, sku: "DIV-A-PREM" },
+  { id: "P2", name: "Division A — Standard Retail Pack", unit: "pack", price: 2200000, sku: "DIV-A-STD" },
+  { id: "P3", name: "Division B — Premium Packaging", unit: "unit", price: 225000, sku: "DIV-B-PREM" },
+  { id: "P4", name: "Division B — Standard Packaging", unit: "unit", price: 175000, sku: "DIV-B-STD" },
+  { id: "P5", name: "Division B — Wholesale Pack", unit: "unit", price: 150000, sku: "DIV-B-GRO" },
+  { id: "P6", name: "Setup & Training Service", unit: "service", price: 2000000, sku: "SVC-SETUP" },
+  { id: "P7", name: "Monthly Consulting Service", unit: "service", price: 5000000, sku: "SVC-CONS" },
 ];
 
-const UNITS = ["unit", "paket", "kg", "jasa", "buah", "set"];
+const UNITS = ["unit", "pack", "kg", "service", "buah", "set"];
 
 const AISvg = () => (
   <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/></svg>
@@ -129,14 +130,13 @@ export default function InvoiceCreatePage() {
   const [due, setDue] = useState("2025-05-23");
   const [memo, setMemo] = useState("");
   const [items, setItems] = useState([]); // {desc,qty,unit,price}
-  const [ppnRate, setPpnRate] = useState(0.11);
   const [attachments, setAttachments] = useState([]); // {name,size,fromPO}
 
   // Send modal
   const [sendOpen, setSendOpen] = useState(false);
   const [sendEmail, setSendEmail] = useState("");
   const [sendCC, setSendCC] = useState("");
-  const [sendMsg, setSendMsg] = useState("Terlampir invoice kami, mohon ditindaklanjuti.");
+  const [sendMsg, setSendMsg] = useState("Our invoice is attached — please arrange payment.");
   const [sendSuccess, setSendSuccess] = useState(false);
 
   const customer = useMemo(() => CUSTOMERS.find((c) => c.id === custId), [custId]);
@@ -175,20 +175,19 @@ export default function InvoiceCreatePage() {
     setCustPO("PO-HMS-2025-007");
     setDate("2025-04-20");
     setDue("2025-06-14");
-    setMemo("Regular Q2 order — terima cashih for kerja yours.");
+    setMemo("Regular Q2 order — thank you for your business.");
     setItems([
-      { desc: "Produk Divisi A - Paket Retail Standard", qty: 20, unit: "paket", price: 2200000 },
+      { desc: "Division A — Standard Retail Pack", qty: 20, unit: "pack", price: 2200000 },
     ]);
     setAttachments([{ name: "PO-HMS-2025-007.pdf", size: "PDF · 2.4 MB", fromPO: true }]);
-    setPpnRate(0.10);
     setAiFilled(true);
     setStep("review");
   }
 
   // Totals
+  // No output VAT in the MVP — an invoice carries DPP only.
   const dpp = items.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.price) || 0), 0);
-  const ppn = Math.round(dpp * ppnRate);
-  const total = dpp + ppn;
+  const total = dpp;
 
   // Items handlers
   function addRow() {
@@ -234,7 +233,6 @@ export default function InvoiceCreatePage() {
       date,
       due,
       dpp,
-      ppn,
       total,
       items: items.map((it) => ({
         ...it,
@@ -247,7 +245,7 @@ export default function InvoiceCreatePage() {
   function onSaveDraft() {
     const draft = buildDraft();
     if (!draft) {
-      showToast("Pick customer dulu");
+      showToast("Pick a customer first");
       return;
     }
     if (!items.length) {
@@ -262,7 +260,7 @@ export default function InvoiceCreatePage() {
   function onOpenSend() {
     const draft = buildDraft();
     if (!draft) {
-      showToast("Pick customer dulu");
+      showToast("Pick a customer first");
       return;
     }
     if (!items.length) {
@@ -304,7 +302,7 @@ export default function InvoiceCreatePage() {
         {mode === "upload" && (
           <div className="ap-stepper">
             {[
-              { n: 1, label: "Upload Dokumen", done: step !== "upload", active: step === "upload" },
+              { n: 1, label: "Upload Document", done: step !== "upload", active: step === "upload" },
               { n: 2, label: "Review & Save", done: false, active: step === "review" || step === "scanning" },
             ].map((s, i) => (
               <span key={s.n} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
@@ -335,9 +333,9 @@ export default function InvoiceCreatePage() {
             <div className="upload-zone-icon">
               <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
             </div>
-            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Drag & drop file di sini</div>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Drag & drop a file here</div>
             <div style={{ fontSize: 12, color: "var(--color-text-tertiary)", marginBottom: 14 }}>
-              atau klik for memilih from perangkat kamu
+              or click to choose one from your device
             </div>
             <button className="upload-zone-cta" onClick={(e) => { e.stopPropagation(); simulateScan(); }}>Choose File</button>
           </div>
@@ -368,7 +366,7 @@ export default function InvoiceCreatePage() {
             </div>
           </div>
           <div style={{ fontSize: 12, color: "var(--color-text-tertiary)", textAlign: "center" }}>
-            AI akan mengekstrak semua data automatic — kamu bisa koreksi before menyimpan
+            Klay extracts every field automatically — you can correct anything before saving
           </div>
         </div>
       )}
@@ -378,11 +376,11 @@ export default function InvoiceCreatePage() {
         <div className="scan-overlay">
           <div className="scan-loading-card">
             <div className="scan-spinner" />
-            <div className="scan-loading-title">Memproses Dokumen</div>
+            <div className="scan-loading-title">Processing Document</div>
             <div className="scan-loading-status">
-              {scanPhase === 0 && "Memverificashi kesafean file…"}
-              {scanPhase === 1 && "Mengekstrak data invoice…"}
-              {scanPhase >= 2 && "Hampir selesai…"}
+              {scanPhase === 0 && "Verifying the file is safe…"}
+              {scanPhase === 1 && "Extracting invoice data…"}
+              {scanPhase >= 2 && "Almost done…"}
             </div>
             <div className="scan-progress">
               <div
@@ -403,7 +401,7 @@ export default function InvoiceCreatePage() {
             {aiFilled && (
               <div className="ai-fill-banner">
                 <div className="ai-fill-banner-title"><AISvg />AI mengisi automatic from PO customer</div>
-                <div className="ai-fill-banner-sub">Check each field. Satu field has akurasi rendah — ditandai kuning.</div>
+                <div className="ai-fill-banner-sub">Check each field. One field has low confidence — highlighted in yellow.</div>
               </div>
             )}
 
@@ -426,7 +424,7 @@ export default function InvoiceCreatePage() {
                     type="text"
                     value={invNo}
                     readOnly
-                    placeholder="Pick customer dulu"
+                    placeholder="Pick a customer first"
                     style={{ fontFamily: "var(--font-mono)", color: invNo ? "var(--color-text-primary)" : "var(--color-text-tertiary)" }}
                   />
                 </div>
@@ -463,7 +461,7 @@ export default function InvoiceCreatePage() {
                   </thead>
                   <tbody>
                     {items.length === 0 && (
-                      <tr><td colSpan={6} style={{ textAlign: "center", color: "var(--color-text-tertiary)", padding: 12, fontSize: 11 }}>Not yet there is item</td></tr>
+                      <tr><td colSpan={6} style={{ textAlign: "center", color: "var(--color-text-tertiary)", padding: 12, fontSize: 11 }}>No items yet</td></tr>
                     )}
                     {items.map((it, i) => {
                       const sub = (Number(it.qty) || 0) * (Number(it.price) || 0);
@@ -474,7 +472,7 @@ export default function InvoiceCreatePage() {
                               type="text"
                               value={it.desc}
                               readOnly
-                              placeholder="Klik for pilih produk…"
+                              placeholder="Click to pick a product…"
                               onClick={() => openProd(i)}
                               style={{ cursor: "pointer", background: it.desc ? "var(--color-surface-sunken)" : "transparent" }}
                             />
@@ -505,22 +503,11 @@ export default function InvoiceCreatePage() {
               {items.length > 0 && (
                 <div className="total-block">
                   <div className="t-row">
-                    <span className="t-row-lbl">DPP</span>
+                    <span className="t-row-lbl">Subtotal</span>
                     <span className="t-row-val">{fmtNum(dpp)}</span>
                   </div>
-                  <div className="t-row">
-                    <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                      <span className="t-row-lbl">PPN</span>
-                      <select className="ppn-select" value={ppnRate} onChange={(e) => setPpnRate(parseFloat(e.target.value))}>
-                        <option value="0.11">11%</option>
-                        <option value="0.10">10%</option>
-                        <option value="0">0%</option>
-                      </select>
-                    </div>
-                    <span className="t-row-val" style={{ color: "var(--success-text)" }}>+ {fmtNum(ppn)}</span>
-                  </div>
                   <div className="t-row grand">
-                    <span className="t-row-lbl">Total Invoices</span>
+                    <span className="t-row-lbl">Invoice Total</span>
                     <span className="t-row-val">{fmtNum(total)}</span>
                   </div>
                 </div>
@@ -582,15 +569,9 @@ export default function InvoiceCreatePage() {
                     </tr>
                     <tr>
                       <td className="mono">4-1010</td>
-                      <td>Penjualan Produk</td>
+                      <td>Product Sales</td>
                       <td className="dim r">—</td>
                       <td className="r">{fmtNum(dpp)}</td>
-                    </tr>
-                    <tr>
-                      <td className="mono">2-1200</td>
-                      <td>Payables Tax (PPN)</td>
-                      <td className="dim r">—</td>
-                      <td className="r">{fmtNum(ppn)}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -616,29 +597,29 @@ export default function InvoiceCreatePage() {
               <div className="a4-head2">
                 <div className="a4-brand">
                   <div className="a4-brand-name">PT Sejahtera Makmur</div>
-                  <div className="a4-brand-tag">Invoice resmi</div>
+                  <div className="a4-brand-tag">Official invoice</div>
                 </div>
                 <div className="a4-head-meta">
                   <div className="a4-head-row"><span className="a4-head-lbl">Invoice</span><span className="a4-head-val">{invNo || "—"}</span></div>
-                  <div className="a4-head-row"><span className="a4-head-lbl">Date</span><span className="a4-head-val">{formatDate(date)}</span></div>
-                  <div className="a4-head-row"><span className="a4-head-lbl">Overdue</span><span className="a4-head-val">{formatDate(due)}</span></div>
+                  <div className="a4-head-row"><span className="a4-head-lbl">Date</span><span className="a4-head-val">{formatDateEn(date)}</span></div>
+                  <div className="a4-head-row"><span className="a4-head-lbl">Overdue</span><span className="a4-head-val">{formatDateEn(due)}</span></div>
                   {custPO && custPO !== "—" && (
                     <div className="a4-head-row"><span className="a4-head-lbl">Customer PO</span><span className="a4-head-val">{custPO}</span></div>
                   )}
                 </div>
               </div>
 
-              {/* FROM / DITAGIHKAN KE / DIKIRIM KE */}
+              {/* FROM / BILL TO / SHIP TO */}
               <div className="a4-addr-grid">
                 <div className="a4-addr">
-                  <div className="a4-addr-lbl">DARI</div>
+                  <div className="a4-addr-lbl">FROM</div>
                   <div className="a4-addr-name">PT Sejahtera Makmur</div>
                   <div className="a4-addr-line">Jl. Sudirman No. 99</div>
                   <div className="a4-addr-line">Jakarta 10220, Indonesia</div>
                   <div className="a4-addr-line">NPWP 12.345.678.9-000.000</div>
                 </div>
                 <div className="a4-addr">
-                  <div className="a4-addr-lbl">DITAGIHKAN KE</div>
+                  <div className="a4-addr-lbl">BILL TO</div>
                   <div className="a4-addr-name">{customer?.name || "—"}</div>
                   <div className="a4-addr-line">{customer?.address || ""}</div>
                   {customer?.npwp && <div className="a4-addr-line">NPWP {customer.npwp}</div>}
@@ -647,10 +628,12 @@ export default function InvoiceCreatePage() {
                   )}
                 </div>
                 <div className="a4-addr">
-                  <div className="a4-addr-lbl">DIKIRIM KE</div>
+                  <div className="a4-addr-lbl">SHIP TO</div>
                   <div className="a4-addr-name">{customer?.name || "—"}</div>
-                  <div className="a4-addr-line">{customer?.address || ""}</div>
-                  <div className="a4-addr-line a4-addr-muted">Sama with alongt tagihan</div>
+                  <div className="a4-addr-line">{customer ? shipToAddress(customer) : ""}</div>
+                  {customer && shipsToBilling(customer) && (
+                    <div className="a4-addr-line a4-addr-muted">Same as billing address</div>
+                  )}
                 </div>
               </div>
 
@@ -660,15 +643,15 @@ export default function InvoiceCreatePage() {
                   <thead>
                     <tr>
                       <th className="a4-item-num">ITEM</th>
-                      <th>DESKRIPSI</th>
+                      <th>DESCRIPTION</th>
                       <th className="r">QTY</th>
-                      <th className="r">HARGA</th>
-                      <th className="r">JUMLAH</th>
+                      <th className="r">PRICE</th>
+                      <th className="r">AMOUNT</th>
                     </tr>
                   </thead>
                   <tbody>
                     {items.filter((it) => it.desc).length === 0 && (
-                      <tr><td colSpan={5} className="empty">Add item di form kiri</td></tr>
+                      <tr><td colSpan={5} className="empty">Add an item in the form on the left</td></tr>
                     )}
                     {items.filter((it) => it.desc).map((it, i) => (
                       <tr key={i}>
@@ -689,41 +672,40 @@ export default function InvoiceCreatePage() {
               {/* Totals */}
               <div className="a4-total">
                 <div className="a4-tb">
-                  <div className="a4-tr"><span className="lbl">DPP</span><span className="val">{fmtNum(dpp)}</span></div>
-                  <div className="a4-tr"><span className="lbl">PPN ({Math.round(ppnRate * 100)}%)</span><span className="val">{fmtNum(ppn)}</span></div>
+                  <div className="a4-tr"><span className="lbl">Subtotal</span><span className="val">{fmtNum(dpp)}</span></div>
                   <div className="a4-tr grand"><span className="lbl">Total</span><span className="val">Rp {fmtNum(total)}</span></div>
                 </div>
               </div>
 
               {/* Notes */}
               <div className="a4-notes">
-                <div className="a4-notes-lbl">CATATAN</div>
+                <div className="a4-notes-lbl">NOTES</div>
                 <div className="a4-notes-body">
                   {memo
                     ? memo
-                    : <span className="a4-notes-empty">Mohon lakukan payment before date due via transfer to BCA 8888-123-456 a.n. PT Sejahtera Makmur. Cantumkan nomor invoice as berita transfer.</span>}
+                    : <span className="a4-notes-empty">Please pay by the due date via transfer to BCA 8888-123-456 a/n PT Sejahtera Makmur. Quote the invoice number as the transfer reference.</span>}
                 </div>
               </div>
 
               {/* Signatures */}
               <div className="a4-sig-grid">
                 <div className="a4-sig">
-                  <div className="a4-sig-lbl">Hormat Kami,</div>
+                  <div className="a4-sig-lbl">Sincerely,</div>
                   <div className="a4-sig-box" />
                   <div className="a4-sig-name">PT Sejahtera Makmur</div>
                   <div className="a4-sig-role">Authorized Signature</div>
                 </div>
                 <div className="a4-sig">
-                  <div className="a4-sig-lbl">Diterima Oleh,</div>
+                  <div className="a4-sig-lbl">Received by,</div>
                   <div className="a4-sig-box" />
                   <div className="a4-sig-name">{customer?.name || "—"}</div>
-                  <div className="a4-sig-role">Date & Tanda Tangan</div>
+                  <div className="a4-sig-role">Date & Signature</div>
                 </div>
               </div>
 
               {/* Footer */}
               <div className="a4-footer">
-                Terima cashih for kepercayaan Anda. · invoice@sejahteramakmur.co.id · +62 21 5550 1234
+                Thank you for your business. · invoice@sejahteramakmur.co.id · +62 21 5550 1234
               </div>
             </div>
           </div>
@@ -813,14 +795,14 @@ export default function InvoiceCreatePage() {
             ) : (
               <>
                 <div className="modal-title">Send Invoice</div>
-                <div className="modal-sub">Invoice akan sentkan to email customer. PDF dilampirkan automatic.</div>
+                <div className="modal-sub">The invoice will be emailed to the customer with the PDF attached.</div>
                 <div className="fld">
                   <label>Send to</label>
                   <input type="email" value={sendEmail} onChange={(e) => setSendEmail(e.target.value)} placeholder="email@customer.id" />
                 </div>
                 <div className="fld">
                   <label>CC (opsional)</label>
-                  <input type="email" value={sendCC} onChange={(e) => setSendCC(e.target.value)} placeholder="cc@kamu.id" />
+                  <input type="email" value={sendCC} onChange={(e) => setSendCC(e.target.value)} placeholder="cc@yourcompany.id" />
                 </div>
                 <div className="fld">
                   <label>Message</label>
@@ -828,7 +810,7 @@ export default function InvoiceCreatePage() {
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "7px 10px", background: "var(--color-surface-sunken)", borderRadius: "var(--radius-sm)", marginTop: 2, fontSize: 11, color: "var(--color-text-tertiary)" }}>
                   <svg width="12" height="12" viewBox="0 0 24 24" style={{ stroke: "var(--color-action)", fill: "none", strokeWidth: 1.5 }}><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/></svg>
-                  PDF invoice dilampirkan automatic
+                  The invoice PDF is attached automatically
                 </div>
                 <div className="modal-footer">
                   <button className="modal-cancel" onClick={() => setSendOpen(false)}>Cancel</button>

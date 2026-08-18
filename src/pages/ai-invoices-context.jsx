@@ -40,7 +40,7 @@ export function computeInvoiceTasks(rows, role = "operator") {
   in7.setDate(TODAY.getDate() + 7);
   const in7Key = in7.toISOString().slice(0, 10);
   const dueSoon = rows.filter(
-    (i) => i.payStatus !== "lunas" && i.approval === "sent" && i.due && i.due > todayKey && i.due <= in7Key,
+    (i) => i.payStatus !== "paid" && i.approval === "sent" && i.due && i.due > todayKey && i.due <= in7Key,
   );
   const dueSoonTotal = dueSoon.reduce((s, i) => s + i.total, 0);
 
@@ -274,7 +274,7 @@ export function makeInvoicesAiContext(invoices) {
             Together they account for <strong>{pct}%</strong> receivables late. Want me to create draft reminder for all three?
           </p>
           <div className="chat-chips">
-            <ChatChip primary onClick={() => send("Ya, buat draft reminder")}>Ya, buat draft reminder</ChatChip>
+            <ChatChip primary onClick={() => send("Yes, draft a reminder")}>Yes, draft a reminder</ChatChip>
             <ChatChip onClick={() => send("Show riwayat penagihan")}>Show riwayat</ChatChip>
             <ChatChip onClick={() => send("I will call manually")}>Telpon manual saja</ChatChip>
           </div>
@@ -295,7 +295,7 @@ export function makeInvoicesAiContext(invoices) {
           <p>Want me to create a reminder for 3 invoice that berisiko?</p>
           <div className="chat-chips">
             <ChatChip primary>Create reminder automatic</ChatChip>
-            <ChatChip>View detailnya dulu</ChatChip>
+            <ChatChip>View the details first</ChatChip>
           </div>
         </>
       ),
@@ -310,12 +310,12 @@ export function makeInvoicesAiContext(invoices) {
           <p>Draft reminder for <strong>{name}</strong>:</p>
           <div className="ai-mini-table" style={{ padding: "10px 12px" }}>
             <div style={{ fontSize: 11.5, lineHeight: 1.55, color: "var(--color-text-secondary)", whiteSpace: "pre-line" }}>
-              {`Yth. Tim Keuangan ${name},\n\nKami ingin mengingatkan bahwa invoice that kami terbitkan telah passes date due. Mohon dapat segera ditindaklanjuti to avoid mengganggu kerja same we.\n\nDetail tagihan terlampir. Terima cashih for attentionnya.`}
+              {`Dear Finance Team at ${name},\n\nThis is a reminder that the invoice we issued is now past its due date. We would appreciate it if you could arrange payment so we can keep things running smoothly on both sides.\n\nThe invoice details are attached. Thank you for your attention.`}
             </div>
           </div>
           <div className="chat-chips">
             <ChatChip primary>Send to customer</ChatChip>
-            <ChatChip>Edit dulu</ChatChip>
+            <ChatChip>Edit first</ChatChip>
           </div>
         </>
       ),
@@ -359,7 +359,7 @@ export function makeInvoicesAiContext(invoices) {
 
   // ── Filter-intent detection + preview ──────────────────────────────────
   const FILTER_LEAD_RE = /^(show me|show|list|find|which|open|filter|all the|give me)\b/i;
-  const FILTER_KEYWORD_RE = /\b(overdue|drafts?|sent|paid|lunas|auto|whats?app|email|this\s+(week|month)|last\s+(week|month)|0-30|30-60|60-90|90\+|days)\b/i;
+  const FILTER_KEYWORD_RE = /\b(overdue|drafts?|sent|paid|auto|whats?app|email|this\s+(week|month)|last\s+(week|month)|0-30|30-60|60-90|90\+|days)\b/i;
   const AMOUNT_RE = /(\d+(?:[.,]\d+)?)\s*[mb]\b/i;
   function looksLikeFilterRequest(t) {
     return FILTER_LEAD_RE.test(t) || FILTER_KEYWORD_RE.test(t) || AMOUNT_RE.test(t);
@@ -372,7 +372,7 @@ export function makeInvoicesAiContext(invoices) {
     else if (/\bdrafts?\b/.test(lower)) list = list.filter(i => i.approval === "draft");
     else if (/\bsent\b/.test(lower)) list = list.filter(i => i.approval === "sent");
     if (/\boverdue\b/.test(lower) || /\blate\b/.test(lower)) list = list.filter(i => i.payStatus === "overdue");
-    if (/\bpaid\b|\blunas\b/.test(lower)) list = list.filter(i => i.payStatus === "lunas");
+    if (/\bpaid\b/.test(lower)) list = list.filter(i => i.payStatus === "paid");
     if (/\bwhats?app\b/.test(lower)) list = list.filter(i => i.ai_source === "whatsapp");
     if (/\b(from\s+)?email\b/.test(lower) && !/\bwhats?app\b/.test(lower)) list = list.filter(i => i.ai_source === "email");
     const amt = lower.match(/(\d+(?:[.,]\d+)?)\s*([mb])\b/);

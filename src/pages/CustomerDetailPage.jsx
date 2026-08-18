@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { INVOICES } from "../data/seed/invoices";
-import { useCustomers, AR_ACCT_LABELS } from "../state/CustomersContext";
+import { useCustomers, AR_ACCT_LABELS, shipsToBilling } from "../state/CustomersContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
 import { withholdingLabel } from "../data/labels";
 import { formatRupiah, formatDate, termLabel } from "../lib/format";
@@ -35,17 +35,22 @@ function bankAcc(acc) {
   return d.length > 4 ? `•••• ${d.slice(-4)}` : acc;
 }
 
-// AR invoice payment status → tone + label (seed uses Bahasa enum values).
+// AR invoice payment status → tone + label.
 function invStatusMeta(payStatus) {
   switch (payStatus) {
-    case "lunas":      return { tone: "success", label: "Paid" };
+    case "paid":       return { tone: "success", label: "Paid" };
     case "overdue":    return { tone: "review",  label: "Overdue" };
-    case "sebagian":   return { tone: "action",  label: "Partial" };
-    case "belumbayar": return { tone: "muted",   label: "Unpaid" };
+    case "partial":    return { tone: "action",  label: "Partial" };
+    case "unpaid":     return { tone: "muted",   label: "Unpaid" };
     default:           return { tone: "muted",   label: payStatus || "—" };
   }
 }
 const BLANK_BANK = { name: "", code: "", branch: "", acc: "", holder: "" };
+
+// Ship-to as shown on the record: the explicit address, or the billing fallback.
+function shipToLabel(c) {
+  return shipsToBilling(c) ? "Same as billing address" : c.shippingAddress;
+}
 
 export default function CustomerDetailPage() {
   const { id } = useParams();
@@ -74,7 +79,7 @@ export default function CustomerDetailPage() {
     if (!customer) return [];
     return INVOICES.filter((inv) => inv.customer === customer.id).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
   }, [customer]);
-  const outstanding = useMemo(() => txns.filter((inv) => inv.payStatus !== "lunas").reduce((s, inv) => s + (inv.total || 0), 0), [txns]);
+  const outstanding = useMemo(() => txns.filter((inv) => inv.payStatus !== "paid").reduce((s, inv) => s + (inv.total || 0), 0), [txns]);
   const log = (customer && changeLog[customer.id]) || [];
   const vlist = customer ? versionsOf(customer.id) : [];
 
@@ -267,7 +272,8 @@ export default function CustomerDetailPage() {
                 <Row l="Customer code" v={customer.code} mono />
                 <Row l="Legal name" v={customer.legalName || customer.name} gated />
                 <Row l="Entity type" v={TYPE_LABEL[customer.type] || customer.type} />
-                <Row l="Address" v={customer.address || "—"} />
+                <Row l="Billing address" v={customer.address || "—"} />
+                <Row l="Shipping address" v={shipToLabel(customer)} />
                 <Row l="Relationship tier" v={TIER_LABEL[customer.relationship_tier] || "Standard"} />
               </div>
 
@@ -524,7 +530,8 @@ function Row({ l, v, mono, gated }) {
 // Human labels for changed-field keys shown on a version row.
 const VER_FIELD_LABEL = {
   code: "Code", name: "Display name", legalName: "Legal name", type: "Entity type",
-  address: "Address", npwp: "NPWP/NIK", pkp: "PKP status", pph: "Withholding",
+  address: "Billing address", shippingAddress: "Shipping address",
+  npwp: "NPWP/NIK", pkp: "PKP status", pph: "Withholding",
   top: "Payment terms", currency: "Currency", creditLimit: "Credit limit", acct: "AR account",
   company_bank: "Receiving account", contacts: "Contacts", notes: "Notes",
   relationship_tier: "Relationship tier", relationship_tier_note: "Tier note",
@@ -542,7 +549,8 @@ function VersionSnapshot({ data, reason }) {
       <Row l="Customer code" v={data.code} mono />
       <Row l="Legal name" v={data.legalName || data.name} />
       <Row l="Entity type" v={TYPE_LABEL[data.type] || data.type} />
-      <Row l="Address" v={data.address || "—"} />
+      <Row l="Billing address" v={data.address || "—"} />
+      <Row l="Shipping address" v={shipToLabel(data)} />
       <Row l="Relationship tier" v={TIER_LABEL[data.relationship_tier] || "Standard"} />
       <div className="vd-ver-grp">Tax &amp; Compliance</div>
       <Row l={data.type === "individu" ? "NIK / NPWP" : "NPWP"} v={data.npwp || "—"} mono />

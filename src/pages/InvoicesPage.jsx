@@ -4,7 +4,7 @@ import { CUSTOMERS as customers } from "../data/seed/customers";
 import { useInvoices } from "../state/InvoicesContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
 import { TODAY, daysSince } from "../lib/clock";
-import { formatRupiah, formatDate, initials } from "../lib/format";
+import { formatRupiah, formatDateEn, initials } from "../lib/format";
 import AiChatDrawer from "./AiChatDrawer";
 import { makeInvoicesAiContext } from "./ai-invoices-context";
 import "./modules.css";
@@ -25,12 +25,12 @@ function fmtRpShort(n) {
   return "Rp " + n.toLocaleString("id-ID");
 }
 
-const MONTHS_ID = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 function formatMonthLabel(yyyymm) {
   if (!yyyymm || yyyymm.length < 7) return "—";
   const [y, m] = yyyymm.split("-");
   const idx = parseInt(m, 10) - 1;
-  return `${MONTHS_ID[idx] || m} ${y}`;
+  return `${MONTHS[idx] || m} ${y}`;
 }
 
 // First two meaningful words (skipping legal prefixes) for "3 customer (X, Y, Z)" copy
@@ -41,7 +41,7 @@ function shortName(name) {
 }
 
 const APPROVAL_LABEL = { sent: "Sent", draft: "Draft", auto: "Auto", anomaly: "Anomaly" };
-const PAY_LABEL = { lunas: "Paid", overdue: "Overdue", belumbayar: "Unpaid" };
+const PAY_LABEL = { paid: "Paid", overdue: "Overdue", unpaid: "Unpaid" };
 
 // ── Klay command bar: intent + filter parsing (mock; replace with LLM later) ──
 const INV_REF_RE = /^INV-[A-Z0-9]+-\d+$/i;
@@ -64,7 +64,7 @@ function parseKlayFilters(q) {
   else if (/\bdrafts?\b/.test(lower)) out.status = "draft";
   else if (/\bsent\b/.test(lower)) out.status = "sent";
   if (/\boverdue\b/.test(lower) || /\blate\b/.test(lower)) out.payStatus = "overdue";
-  else if (/\bpaid\b|\blunas\b/.test(lower)) out.payStatus = "lunas";
+  else if (/\bpaid\b/.test(lower)) out.payStatus = "paid";
   if (/\bfrom\s+whats?app\b|\bvia\s+whats?app\b|\bwhats?app\b/.test(lower)) out.source = "whatsapp";
   else if (/\bfrom\s+email\b|\bvia\s+email\b/.test(lower)) out.source = "email";
   const mShort = lower.match(/(\d+(?:[.,]\d+)?)\s*([mb])\b/);
@@ -87,7 +87,7 @@ function parseKlayFilters(q) {
 
 function klayChipLabel(key, val) {
   if (key === "status") return `Status: ${val[0].toUpperCase()}${val.slice(1)}`;
-  if (key === "payStatus") return `${val === "lunas" ? "Paid" : "Overdue"}`;
+  if (key === "payStatus") return `${val === "paid" ? "Paid" : "Overdue"}`;
   if (key === "source") return `From ${val === "whatsapp" ? "WhatsApp" : "Email"}`;
   if (key === "amountMin") return `≥ Rp ${val.toLocaleString("id-ID", { maximumFractionDigits: 0 })}`;
   if (key === "dateRange") return val === "thisWeek" ? "This week" : "This month";
@@ -123,16 +123,16 @@ function generateInvoiceAiSummary(inv, source) {
   const conf = Math.round(88 + (parseInt(String(inv.id).replace(/\D/g, ""), 10) % 11));
   if (source === "whatsapp") {
     return po
-      ? `Matched ${n} line items to PO ${po} from ${cust}. Applied 11% PPN. ${conf}% match to this customer's prior orders.`
-      : `Parsed ${n} line items from ${cust}'s WhatsApp. Applied 11% PPN. ${conf}% pattern match to recent invoices.`;
+      ? `Matched ${n} line items to PO ${po} from ${cust}. ${conf}% match to this customer's prior orders.`
+      : `Parsed ${n} line items from ${cust}'s WhatsApp. ${conf}% pattern match to recent invoices.`;
   }
   return po
-    ? `Extracted ${n} line items + PO ${po} from ${cust} email. Applied 11% PPN. ${conf}% match to ${cust}'s billing template.`
-    : `Parsed ${n} line items from ${cust}'s email${inv.custEmail ? ` (${inv.custEmail})` : ""}. Applied 11% PPN. ${conf}% confidence.`;
+    ? `Extracted ${n} line items + PO ${po} from ${cust} email. ${conf}% match to ${cust}'s billing template.`
+    : `Parsed ${n} line items from ${cust}'s email${inv.custEmail ? ` (${inv.custEmail})` : ""}. ${conf}% confidence.`;
 }
 
 function payBadgeClass(payStatus) {
-  if (payStatus === "lunas") return "badge-lunas";
+  if (payStatus === "paid") return "badge-paid";
   if (payStatus === "overdue") return "badge-overdue";
   return "badge-unpaid";
 }
@@ -144,10 +144,10 @@ function toRow(inv) {
   return {
     id: inv.id,
     no: inv.invNo === "—" ? "(Draft)" : inv.invNo,
-    tgl: formatDate(inv.date),
+    tgl: formatDateEn(inv.date),
     co: inv.customerName,
     addr: cust?.address || "",
-    due: formatDate(inv.due),
+    due: formatDateEn(inv.due),
     daysOverdue: dOver,
     total: inv.total,
     approval: inv.approval,
@@ -239,7 +239,7 @@ function bucketOf(daysOverdue) {
 
 function LedgerRow({ r, bucket, isChecked, onCheck, onClick, onKebab, isSelected, isAlt }) {
   const isOverdue = r.payStatus === "overdue" && r.daysOverdue > 0;
-  const isPaid = r.payStatus === "lunas";
+  const isPaid = r.payStatus === "paid";
   const isDraft = r.approval === "draft";
   const isAuto = r.approval === "auto";
   const isAnomaly = r.approval === "anomaly";
@@ -317,7 +317,7 @@ function LedgerRow({ r, bucket, isChecked, onCheck, onClick, onKebab, isSelected
         ) : isDraft ? (
           <span className="lg-cell-status-marker"><span className="dot" />Not yet sent</span>
         ) : (
-          <span className="lg-cell-status-marker"><span className="dot" />Dalam term</span>
+          <span className="lg-cell-status-marker"><span className="dot" />Within terms</span>
         )}
       </div>
       <div className="lg-cell-total">
@@ -339,7 +339,7 @@ function RowMenu({ inv, onClose, onAction }) {
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
   }, [onClose]);
-  const canPay = inv.approval === "sent" && inv.payStatus !== "lunas";
+  const canPay = inv.approval === "sent" && inv.payStatus !== "paid";
   return (
     <div className="row-menu" ref={ref} onClick={(e) => e.stopPropagation()}>
       <div className="row-menu-item" onClick={() => onAction("edit", inv)}>
@@ -390,7 +390,7 @@ const GROUP_LABELS = {
   "aging":    "Aging",
   "customer": "Customer",
   "bulan":    "Month",
-  "status":   "Status Bayar",
+  "status":   "Payment Status",
 };
 
 function useClickOutside(ref, onClose) {
@@ -430,7 +430,7 @@ function GroupPopover({ value, canAging, onPick, onClose }) {
     { k: "aging",    lbl: "Aging", disabled: !canAging },
     { k: "customer", lbl: "Customer" },
     { k: "bulan",    lbl: "Month (Date Invoice)" },
-    { k: "status",   lbl: "Status Bayar" },
+    { k: "status",   lbl: "Payment Status" },
   ];
   return (
     <div className="lg-popover" ref={ref}>
@@ -487,19 +487,19 @@ function FilterPopover({ values, onChange, customers: custList, onClose }) {
     <div className="lg-popover lg-filter-pop" ref={ref}>
       <div className="lg-filter-body">
         <div className="lg-filter-fld">
-          <div className="lg-filter-fld-lbl">Customer ({draft.customers.size > 0 ? `${draft.customers.size} selected` : "semua"})</div>
+          <div className="lg-filter-fld-lbl">Customer ({draft.customers.size > 0 ? `${draft.customers.size} selected` : "all"})</div>
           <div className="lg-cust-multi">
             <div className="lg-cust-search">
               <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6"><circle cx="5" cy="5" r="3"/><path d="M7.5 7.5l3 3"/></svg>
               <input
                 value={custSearch}
                 onChange={(e) => setCustSearch(e.target.value)}
-                placeholder="Cari customer…"
+                placeholder="Search customer…"
               />
             </div>
             <div className="lg-cust-list">
               {filteredCusts.length === 0 && (
-                <div className="lg-cust-empty">None customer matching</div>
+                <div className="lg-cust-empty">No matching customer</div>
               )}
               {filteredCusts.map((c) => (
                 <label key={c.id} className="lg-cust-item">
@@ -600,7 +600,7 @@ export default function InvoicesPage() {
   const { hasLevel } = useCurrentUser();
   const canTransact = hasLevel("ar", "transact");
 
-  const [filter, setFilter] = useState({ kind: "tab", value: "semua" });
+  const [filter, setFilter] = useState({ kind: "tab", value: "all" });
   // Sort + group choices override per-tab defaults when non-null
   const [sortChoice, setSortChoice]   = useState(null);
   const [groupChoice, setGroupChoice] = useState(null);
@@ -634,7 +634,7 @@ export default function InvoicesPage() {
   const [sendOpen, setSendOpen] = useState(false);
   const [sendEmail, setSendEmail] = useState("");
   const [sendCC, setSendCC] = useState("");
-  const [sendMsg, setSendMsg] = useState("Terlampir invoice kami, mohon ditindaklanjuti.");
+  const [sendMsg, setSendMsg] = useState("Our invoice is attached — please arrange payment.");
   const [sendSuccess, setSendSuccess] = useState(false);
 
   // Klay command bar state
@@ -677,20 +677,20 @@ export default function InvoicesPage() {
 
   // ── Tab counts (derived from allRows so auto is reflected) ──────────────
   const tabCounts = useMemo(() => ({
-    semua:      allRows.length,
+    all:        allRows.length,
     anomaly:    allRows.filter(i => i.approval === "anomaly").length,
     auto:       allRows.filter(i => i.approval === "auto").length,
     sent:       allRows.filter(i => i.approval === "sent").length,
     draft:      allRows.filter(i => i.approval === "draft").length,
     jatuhtempo: allRows.filter(i => i.payStatus === "overdue").length,
-    lunas:      allRows.filter(i => i.payStatus === "lunas").length,
+    paid:      allRows.filter(i => i.payStatus === "paid").length,
   }), [allRows]);
 
   const monthPfx = useMemo(() => `${TODAY.getFullYear()}-${String(TODAY.getMonth() + 1).padStart(2, "0")}`, []);
 
   // ── KPI stats — action-framed cells (mirror Bills) ──────────────────────
   const invStats = useMemo(() => {
-    const active        = allRows.filter(i => i.payStatus !== "lunas");
+    const active        = allRows.filter(i => i.payStatus !== "paid");
     const overdue       = allRows.filter(i => i.payStatus === "overdue");
     const overdueMonth  = overdue.filter(i => i.due && i.due.startsWith(monthPfx));
     const drafts        = allRows.filter(i => i.approval === "draft");
@@ -722,9 +722,9 @@ export default function InvoicesPage() {
       else if (filter.value === "sent")       list = list.filter(i => i.approval === "sent");
       else if (filter.value === "draft")      list = list.filter(i => i.approval === "draft");
       else if (filter.value === "jatuhtempo") list = list.filter(i => i.payStatus === "overdue");
-      else if (filter.value === "lunas")      list = list.filter(i => i.payStatus === "lunas");
+      else if (filter.value === "paid")      list = list.filter(i => i.payStatus === "paid");
     } else if (filter.kind === "card") {
-      if (filter.value === "total")             list = list.filter(i => i.payStatus !== "lunas");
+      if (filter.value === "total")             list = list.filter(i => i.payStatus !== "paid");
       else if (filter.value === "overdueMonth") list = list.filter(i => i.payStatus === "overdue" && i.due && i.due.startsWith(monthPfx));
     }
     return list;
@@ -812,7 +812,7 @@ export default function InvoicesPage() {
     else if (klayFilters.status === "sent") list = list.filter(i => i.approval === "sent");
     else if (klayFilters.status === "draft")list = list.filter(i => i.approval === "draft");
     if (klayFilters.payStatus === "overdue") list = list.filter(i => i.payStatus === "overdue");
-    if (klayFilters.payStatus === "lunas")   list = list.filter(i => i.payStatus === "lunas");
+    if (klayFilters.payStatus === "paid")   list = list.filter(i => i.payStatus === "paid");
     if (klayFilters.source === "whatsapp")   list = list.filter(i => i.ai_source === "whatsapp");
     if (klayFilters.source === "email")      list = list.filter(i => i.ai_source === "email");
     if (typeof klayFilters.amountMin === "number") list = list.filter(i => i.total >= klayFilters.amountMin);
@@ -850,7 +850,7 @@ export default function InvoicesPage() {
 
   // ── Sort + Group derivation ─────────────────────────────────────────────
   const onJatuhTempo = filter.kind === "tab" && filter.value === "jatuhtempo";
-  const onPaid      = filter.kind === "tab" && filter.value === "lunas";
+  const onPaid      = filter.kind === "tab" && filter.value === "paid";
   const onDraft      = filter.kind === "tab" && filter.value === "draft";
 
   const defaultSort  = onJatuhTempo ? "days-late-desc" : "date-desc";
@@ -888,7 +888,7 @@ export default function InvoicesPage() {
 
   function selectTab(t) { setFilter({ kind: "tab", value: t }); clearChecks(); }
   function selectCard(c) {
-    if (c === null) setFilter({ kind: "tab", value: "semua" });
+    if (c === null) setFilter({ kind: "tab", value: "all" });
     // 'overdue', 'auto', 'anomaly' route to their tabs so they share UI state
     else if (c === "overdue") setFilter({ kind: "tab", value: "jatuhtempo" });
     else if (c === "auto")    setFilter({ kind: "tab", value: "auto" });
@@ -938,7 +938,7 @@ export default function InvoicesPage() {
       if (effectiveGroup === "bulan") return (r.raw.date || "").slice(0, 7); // YYYY-MM
       if (effectiveGroup === "status") {
         if (r.approval === "auto") return "Auto";
-        if (r.payStatus === "lunas") return "Paid";
+        if (r.payStatus === "paid") return "Paid";
         if (r.payStatus === "overdue") return "Overdue";
         if (r.approval === "draft") return "Draft";
         return "Unpaid";
@@ -1001,7 +1001,7 @@ export default function InvoicesPage() {
       const upper = q.toUpperCase();
       const hit = allRows.find((i) => (i.invNo || "").toUpperCase() === upper);
       if (!hit) { showToast(`${q} not found`); return; }
-      setFilter({ kind: "tab", value: "semua" });
+      setFilter({ kind: "tab", value: "all" });
       setFilterValues(emptyFilters);
       setKlayFilters({});
       setHighlightedRef(hit.id);
@@ -1096,7 +1096,7 @@ export default function InvoicesPage() {
     const rowsToExport = checked.size > 0
       ? sortedRows.filter((r) => checked.has(r.id))
       : sortedRows;
-    const headers = ["Invoice", "Date", "Customer", "Address", "Overdue", "Days Overdue", "Total", "Status Invoice", "Status Bayar"];
+    const headers = ["Invoice", "Date", "Customer", "Address", "Overdue", "Days Overdue", "Total", "Invoice Status", "Payment Status"];
     const escapeCell = (v) => {
       const s = String(v == null ? "" : v);
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
@@ -1132,7 +1132,7 @@ export default function InvoicesPage() {
   function onBulk(action) {
     const count = checked.size;
     if (action === "remind") showToast(`Reminder sent to ${count} customer`);
-    else if (action === "lunas") showToast(`${count} invoice ditandai Paid`);
+    else if (action === "paid") showToast(`${count} invoice${count === 1 ? "" : "s"} marked Paid`);
     else if (action === "archive") showToast(`${count} invoice diarsipkan`);
     clearChecks();
   }
@@ -1141,7 +1141,7 @@ export default function InvoicesPage() {
     if (!selected) return;
     setSendEmail(selected.custEmail || "");
     setSendCC("");
-    setSendMsg("Terlampir invoice kami, mohon ditindaklanjuti.");
+    setSendMsg("Our invoice is attached — please arrange payment.");
     setSendSuccess(false);
     setSendOpen(true);
   }
@@ -1153,13 +1153,13 @@ export default function InvoicesPage() {
   }
 
   const tabs = [
-    { k: "semua",      lbl: "All",     count: tabCounts.semua },
+    { k: "all",      lbl: "All",     count: tabCounts.all },
     { k: "anomaly",    lbl: "Anomaly", count: tabCounts.anomaly },
     { k: "auto",       lbl: "Auto",    count: tabCounts.auto },
     { k: "sent",       lbl: "Sent",    count: tabCounts.sent },
     { k: "draft",      lbl: "Draft",   count: tabCounts.draft },
     { k: "jatuhtempo", lbl: "Overdue", count: tabCounts.jatuhtempo },
-    { k: "lunas",      lbl: "Paid",    count: tabCounts.lunas },
+    { k: "paid",      lbl: "Paid",    count: tabCounts.paid },
   ];
 
   return (
@@ -1474,7 +1474,7 @@ export default function InvoicesPage() {
                       <div className="drawer-ai-eyebrow"><SparkleIcon /> Klay's interpretation</div>
                       <p className="drawer-ai-text">{selected.ai_summary}</p>
                       <div className="drawer-ai-meta">
-                        Auto-drafted from {selected.ai_source === "whatsapp" ? "WhatsApp" : "email"} on {formatDate(selected.date)} · awaiting your confirmation
+                        Auto-drafted from {selected.ai_source === "whatsapp" ? "WhatsApp" : "email"} on {formatDateEn(selected.date)} · awaiting your confirmation
                       </div>
                     </div>
                   )}
@@ -1490,12 +1490,12 @@ export default function InvoicesPage() {
                   )}
                   <div className="drawer-stat-row">
                     <div className="drawer-stat-card">
-                      <div className="drawer-stat-lbl">Total Invoices</div>
+                      <div className="drawer-stat-lbl">Invoice Total</div>
                       <div className="drawer-stat-val">{formatRupiah(selected.total)}</div>
                     </div>
                     <div className="drawer-stat-card">
-                      <div className="drawer-stat-lbl">Status Bayar</div>
-                      <div className={`drawer-stat-val${selected.payStatus==="lunas"?" success":selected.payStatus==="overdue"?" danger":""}`} style={{ fontSize: 13 }}>
+                      <div className="drawer-stat-lbl">Payment Status</div>
+                      <div className={`drawer-stat-val${selected.payStatus==="paid"?" success":selected.payStatus==="overdue"?" danger":""}`} style={{ fontSize: 13 }}>
                         {PAY_LABEL[selected.payStatus] || selected.payStatus}
                       </div>
                     </div>
@@ -1508,25 +1508,13 @@ export default function InvoicesPage() {
                       ["Customer PO", selected.custPO],
                       ["Customer", selected.customerName],
                       ["Email", selected.custEmail],
-                      ["Date Dibuat", formatDate(selected.date)],
-                      ["Overdue", formatDate(selected.due)],
-                      ["Status Invoice", APPROVAL_LABEL[selected.approval] || selected.approval],
+                      ["Date Created", formatDateEn(selected.date)],
+                      ["Overdue", formatDateEn(selected.due)],
+                      ["Invoice Status", APPROVAL_LABEL[selected.approval] || selected.approval],
                     ].map(([label, value]) => (
                       <div key={label} className="drawer-row">
                         <div className="drawer-label">{label}</div>
                         <div className="drawer-value">{value}</div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="drawer-section">
-                    <div className="drawer-section-title">Tax</div>
-                    {[
-                      ["DPP", formatRupiah(selected.dpp)],
-                      ["PPN (11%)", formatRupiah(selected.ppn)],
-                    ].map(([label, value]) => (
-                      <div key={label} className="drawer-row">
-                        <div className="drawer-label">{label}</div>
-                        <div className="drawer-value mono">{value}</div>
                       </div>
                     ))}
                   </div>
@@ -1561,7 +1549,7 @@ export default function InvoicesPage() {
                         <div className={`audit-dot ${a.type}`} />
                         <div>
                           <div className="audit-action">{a.action}</div>
-                          <div className="audit-by">{a.by} · {formatDate(a.date)} {a.teame}</div>
+                          <div className="audit-by">{a.by} · {formatDateEn(a.date)} {a.teame}</div>
                         </div>
                       </div>
                     ))}
@@ -1573,7 +1561,7 @@ export default function InvoicesPage() {
                   <div className="drawer-section-title">AI Insight</div>
                   {selected.isAI && (
                     <div style={{ padding: 12, background: "var(--ai-surface)", border: "1px solid var(--ai-border)", borderRadius: "var(--radius-md)", marginBottom: 10 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-action)", textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 4 }}>✦ Dibuat oleh AI</div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-action)", textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 4 }}>✦ Created by AI</div>
                       <div style={{ fontSize: 12, color: "var(--color-text-secondary)", lineHeight: 1.55 }}>
                         This invoice was auto-generated from the customer PO. OCR confidence average <strong>96%</strong>. Mato sure any manually edited fields are finalized before sending.
                       </div>
@@ -1587,16 +1575,16 @@ export default function InvoicesPage() {
                       </div>
                     </div>
                   )}
-                  {selected.payStatus === "lunas" && (
+                  {selected.payStatus === "paid" && (
                     <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 12, background: "var(--color-success-surface)", border: "1px solid var(--color-success-border)", borderRadius: "var(--radius-md)", fontSize: 12, color: "var(--color-success-text)", marginBottom: 10 }}>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                      Invoice already lunas — none action that dineedskan.
+                      This invoice is already paid — no action needed.
                     </div>
                   )}
                   <div style={{ padding: 12, background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-default)", borderRadius: "var(--radius-md)" }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 4 }}>Customer Pattern</div>
                     <div style={{ fontSize: 12, color: "var(--color-text-secondary)", lineHeight: 1.55 }}>
-                      {selected.customerName} typically pays in <strong>NET 30</strong>. Klay AI akan trigger reminder automatic 3 days before due.
+                      {selected.customerName} typically pays in <strong>NET 30</strong>. Klay will trigger a reminder automatically 3 days before the due date.
                     </div>
                   </div>
                 </div>
@@ -1609,7 +1597,7 @@ export default function InvoicesPage() {
                   Send Invoice
                 </button>
               )}
-              {selected.approval === "sent" && selected.payStatus !== "lunas" && (
+              {selected.approval === "sent" && selected.payStatus !== "paid" && (
                 <button className="drawer-btn primary">
                   <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
                   Mark Paid
@@ -1675,7 +1663,7 @@ export default function InvoicesPage() {
                   <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                 </div>
                 <div className="method-title">Upload PO Customer</div>
-                <div className="method-sub">Upload dokumen PO and AI akan mengekstrak data in automatic.</div>
+                <div className="method-sub">Upload the PO document and Klay extracts the data automatically.</div>
                 <span className="method-tag ai"><AISvg />AI Ekstrak Automatic</span>
               </div>
               <div className="method-card" onClick={() => { setChoiceOpen(false); navigate("/invoices/new?mode=manual"); }}>
@@ -1706,14 +1694,14 @@ export default function InvoicesPage() {
             ) : (
               <>
                 <div className="modal-title">Send Invoice</div>
-                <div className="modal-sub">Invoice {selected.id} akan sentkan to email customer. PDF dilampirkan automatic.</div>
+                <div className="modal-sub">Invoice {selected.id} will be emailed to the customer with the PDF attached.</div>
                 <div className="fld">
                   <label>Send to</label>
                   <input type="email" value={sendEmail} onChange={(e) => setSendEmail(e.target.value)} />
                 </div>
                 <div className="fld">
                   <label>CC (opsional)</label>
-                  <input type="email" value={sendCC} onChange={(e) => setSendCC(e.target.value)} placeholder="cc@kamu.id" />
+                  <input type="email" value={sendCC} onChange={(e) => setSendCC(e.target.value)} placeholder="cc@yourcompany.id" />
                 </div>
                 <div className="fld">
                   <label>Message</label>
