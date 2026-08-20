@@ -51,6 +51,9 @@ function CustomerRow({ r, onClick, onKebab, isAlt, showKebab = true }) {
             <span className="vh-name">{r.legalName || r.name}</span>
             {r.relationship_tier && r.relationship_tier !== "standard" && <TierPill tier={r.relationship_tier} />}
             {r.on_hold && <span className="v-hold" title={r.hold_reason ? `Credit hold: ${r.hold_reason}` : "On credit hold"}>Credit hold</span>}
+            {r.overLimit && (
+              <span className="v-over" title={`Credit used Rp ${fmtRp(r.ar)} exceeds the limit of Rp ${fmtRp(r.creditLimit)}`}>Over limit</span>
+            )}
           </div>
         </div>
       </div>
@@ -58,7 +61,10 @@ function CustomerRow({ r, onClick, onKebab, isAlt, showKebab = true }) {
       <div className="lg-cell-date">{termLabel(r.top)}</div>
       <div style={{ fontSize: 11, color: "var(--color-text-secondary)", textAlign: "right", paddingRight: 14 }}>
         {r.creditLimit > 0 ? (
-          <><span style={{ color: "var(--color-text-tertiary)", marginRight: 2 }}>Rp</span>{fmtRp(r.creditLimit)}</>
+          <>
+            <span className={r.overLimit ? "lg-credit-used over" : "lg-credit-used"}>{fmtRp(r.ar)}</span>
+            <span style={{ color: "var(--color-text-tertiary)" }}> / {fmtRp(r.creditLimit)}</span>
+          </>
         ) : (
           <span className="lg-cell-em-dash">—</span>
         )}
@@ -341,6 +347,9 @@ export default function CustomersPage() {
       top: c.top,
       creditLimit: c.creditLimit || 0,
       ar: c.ar || 0,
+      // Credit used = open receivables (c.ar). Over limit is advisory here; the
+      // blocking decision is the FM placing a credit hold.
+      overLimit: (c.creditLimit || 0) > 0 && (c.ar || 0) > c.creditLimit,
       lastInv: c.lastInv,
       raw: c,
     }));
@@ -371,14 +380,14 @@ export default function CustomersPage() {
   }
 
   function exportCsv() {
-    const headers = ["Code", "Name", "Legal Name", "Type", "NPWP", "Terms", "Credit Limit", "AR Balance", "Lifecycle", "Approval", "Credit Hold", "Last Invoice"];
+    const headers = ["Code", "Name", "Legal Name", "Type", "NPWP", "Terms", "Credit Limit", "Credit Used", "Over Limit", "Lifecycle", "Approval", "Credit Hold"];
     const esc = (v) => {
       const s = String(v == null ? "" : v);
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
     const lines = [headers.join(",")];
     for (const r of sortedRows) {
-      lines.push([r.code, r.name, r.legalName || "", r.type, r.npwp || "", r.top, r.creditLimit, r.ar, r.status, r.approval, r.on_hold ? "yes" : "", r.lastInv || ""].map(esc).join(","));
+      lines.push([r.code, r.name, r.legalName || "", r.type, r.npwp || "", r.top, r.creditLimit, r.ar, r.overLimit ? "yes" : "", r.status, r.approval, r.on_hold ? "yes" : ""].map(esc).join(","));
     }
     const blob = new Blob(["﻿" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -476,7 +485,7 @@ export default function CustomersPage() {
               <div>Legal Name</div>
               <div>NPWP</div>
               <div>Terms</div>
-              <div style={{ textAlign: "right", paddingRight: 14 }}>Credit Limit</div>
+              <div style={{ textAlign: "right", paddingRight: 14 }}>Credit Used / Limit</div>
               <div>Lifecycle</div>
               <div>Approval</div>
               <div />

@@ -155,3 +155,20 @@
 .vd-log-detail{font-size:12px;color:var(--color-text-secondary)}
 .vd-log-meta{font-size:11px;color:var(--color-text-tertiary);margin-top:2px}
 .vd-empty{padding:36px;text-align:center;color:var(--color-text-tertiary);font-size:12.5px}
+
+/* ── Credit exposure (Customer Detail) ──────────────────────────────────── */
+.vd-credit{display:inline-flex;align-items:center;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.vd-credit-val{font-variant-numeric:tabular-nums}
+.vd-credit-val.over{color:var(--danger-text,#A32D2D);font-weight:700}
+.vd-credit-pct{font-size:10.5px;color:var(--color-text-tertiary)}
+.vd-over-chip{font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:var(--radius-full);background:var(--danger-surface,#FBEDED);color:var(--danger-text,#A32D2D);border:1px solid var(--danger-border,#E6C9C9);white-space:nowrap}
+.vd-credit-bar{height:4px;border-radius:2px;background:var(--color-border-default);overflow:hidden;margin:2px 0 10px}
+.vd-credit-fill{height:100%;background:var(--color-action);transition:width var(--transition-base)}
+.vd-credit-fill.over{background:var(--danger-text,#A32D2D)}
+
+/* ── AR accounts (Customer Detail) ──────────────────────────────────────── */
+.vd-acct-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--color-border-subtle,rgba(0,0,0,.06))}
+.vd-acct-row:last-of-type{border-bottom:none}
+.vd-acct-code{font-family:var(--font-mono);font-size:11.5px;color:var(--color-text-primary)}
+.vd-acct-default{font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:var(--radius-full);background:var(--ai-surface);color:var(--color-action);border:1px solid var(--ai-border);white-space:nowrap}
+.vd-acct-hint{font-size:10.5px;color:var(--color-text-tertiary);margin-top:8px;line-height:1.45}

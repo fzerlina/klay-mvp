@@ -22,11 +22,10 @@ const CURRENCY_OPTIONS = [
 
 // Withholding CHOICES for a Company — the user picks the type; the rate is
 // resolved automatically from whether the customer has an NPWP (see rateFor).
-// Individuals are always PPh 21, with the rate chosen per invoice.
+// Individuals are always PPh 21, at a rate entered on the customer record.
 const WHT_COMPANY = [
   { v: "none", label: "No withholding" },
   { v: "pph23", label: "PPh 23" },
-  { v: "pph05_final", label: "PPh 0.5% Final" },
   { v: "pph42", label: "PPh 4(2)" },
 ];
 
@@ -103,7 +102,9 @@ export default function CustomerCreatePage() {
   const [top, setTop] = useState("NET 30");
   const [creditLimit, setCreditLimit] = useState("");
   const [currency, setCurrency] = useState("IDR");
-  const [recon, setRecon] = useState("1-1200");
+  const [accts, setAccts] = useState(["1-1200"]);   // permitted AR accounts
+  const [defaultAcct, setDefaultAcct] = useState("1-1200");
+  const [pph21Rate, setPph21Rate] = useState("5");   // free percentage
 
   // Contacts
   const [contacts, setContacts] = useState([blankContact(true)]);
@@ -144,7 +145,8 @@ export default function CustomerCreatePage() {
     setCode(""); setName(""); setLegalName(""); setEntityForm("PT"); setNpwp(""); setAddress(""); setDedupDismissed(false);
     setShipSame(true); setShippingAddress("");
     setPph("none");
-    setTop("NET 30"); setCreditLimit(""); setCurrency("IDR"); setRecon("1-1200");
+    setTop("NET 30"); setCreditLimit(""); setCurrency("IDR");
+    setAccts(["1-1200"]); setDefaultAcct("1-1200"); setPph21Rate("5");
     setContacts([blankContact(true)]);
     setNotes(""); setTier("standard"); setTierNote("");
   }
@@ -152,9 +154,6 @@ export default function CustomerCreatePage() {
 
   const isCompany = entityType === "perusahaan";
 
-  // PKP is derived from entity type: Company is PKP (needs Faktur Pajak),
-  // Individual is Non-PKP. Not a user choice.
-  const pkp = isCompany ? "PKP" : "NON_PKP";
   // Individual withholding is always PPh 21; Company keeps the chosen type.
   const effectivePph = isCompany ? pph : "pph21";
   const hasNpwp = digitsOnly(npwp).length >= 6;
@@ -164,6 +163,7 @@ export default function CustomerCreatePage() {
   const canSubmit =
     name.trim() && address.trim() &&
     (shipSame || shippingAddress.trim()) &&
+    accts.length > 0 && (isCompany || parseFloat(pph21Rate) > 0) &&
     primary?.name.trim() && primary?.phone.trim() && primary?.email.trim() &&
     !(tier !== "standard" && !tierNote.trim()) &&
     !npwpMatch;
@@ -173,6 +173,8 @@ export default function CustomerCreatePage() {
     if (!name.trim()) { showToast(isCompany ? "Company name is required" : "Full name is required"); return; }
     if (!address.trim()) { showToast("Billing address is required"); return; }
     if (!shipSame && !shippingAddress.trim()) { showToast("Add a shipping address, or tick “Same as billing address”"); return; }
+    if (accts.length === 0) { showToast("Pick at least one AR account"); return; }
+    if (!isCompany && !(parseFloat(pph21Rate) > 0)) { showToast("Enter the PPh 21 rate for this individual"); return; }
     if (!primary.name.trim() || !primary.phone.trim() || !primary.email.trim()) {
       showToast("Primary contact name, phone, and email are required"); return;
     }
@@ -186,14 +188,15 @@ export default function CustomerCreatePage() {
       legalName: isCompany ? (legalName.trim() || name.trim()) : "",
       entityForm: isCompany ? entityForm : "",
       npwp: npwp.trim(),
-      pkp,
       pph: effectivePph,
       address: address.trim(),
       shippingAddress: shipSame ? "" : shippingAddress.trim(),
       top,
       creditLimit: parseInt(String(creditLimit).replace(/[^\d]/g, ""), 10) || 0,
       currency,
-      acct: recon,
+      accts,
+      defaultAcct,
+      pph21Rate: isCompany ? null : (parseFloat(pph21Rate) || 0),
       contacts: contacts.filter((c) => c.name.trim()),
       notes: notes.trim(),
       relationship_tier: tier,
@@ -290,7 +293,7 @@ export default function CustomerCreatePage() {
         <div style={{ width: "100%", maxWidth: 720, margin: "0 auto" }}>
 
           <div className="vc-approval-note">
-            <strong>Approval-gated:</strong> legal name, NPWP/NIK, credit limit, AR account, and payment terms. A manager signs these off before the customer can post; later changes to any of them start a new approval cycle.
+            <strong>Approval-gated:</strong> legal name, NPWP/NIK, withholding, credit limit, payment terms, billing and shipping address, and AR accounts. A manager signs these off before the customer can post; later changes to any of them start a new approval cycle.
           </div>
 
           {/* Information */}
@@ -386,23 +389,9 @@ export default function CustomerCreatePage() {
             </div>
           </div>
 
-          {/* Tax & Compliance — PKP + Faktur derived from entity type */}
+          {/* Withholding — entity-type driven */}
           <div className="form-sec card">
-            <div className="form-sec-title">Tax &amp; Compliance</div>
-            <div className="form-fld" style={{ marginBottom: 14 }}>
-              <label style={{ marginBottom: 8, display: "block" }}>PKP Status</label>
-              <div className="vc-derived">
-                <div className="vc-derived-row">
-                  <span className="vc-derived-lbl">VAT status</span>
-                  <span className="vc-derived-val">{isCompany ? "PKP — VAT-registered" : "Non-PKP"}</span>
-                </div>
-                <div className="vc-derived-row">
-                  <span className="vc-derived-lbl">Tax Invoice (Faktur Pajak)</span>
-                  <span className="vc-derived-val">{isCompany ? "Required" : "Not required"}</span>
-                </div>
-                <div className="vc-derived-note">Set automatically from the entity type.</div>
-              </div>
-            </div>
+            <div className="form-sec-title">Withholding</div>
             <div className="form-fld" style={{ marginBottom: 0 }}>
               <label>Withholding (PPh)</label>
               {isCompany ? (
@@ -421,7 +410,20 @@ export default function CustomerCreatePage() {
                   <select value="pph21" disabled>
                     <option value="pph21">PPh 21</option>
                   </select>
-                  <span className="vc-hint">Individuals are always PPh 21 — the rate is chosen per invoice.</span>
+                  <div className="form-fld" style={{ marginTop: 10, marginBottom: 0 }}>
+                    <label>PPh 21 rate <span className="vc-req">*</span></label>
+                    <div className="vc-rate-row">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={pph21Rate}
+                        onChange={(e) => setPph21Rate(e.target.value.replace(/[^d.]/g, ""))}
+                        style={{ fontFamily: "var(--font-mono)" }}
+                      />
+                      <span className="vc-rate-suffix">%</span>
+                    </div>
+                    <span className="vc-hint">Individuals are always PPh 21. Enter the rate that applies to this customer.</span>
+                  </div>
                 </>
               )}
             </div>
@@ -450,11 +452,38 @@ export default function CustomerCreatePage() {
               </div>
             </div>
             <div className="form-fld" style={{ marginBottom: 0 }}>
-              <label>AR Account <span className="vc-req">*</span></label>
-              <select value={recon} onChange={(e) => setRecon(e.target.value)}>
-                {AR_ACCT_OPTIONS.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
-              </select>
-              <span className="vc-hint">AR control account this customer posts to</span>
+              <label>AR Accounts <span className="vc-req">*</span></label>
+              {AR_ACCT_OPTIONS.map((o) => {
+                const on = accts.includes(o.v);
+                return (
+                  <label className="vc-acct-opt" key={o.v}>
+                    <input
+                      type="checkbox"
+                      checked={on}
+                      onChange={() => setAccts((prev) => {
+                        const next = on ? prev.filter((a) => a !== o.v) : [...prev, o.v];
+                        // Keep the default pointing at something that is still permitted.
+                        if (!next.includes(defaultAcct) && next.length) setDefaultAcct(next[0]);
+                        return next;
+                      })}
+                    />
+                    <span className="vc-acct-lbl">{o.label}</span>
+                    {on && accts.length > 1 && (
+                      <button
+                        type="button"
+                        className={defaultAcct === o.v ? "vc-acct-def on" : "vc-acct-def"}
+                        onClick={(e) => { e.preventDefault(); setDefaultAcct(o.v); }}
+                      >
+                        {defaultAcct === o.v ? "Default" : "Set default"}
+                      </button>
+                    )}
+                  </label>
+                );
+              })}
+              <span className="vc-hint">
+                Accounts this customer may post to. An invoice opens on the default
+                {accts.length > 1 ? " and can be switched to any of the others." : "."}
+              </span>
             </div>
           </div>
 

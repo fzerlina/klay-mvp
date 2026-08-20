@@ -26,7 +26,6 @@ const APPROVAL = {
   approved:         { cls: "approved", lbl: "Approved" },
   pending_approval: { cls: "pending",  lbl: "Pending approval" },
 };
-const PKP_LABEL = { PKP: "PKP — VAT-registered", NON_PKP: "Non-PKP", UNKNOWN: "Unknown — not set" };
 const TYPE_LABEL = { perusahaan: "Company", individu: "Individual" };
 
 function digitsOnly(s) { return (s || "").replace(/\D/g, ""); }
@@ -46,6 +45,13 @@ function invStatusMeta(payStatus) {
   }
 }
 const BLANK_BANK = { name: "", code: "", branch: "", acc: "", holder: "" };
+
+// Withholding label. The shared helper says "rate set per bill" for PPh 21,
+// which is true on the AP side — on AR the rate lives on the customer record and
+// is shown on its own row, so drop the suffix here.
+function whtLabel(c) {
+  return c.pph === "pph21" ? "PPh 21" : withholdingLabel(c.pph, !!c.npwp);
+}
 
 // Ship-to as shown on the record: the explicit address, or the billing fallback.
 function shipToLabel(c) {
@@ -100,7 +106,11 @@ export default function CustomerDetailPage() {
   // "Awaiting approval" = submitted (Active) but not yet approved. A Draft is
   // pre-submit, so its Approve/Reject don't show until it's submitted.
   const awaitingApproval = !isDraft && customer.approval === "pending_approval";
-  const overLimit = customer.creditLimit > 0 && (customer.ar || 0) > customer.creditLimit;
+  // Credit used = open receivables (unpaid + overdue + partial). Paid invoices
+  // drop out, so this is live exposure rather than lifetime billed volume.
+  const creditUsed = customer.ar || 0;
+  const overLimit = customer.creditLimit > 0 && creditUsed > customer.creditLimit;
+  const creditPct = customer.creditLimit > 0 ? Math.round((creditUsed / customer.creditLimit) * 100) : 0;
   const meta = { actor: user.name };
   const doStatus = (status, extra) => { setCustomerStatus(customer.id, status, { ...meta, ...extra }); };
   const doApprove = () => { setCustomerApproval(customer.id, "approved", { ...meta, event: "Approved" }); };
@@ -281,19 +291,33 @@ export default function CustomerDetailPage() {
               <div className="vd-card">
                 <div className="vd-card-title">Tax &amp; Compliance</div>
                 <Row l={customer.type === "individu" ? "NIK / NPWP" : "NPWP"} v={customer.npwp || "—"} mono gated />
-                <Row l="PKP status" v={PKP_LABEL[customer.pkp] || customer.pkp} />
-                <Row l="Tax Invoice (Faktur Pajak)" v={customer.pkp === "PKP" ? "Required" : "Not required"} />
-                <Row l="Withholding" v={withholdingLabel(customer.pph, !!customer.npwp)} />
+                <Row l="Withholding" v={whtLabel(customer)} gated />
+                {customer.pph === "pph21" && (
+                  <Row l="PPh 21 rate" v={customer.pph21Rate != null ? `${customer.pph21Rate}%` : "— not set"} gated />
+                )}
               </div>
 
               {/* Credit & Terms */}
               <div className="vd-card">
                 <div className="vd-card-title">Credit &amp; Terms</div>
                 <Row l="Payment terms" v={termLabel(customer.top)} gated />
-                <Row l="Credit limit" v={customer.creditLimit > 0 ? formatRupiah(customer.creditLimit) : "—"} gated />
-                <Row l="AR account" v={AR_ACCT_LABELS[customer.acct] || customer.acct || "—"} gated />
+                <Row l="Credit limit" v={customer.creditLimit > 0 ? formatRupiah(customer.creditLimit) : "— none set"} gated />
+                <Row
+                  l="Credit used"
+                  v={
+                    <span className="vd-credit">
+                      <span className={overLimit ? "vd-credit-val over" : "vd-credit-val"}>{formatRupiah(creditUsed)}</span>
+                      {customer.creditLimit > 0 && <span className="vd-credit-pct">{creditPct}% of limit</span>}
+                      {overLimit && <span className="vd-over-chip">Over limit</span>}
+                    </span>
+                  }
+                />
+                {customer.creditLimit > 0 && (
+                  <div className="vd-credit-bar">
+                    <div className={overLimit ? "vd-credit-fill over" : "vd-credit-fill"} style={{ width: `${Math.min(creditPct, 100)}%` }} />
+                  </div>
+                )}
                 <Row l="Currency" v={customer.currency || "IDR"} />
-                <Row l="AR balance" v={customer.ar > 0 ? formatRupiah(customer.ar) : "—"} />
               </div>
 
               {/* Receiving account — our house account, single */}
@@ -317,13 +341,23 @@ export default function CustomerDetailPage() {
                 )}
               </div>
 
-              {/* Invoicing */}
+              {/* AR accounts — the GL control accounts this customer may post to.
+                  Deliberately separate from the receiving account above: the bank
+                  we get paid into has nothing to do with the AR account we post to. */}
               <div className="vd-card">
-                <div className="vd-card-title">Invoicing</div>
-                <Row l="Invoice mode" v={customer.invMode === "auto" ? "Automatic" : "Manual"} />
-                <Row l="Channel" v={customer.invCh?.length > 0 ? customer.invCh.join(", ") : "—"} />
-                <Row l="Last invoice" v={customer.lastInv ? formatDate(customer.lastInv) : "—"} />
+                <div className="vd-card-title">AR Accounts</div>
+                {(customer.accts || []).map((a) => (
+                  <div className="vd-acct-row" key={a}>
+                    <span className="vd-acct-code">{AR_ACCT_LABELS[a] || a}</span>
+                    {a === customer.defaultAcct && <span className="vd-acct-default">Default</span>}
+                  </div>
+                ))}
+                {(customer.accts || []).length === 0 && (
+                  <div className="vd-row-val dim" style={{ textAlign: "left", fontSize: 12 }}>No AR account set.</div>
+                )}
+                <div className="vd-acct-hint">An invoice opens on the default and can post to any permitted account.</div>
               </div>
+
 
               {/* Contacts */}
               <div className="vd-card">
@@ -531,8 +565,9 @@ function Row({ l, v, mono, gated }) {
 const VER_FIELD_LABEL = {
   code: "Code", name: "Display name", legalName: "Legal name", type: "Entity type",
   address: "Billing address", shippingAddress: "Shipping address",
-  npwp: "NPWP/NIK", pkp: "PKP status", pph: "Withholding",
-  top: "Payment terms", currency: "Currency", creditLimit: "Credit limit", acct: "AR account",
+  npwp: "NPWP/NIK", pph: "Withholding", pph21Rate: "PPh 21 rate",
+  top: "Payment terms", currency: "Currency", creditLimit: "Credit limit",
+  accts: "AR accounts", defaultAcct: "Default AR account",
   company_bank: "Receiving account", contacts: "Contacts", notes: "Notes",
   relationship_tier: "Relationship tier", relationship_tier_note: "Tier note",
   status: "Lifecycle", approval: "Approval",
@@ -554,13 +589,15 @@ function VersionSnapshot({ data, reason }) {
       <Row l="Relationship tier" v={TIER_LABEL[data.relationship_tier] || "Standard"} />
       <div className="vd-ver-grp">Tax &amp; Compliance</div>
       <Row l={data.type === "individu" ? "NIK / NPWP" : "NPWP"} v={data.npwp || "—"} mono />
-      <Row l="PKP status" v={PKP_LABEL[data.pkp] || data.pkp} />
-      <Row l="Tax Invoice (Faktur Pajak)" v={data.pkp === "PKP" ? "Required" : "Not required"} />
-      <Row l="Withholding" v={withholdingLabel(data.pph, !!data.npwp)} />
+      {data.pph === "pph21" && (
+        <Row l="PPh 21 rate" v={data.pph21Rate != null ? `${data.pph21Rate}%` : "— not set"} />
+      )}
+      <Row l="Withholding" v={whtLabel(data)} />
       <div className="vd-ver-grp">Credit &amp; Terms</div>
       <Row l="Payment terms" v={termLabel(data.top)} />
       <Row l="Credit limit" v={data.creditLimit > 0 ? formatRupiah(data.creditLimit) : "—"} />
-      <Row l="AR account" v={AR_ACCT_LABELS[data.acct] || data.acct || "—"} />
+      <Row l="AR accounts" v={(data.accts || []).map((a) => AR_ACCT_LABELS[a] || a).join(" · ") || "—"} />
+      <Row l="Default AR account" v={AR_ACCT_LABELS[data.defaultAcct] || data.defaultAcct || "—"} />
       <Row l="Currency" v={data.currency || "IDR"} />
       <div className="vd-ver-grp">Receiving Account</div>
       <Row l="Company receiving account (paid into)" v={c ? `${c.name}${c.branch ? ` — ${c.branch}` : ""} · ${bankAcc(c.acc)} · a/n ${c.holder || "—"}` : "—"} />

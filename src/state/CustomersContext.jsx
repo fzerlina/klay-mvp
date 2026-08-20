@@ -31,8 +31,8 @@ export function shipToAddress(c) {
 // not usable on invoices until submitted → Active. Kept as their own seed so the
 // Draft tab is populated without faking history on transacted customers.
 const SEED_DRAFTS = [
-  { id: "C081", code: "C-081", type: "perusahaan", name: "PT Sinar Niaga Sejahtera", legalName: "PT Sinar Niaga Sejahtera", npwp: "92.345.678.9-021.000", pkp: "PKP", pph: "none", top: "NET 30", creditLimit: 75000000, currency: "IDR", contacts: [{ name: "Dwi Lestari", title: "Finance", phone: "+62-21-5550-7788", email: "finance@sinarniaga.id", emailFin: "", primary: true }], address: "Jl. Gatot Subroto No. 45, Jakarta 12930", invMode: "manual", invCh: ["Email"], invSch: "", reminder: "", notes: "New onboarding — awaiting submit for approval.", ar: 0, arOverdue: false, lastInv: null, totalInv: 0, status: "draft", approval: "pending_approval", current_version: 0, on_hold: false, hold_reason: "", acct: "1-1200", source: "MANUAL", relationship_tier: "standard" },
-  { id: "C082", code: "C-082", type: "individu", name: "Bella Anjani", legalName: "", npwp: "", pkp: "NON_PKP", pph: "pph21", top: "COD", creditLimit: 0, currency: "IDR", contacts: [{ name: "Bella Anjani", title: "—", phone: "+62-812-5550-2211", email: "bella.anjani@gmail.com", emailFin: "", primary: true }], address: "Jl. Kemang Raya No. 21, Jakarta Selatan 12730", invMode: "manual", invCh: [], invSch: "", reminder: "", notes: "", ar: 0, arOverdue: false, lastInv: null, totalInv: 0, status: "draft", approval: "pending_approval", current_version: 0, on_hold: false, hold_reason: "", acct: "1-1200", source: "MANUAL", relationship_tier: "standard" },
+  { id: "C081", code: "C-081", type: "perusahaan", name: "PT Sinar Niaga Sejahtera", legalName: "PT Sinar Niaga Sejahtera", npwp: "92.345.678.9-021.000", pph: "none", top: "NET 30", creditLimit: 75000000, currency: "IDR", contacts: [{ name: "Dwi Lestari", title: "Finance", phone: "+62-21-5550-7788", email: "finance@sinarniaga.id", emailFin: "", primary: true }], address: "Jl. Gatot Subroto No. 45, Jakarta 12930", invMode: "manual", invCh: ["Email"], invSch: "", reminder: "", notes: "New onboarding — awaiting submit for approval.", ar: 0, arOverdue: false, lastInv: null, totalInv: 0, status: "draft", approval: "pending_approval", current_version: 0, on_hold: false, hold_reason: "", acct: "1-1200", source: "MANUAL", relationship_tier: "standard" },
+  { id: "C082", code: "C-082", type: "individu", name: "Bella Anjani", legalName: "", npwp: "", pph: "pph21", top: "COD", creditLimit: 0, currency: "IDR", contacts: [{ name: "Bella Anjani", title: "—", phone: "+62-812-5550-2211", email: "bella.anjani@gmail.com", emailFin: "", primary: true }], address: "Jl. Kemang Raya No. 21, Jakarta Selatan 12730", invMode: "manual", invCh: [], invSch: "", reminder: "", notes: "", ar: 0, arOverdue: false, lastInv: null, totalInv: 0, status: "draft", approval: "pending_approval", current_version: 0, on_hold: false, hold_reason: "", acct: "1-1200", source: "MANUAL", relationship_tier: "standard" },
 ];
 
 // Layer customer-master attributes that live outside the auto-generated seed
@@ -49,11 +49,10 @@ function withDerived(c) {
   return {
     ...c,
     type,
-    // PKP is a function of entity type: Company is PKP (needs Faktur Pajak),
-    // Individual is Non-PKP.
-    pkp: c.pkp || (type === "individu" ? "NON_PKP" : "PKP"),
-    // Withholding: Individual is always PPh 21; Company defaults to none.
+    // Withholding: Individual is always PPh 21 at a rate set per customer;
+    // Company picks PPh 23 or PPh 4(2), whose rate resolves from NPWP presence.
     pph: c.pph || (type === "individu" ? "pph21" : "none"),
+    pph21Rate: c.pph21Rate ?? (type === "individu" ? 5 : null),
     status,                                         // lifecycle: draft | active | inactive
     active: status === "active",
     approval,                                       // approved | pending_approval
@@ -63,7 +62,10 @@ function withDerived(c) {
     // Credit hold is an independent flag layered from the seed override.
     on_hold: c.on_hold ?? !!holdSeed,
     hold_reason: c.hold_reason || holdSeed || "",
-    acct: c.acct || "1-1200",
+    // AR accounts: a permitted set plus the default an invoice starts on.
+    // Legacy records carry a single `acct` — migrate it into the set.
+    accts: c.accts || [c.acct || "1-1200"],
+    defaultAcct: c.defaultAcct || c.acct || "1-1200",
     company_bank: c.company_bank || DEFAULT_COMPANY_BANK,
     relationship_tier: c.relationship_tier || seedTierFor(c.id),
     relationship_tier_note: c.relationship_tier_note || seedTierNoteFor(c.id),
@@ -73,21 +75,27 @@ function withDerived(c) {
 }
 
 // Master-data fields whose creation or change requires a fresh approval cycle
-// (SoD-sensitive: legal identity, tax identity, credit exposure, posting account,
-// terms). Any OTHER field (billing/shipping address, contacts, notes, currency,
-// tier, receiving account, invoicing…) is logged but does not gate.
-export const CUSTOMER_APPROVAL_TRIGGER_FIELDS = ["legalName", "npwp", "creditLimit", "acct", "top"];
+// (SoD-sensitive: legal identity, tax identity, credit exposure, where the
+// goods go, posting accounts, terms). Mirrors the Vendor trigger set on the AR
+// side. Any OTHER field (contacts, notes, currency, tier, receiving account…)
+// is logged but does not gate.
+export const CUSTOMER_APPROVAL_TRIGGER_FIELDS = [
+  "legalName", "npwp", "pph", "pph21Rate", "creditLimit", "top",
+  "address", "shippingAddress", "accts", "defaultAcct",
+];
 export const CUSTOMER_APPROVAL_TRIGGER_LABEL = {
-  legalName: "Legal name", npwp: "NPWP/NIK", creditLimit: "Credit limit",
-  acct: "AR account", top: "Payment terms",
+  legalName: "Legal name", npwp: "NPWP/NIK", pph: "Withholding", pph21Rate: "PPh 21 rate",
+  creditLimit: "Credit limit", top: "Payment terms",
+  address: "Billing address", shippingAddress: "Shipping address",
+  accts: "AR accounts", defaultAcct: "Default AR account",
 };
 
 // Fields captured in an approved-version snapshot — the customer's complete
 // business record at the moment an approval cycle completes.
 const VERSIONED_FIELDS = [
   "code", "name", "legalName", "type", "address", "shippingAddress",
-  "npwp", "pkp", "pph",
-  "top", "currency", "creditLimit", "acct",
+  "npwp", "pph", "pph21Rate",
+  "top", "currency", "creditLimit", "accts", "defaultAcct",
   "company_bank", "contacts",
   "notes", "relationship_tier", "relationship_tier_note",
   "status", "approval",
@@ -160,7 +168,6 @@ export function CustomersProvider({ children }) {
       name: draft.name,
       legalName: draft.legalName || "",
       npwp: draft.npwp || "",
-      pkp: draft.pkp || (type === "individu" ? "NON_PKP" : "PKP"),
       pph: draft.pph || (type === "individu" ? "pph21" : "none"),
       top: draft.top || "NET 30",
       creditLimit: draft.creditLimit || 0,
@@ -179,7 +186,9 @@ export function CustomersProvider({ children }) {
       arOverdue: false,
       lastInv: null,
       totalInv: 0,
-      acct: draft.acct || "1-1200",
+      pph21Rate: draft.pph21Rate ?? null,
+      accts: draft.accts?.length ? draft.accts : [draft.defaultAcct || "1-1200"],
+      defaultAcct: draft.defaultAcct || draft.accts?.[0] || "1-1200",
       company_bank: draft.company_bank || DEFAULT_COMPANY_BANK,
       // A new customer is created as a Draft — not usable on invoices. The
       // onboarder Submits it (→ Active), then a manager approves it (SoD:
