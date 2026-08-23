@@ -1,7 +1,8 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useInventory } from "../state/InventoryContext";
-import { INV_CAT_LABELS, INV_UOM_LABELS, INV_STATUS_META, INV_STATUS_ORDER } from "../data/seed/inventory";
+import { INV_CAT_LABELS, INV_UOM_LABELS } from "../data/seed/inventory";
+import { ITEM_LIFECYCLE_META, ITEM_LIFECYCLE_ORDER, ITEM_APPROVAL_META } from "../data/seed/itemGovernance";
 import { formatRupiah, formatNumber, formatDate } from "../lib/format";
 import "./modules.css";
 import "./invoices-ledger.css";
@@ -24,9 +25,22 @@ function locationsOf(it) {
   return [{ loc: "Main Warehouse", qty: it.qty || 0 }];
 }
 
-function StatusPill({ status }) {
-  const meta = INV_STATUS_META[status] || INV_STATUS_META.active;
+// Lifecycle pill — "is this item usable for new transactions?". The tabs scope
+// the list by this axis.
+function StatusPill({ lifecycle }) {
+  const meta = ITEM_LIFECYCLE_META[lifecycle] || ITEM_LIFECYCLE_META.active;
   return <span className={`iv-status iv-status-${meta.tone}`}>{meta.label}</span>;
+}
+
+// Approval chip — the second, independent axis. Only rendered when it needs
+// attention: an Approved item is the normal case and says nothing worth a chip.
+// An Active item showing "Pending approval" is a live, fully usable item whose
+// governed change is in review.
+function ApprovalChip({ approval }) {
+  if (!approval || approval === "approved") return null;
+  const meta = ITEM_APPROVAL_META[approval];
+  if (!meta) return null;
+  return <span className={`iv-approval iv-approval-${meta.tone}`}>{meta.label}</span>;
 }
 
 // Location column — services show "—"; a multi-warehouse product summarizes to a
@@ -67,7 +81,10 @@ function InventoryRow({ it, expanded, onToggle, onOpen }) {
         <div className="iv-uom">{isService(it) ? "—" : (INV_UOM_LABELS[it.uom] || it.uom || "—")}</div>
         <div className="iv-num">{formatRupiah(it.unit_cost)}</div>
         <div className="iv-num iv-value">{isService(it) ? <span className="iv-dash">—</span> : formatRupiah(it.value)}</div>
-        <div><StatusPill status={it.status || "active"} /></div>
+        <div className="iv-status-cell">
+          <StatusPill lifecycle={it.lifecycle || "active"} />
+          <ApprovalChip approval={it.approval} />
+        </div>
       </div>
       {multi && expanded && (
         <div className="iv-loc-wrap">
@@ -212,13 +229,22 @@ export default function InventoryPage() {
     return [...s].sort();
   }, [items]);
 
-  // Status tabs scope the list; counts drive the tab badges.
+  // Tabs scope the list by LIFECYCLE only. Approval is a separate axis and
+  // deliberately not a tab: a live item with a change in review belongs under
+  // Active, because that is what it still is to everyone raising documents.
   const statusCounts = useMemo(() => {
-    const c = { active: 0, draft: 0, pending_review: 0, inactive: 0 };
-    for (const it of items) { const s = it.status || "active"; if (c[s] != null) c[s]++; }
+    const c = { active: 0, draft: 0, inactive: 0 };
+    for (const it of items) { const s = it.lifecycle || "active"; if (c[s] != null) c[s]++; }
     return c;
   }, [items]);
-  const tabs = INV_STATUS_ORDER.map((k) => ({ k, lbl: INV_STATUS_META[k].label, count: statusCounts[k] }));
+  const tabs = ITEM_LIFECYCLE_ORDER.map((k) => ({ k, lbl: ITEM_LIFECYCLE_META[k].label, count: statusCounts[k] }));
+
+  // Items awaiting sign-off, across every lifecycle state — surfaced as a count
+  // beside the tabs so an approver can find their queue without a tab for it.
+  const pendingCount = useMemo(
+    () => items.filter((it) => it.approval === "pending_approval").length,
+    [items],
+  );
 
   const activeFilterCount = useMemo(() => {
     let n = 0;
@@ -231,7 +257,7 @@ export default function InventoryPage() {
   const hasActiveFilters = activeFilterCount > 0 || sortChoice !== null || search.trim() !== "";
 
   const filtered = useMemo(() => {
-    let list = items.filter((it) => (it.status || "active") === tab);
+    let list = items.filter((it) => (it.lifecycle || "active") === tab);
     if (filterValues.categories.size > 0) list = list.filter((it) => filterValues.categories.has(it.category));
     if (filterValues.stock.size > 0) {
       // Services have no stock concept — never match a With/No Stock filter.
@@ -316,6 +342,11 @@ export default function InventoryPage() {
                   <span className="bp-tab-count">{t.count}</span>
                 </button>
               ))}
+              {pendingCount > 0 && (
+                <span className="iv-pending-note" title="Items with a governed change awaiting sign-off. They stay usable on new bills meanwhile.">
+                  {pendingCount} pending approval
+                </span>
+              )}
             </div>
             <div className="lg-filter-row">
               <div className="lg-search">

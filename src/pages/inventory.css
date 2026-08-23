@@ -56,6 +56,29 @@
 .iv-status-draft { background: var(--color-surface-sunken, #EFEBE4); color: var(--color-text-secondary); border-color: var(--color-border-default); border-style: dashed; }
 .iv-status-pending { background: var(--warning-surface); color: var(--warning-text); border-color: var(--warning-border); }
 
+/* Approval axis — a quieter chip that sits UNDER the lifecycle pill, never
+   instead of it, so "Active" stays the answer to "can I use this?". */
+.iv-status-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0; }
+.iv-approval { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 9999px; font-size: 9px; font-weight: 600; letter-spacing: .02em; border: 1px solid transparent; white-space: nowrap; }
+.iv-approval-pending { background: var(--warning-surface); color: var(--warning-text); border-color: var(--warning-border); }
+.iv-approval-draft { background: var(--color-surface-sunken, #EFEBE4); color: var(--color-text-tertiary); border-color: var(--color-border-default); }
+.iv-approval-active { background: var(--color-success-surface, #E7F3EC); color: var(--color-success-text, #1B7A46); border-color: #C5E4D1; }
+
+/* Approver's queue count beside the lifecycle tabs — deliberately not a tab. */
+.iv-pending-note { margin-left: auto; align-self: center; padding-right: 4px; font-size: 11px; color: var(--warning-text); white-space: nowrap; }
+
+/* A field the form shows but doesn't let you set (new items are always Draft). */
+.vc-readonly { display: flex; align-items: center; height: 36px; padding: 0 10px; border: 1px solid var(--color-border-default); border-radius: 6px; background: var(--color-surface-sunken, #EFEBE4); color: var(--color-text-secondary); font-size: 13px; }
+
+/* Change request — the proposed values, shown beside the approved ones. */
+.pd-cr-rows { display: flex; flex-direction: column; gap: 4px; margin: 8px 0 6px; }
+.pd-cr-row { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
+.pd-cr-field { min-width: 110px; color: var(--color-text-tertiary); }
+.pd-cr-from { font-family: var(--font-mono); color: var(--color-text-tertiary); text-decoration: line-through; }
+.pd-cr-arrow { color: var(--color-text-tertiary); }
+.pd-cr-to { font-family: var(--font-mono); font-weight: 600; color: var(--color-text-primary); }
+.pd-cr-meta { font-size: 11px; color: var(--color-text-tertiary); }
+
 /* Stock available */
 .iv-stock-cell { min-width: 0; }
 .iv-stock { display: inline-flex; align-items: baseline; gap: 5px; flex-wrap: wrap; }

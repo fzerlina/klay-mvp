@@ -1,5 +1,6 @@
 import { createContext, useContext, useMemo, useState, useCallback } from "react";
 import { INVENTORY as SEED_INVENTORY } from "../data/seed/inventory";
+import { axesFromLegacy, seedApprovalFor, seedChangeRequestFor } from "../data/seed/itemGovernance";
 import { TODAY } from "../lib/clock";
 
 const InventoryContext = createContext(null);
@@ -13,19 +14,37 @@ const SKU_PREFIX = {
   service:        "SVC",
 };
 
-// Fields captured in a version snapshot — the product's business record at the
-// moment an approval cycle completes. Price fields are the usual thing changed.
+// GOVERNED fields — the master data whose change needs a second pair of eyes,
+// because a document copies it and the books then depend on the copy: what the
+// item is called, what it is, the unit its quantities are counted in, what we
+// sell it for, and how it is taxed.
+//
+// Everything else saves immediately and is only logged: description, notes, and
+// notably PURCHASE PRICE. Purchase price is reference data — it pre-fills a bill
+// line so a buyer doesn't retype a number, and it can refresh itself from the
+// last invoiced price. It values nothing, so gating it would mean an approval
+// task for every bill posted. Its risk is drift, not misstatement, and drift is
+// caught by the price-variance check on the bill, not by an approval here.
+export const APPROVAL_TRIGGER_FIELDS = ["name", "category", "uom", "sales_price", "tax_code"];
+export const APPROVAL_TRIGGER_LABEL = {
+  name: "Item name", category: "Category", uom: "Unit",
+  sales_price: "Sales price", tax_code: "Tax treatment",
+};
+
+// Fields captured in a version snapshot — the item's MASTER record at the moment
+// an approval cycle completes. Quantities, stock value and locations are
+// deliberately absent: they are stock figures, not master data, and freezing
+// them here would imply this module owns them.
 const VERSIONED_FIELDS = [
   "sku", "name", "category", "uom",
-  "qty", "unit_cost", "value",
-  "cost_price", "purchase_price", "sales_price",
-  "status", "locations",
+  "cost_price", "purchase_price", "sales_price", "tax_code",
+  "lifecycle", "approval",
 ];
 export const VER_FIELD_LABEL = {
   sku: "Product ID", name: "Name", category: "Category", uom: "Unit",
-  qty: "Stock count", unit_cost: "Cost / unit", value: "Stock value",
-  cost_price: "Cost price", purchase_price: "Purchase price", sales_price: "Sales price",
-  status: "Status", locations: "Locations",
+  cost_price: "Cost price", purchase_price: "Purchase price",
+  sales_price: "Sales price", tax_code: "Tax treatment",
+  lifecycle: "Lifecycle", approval: "Approval",
 };
 
 function snapshotData(item) {
@@ -41,18 +60,29 @@ function diffFields(prev, next) {
   return VERSIONED_FIELDS.filter((k) => JSON.stringify(prev[k]) !== JSON.stringify(next[k]));
 }
 
-// Approved lifecycle states (active/inactive) already carry a frozen v1; never-
-// approved states (draft/pending_review) have no completed cycle yet.
-const isApprovedStatus = (s) => s === "active" || s === "inactive";
-function withVersionMeta(it) {
-  return { ...it, current_version: it.current_version ?? (isApprovedStatus(it.status) ? 1 : 0) };
+// Layer the two status axes onto the seed (which still carries one legacy
+// `status`), then let itemGovernance.js override the approval axis so a few live
+// items can sit in Active + Pending approval for the demo.
+function withDerived(it) {
+  const axes = axesFromLegacy(it.status);
+  const lifecycle = it.lifecycle || axes.lifecycle;
+  const approval = it.approval || seedApprovalFor(it.id, axes.approval);
+  return {
+    ...it,
+    lifecycle,
+    approval,
+    // An approved item already has one frozen version (seeded below); anything
+    // still awaiting its first sign-off has completed no cycle yet.
+    current_version: it.current_version ?? (axes.approval === "approved" ? 1 : 0),
+  };
 }
 
-// Seed v1 for every already-approved product so version history is populated.
+// Seed v1 for every item that arrived already approved, so version history is
+// populated on load. Items awaiting a first approval have no version yet.
 function seedVersions(items) {
   const map = {};
   for (const it of items) {
-    if (!isApprovedStatus(it.status)) continue;
+    if ((it.current_version || 0) === 0) continue;
     map[it.id] = [{
       versionId: `${it.sku}·v1`,
       version: 1,
@@ -62,6 +92,16 @@ function seedVersions(items) {
       changedFields: [],
       data: snapshotData(it),
     }];
+  }
+  return map;
+}
+
+// Open change requests seeded alongside the Active + Pending items.
+function seedChangeRequests(items) {
+  const map = {};
+  for (const it of items) {
+    const req = seedChangeRequestFor(it.id);
+    if (req && it.approval === "pending_approval") map[it.id] = { ...req };
   }
   return map;
 }
@@ -88,10 +128,13 @@ function nextSku(list, category) {
 const today = () => TODAY.toISOString().slice(0, 10);
 
 export function InventoryProvider({ children }) {
-  const seeded = useMemo(() => SEED_INVENTORY.map(withVersionMeta), []);
+  const seeded = useMemo(() => SEED_INVENTORY.map(withDerived), []);
   const [items, setItems] = useState(seeded);
-  // Frozen snapshots per product, newest-first — one per completed approval.
+  // Frozen snapshots per item, newest-first — one per completed approval.
   const [versions, setVersions] = useState(() => seedVersions(seeded));
+  // Open change requests — itemId → {patch, fields, submittedBy, submittedAt,
+  // reason}. The item keeps serving its approved values while one is open.
+  const [changeRequests, setChangeRequests] = useState(() => seedChangeRequests(seeded));
   // In-session change log — itemId → [{date, actor, action, detail}], newest first.
   const [changeLog, setChangeLog] = useState({});
   // In-session stock movements — itemId → [{date, action, unit, unit_cost, value, je, note}].
@@ -119,7 +162,6 @@ export function InventoryProvider({ children }) {
     const qty = isService
       ? null
       : (locations.length ? locations.reduce((s, l) => s + l.qty, 0) : Number(draft.qty) || 0);
-    const status = draft.status || "active";
 
     const record = {
       id,
@@ -130,8 +172,12 @@ export function InventoryProvider({ children }) {
       qty,
       unit_cost,
       value: isService ? null : (qty || 0) * unit_cost,
-      status,
-      current_version: isApprovedStatus(status) ? 1 : 0,
+      // A new item is a Draft that has not been submitted. It is not selectable
+      // on documents until an approver signs off a first version — there is no
+      // approved unit, price or tax treatment for a bill line to copy yet.
+      lifecycle: "draft",
+      approval: "unapproved",
+      current_version: 0,
       tax_code: draft.tax_code || "ppn_masukan",
       updated: today(),
       locations: isService ? [] : (locations.length ? locations : [{ loc: "Main Warehouse", qty: qty || 0 }]),
@@ -141,84 +187,133 @@ export function InventoryProvider({ children }) {
       ...(draft.sales_price != null ? { sales_price: Number(draft.sales_price) } : {}),
     };
     setItems((prev) => [record, ...prev]);
-    // A product created straight into an approved state gets its frozen v1.
-    if (isApprovedStatus(status)) {
-      setVersions((prev) => ({
-        ...prev,
-        [id]: [{ versionId: `${sku}·v1`, version: 1, approvedAt: today(), approvedBy: draft.actor || "—", reason: "", changedFields: [], data: snapshotData(record) }],
-      }));
-    }
-    logEvent(id, "Created", `Added as ${status}`, draft.actor);
+    logEvent(id, "Created", "Added as Draft", draft.actor);
     return record;
   }, [items, logEvent]);
 
-  // Generic product edit. Applies a patch, recomputes stock value, and — because
-  // any change to an Active product needs re-approval — routes it back to Pending
-  // Review. Editing a Draft leaves it Draft; an already-pending edit stays pending.
+  // Edit an item. Non-governed fields save straight away. Governed fields do NOT
+  // touch the record — they open a change request, so the item stays Active and
+  // fully usable on new bills at its approved values while review happens. Only
+  // one request may be open at a time; a second edit is refused rather than
+  // silently merged, so an approver always reviews one coherent change.
   const updateItem = useCallback((id, patch, meta = {}) => {
     const item = items.find((it) => it.id === id);
-    if (!item) return { changed: [], routed: false };
-    const changed = VERSIONED_FIELDS.filter((k) => k in patch && JSON.stringify(item[k]) !== JSON.stringify(patch[k]));
-    if (!changed.length) return { changed: [], routed: false };
+    if (!item) return { applied: [], requested: [], blocked: null };
 
-    const routed = item.status === "active"; // active → pending_review on any edit
+    const changed = Object.keys(patch).filter((k) => JSON.stringify(item[k]) !== JSON.stringify(patch[k]));
+    const requested = changed.filter((k) => APPROVAL_TRIGGER_FIELDS.includes(k));
+    const applied = changed.filter((k) => !APPROVAL_TRIGGER_FIELDS.includes(k));
+    if (!changed.length) return { applied: [], requested: [], blocked: null };
+
+    // A Draft has no approved version to protect, so governed edits there save
+    // directly — nothing downstream has copied anything yet.
+    const isDraft = item.lifecycle === "draft";
+    if (isDraft || !requested.length) {
+      setItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...patch, updated: today() } : it)));
+      logEvent(id, "Item updated", changed.map((k) => APPROVAL_TRIGGER_LABEL[k] || VER_FIELD_LABEL[k] || k).join(", "), meta.actor);
+      return { applied: changed, requested: [], blocked: null };
+    }
+
+    if (changeRequests[id]) {
+      return { applied: [], requested: [], blocked: "A change request is already open on this item." };
+    }
+
+    const reqPatch = {};
+    for (const k of requested) reqPatch[k] = patch[k];
+    setChangeRequests((prev) => ({
+      ...prev,
+      [id]: { patch: reqPatch, submittedBy: meta.actor || "—", submittedAt: today(), reason: meta.reason || "" },
+    }));
     setItems((prev) => prev.map((it) => {
       if (it.id !== id) return it;
-      const merged = { ...it, ...patch };
-      const isService = merged.category === "service";
-      if (!isService) {
-        if (Array.isArray(merged.locations)) merged.qty = merged.locations.reduce((s, l) => s + (Number(l.qty) || 0), 0);
-        merged.value = (merged.qty || 0) * (Number(merged.unit_cost) || 0);
-      }
-      if (routed) merged.status = "pending_review";
-      merged.updated = today();
-      return merged;
+      // Non-governed edits in the same save still apply immediately.
+      const merged = applied.length ? { ...it, ...Object.fromEntries(applied.map((k) => [k, patch[k]])) } : { ...it };
+      return { ...merged, approval: "pending_approval", updated: today() };
     }));
-    const detail = changed.map((k) => VER_FIELD_LABEL[k] || k).join(", ");
-    logEvent(id, routed ? "Edited — sent for review" : "Product updated", detail, meta.actor);
-    return { changed, routed };
-  }, [items, logEvent]);
+    logEvent(
+      id,
+      "Change requested — pending approval",
+      requested.map((k) => APPROVAL_TRIGGER_LABEL[k] || k).join(", "),
+      meta.actor,
+    );
+    return { applied, requested, blocked: null };
+  }, [items, changeRequests, logEvent]);
 
-  // Submit a Draft (or resubmit) for approval — Draft → Pending Review.
+  // Submit a never-approved Draft for its first sign-off. Lifecycle stays Draft
+  // until an approver applies it — see itemGovernance.js on why items differ
+  // from vendors here.
   const submitItem = useCallback((id, meta = {}) => {
-    setItems((prev) => prev.map((it) => (it.id === id ? { ...it, status: "pending_review" } : it)));
-    logEvent(id, "Submitted for review", "Draft → Pending Review", meta.actor);
+    setItems((prev) => prev.map((it) => (it.id === id ? { ...it, approval: "pending_approval" } : it)));
+    logEvent(id, "Submitted for approval", "Awaiting an approver", meta.actor);
   }, [logEvent]);
 
-  // Approve the pending record → Active, freezing a new version snapshot.
+  // Approve whatever is pending: a brand-new Draft (→ Active, v1) or an open
+  // change request (patch applied, new version frozen). Either way the approver
+  // may not be the person who submitted it — that check is the whole point of
+  // the approval axis, so it is enforced here and not only in the UI.
   const approveItem = useCallback((id, meta = {}) => {
     const item = items.find((it) => it.id === id);
-    if (!item) return;
+    if (!item) return { ok: false, error: "Item not found." };
+
+    const req = changeRequests[id];
+    const submitter = req ? req.submittedBy : null;
+    if (submitter && meta.actor && submitter === meta.actor) {
+      return { ok: false, error: `${submitter} submitted this change — it needs a different approver.` };
+    }
+
     const prevList = versions[id] || [];
     const n = prevList.length + 1;
-    const data = snapshotData({ ...item, status: "active" });
+    const nextRecord = { ...item, ...(req ? req.patch : {}), lifecycle: "active", approval: "approved" };
+    const data = snapshotData(nextRecord);
     const snap = {
       versionId: `${item.sku}·v${n}`,
       version: n,
       approvedAt: today(),
       approvedBy: meta.actor || "—",
-      reason: meta.reason || "",
+      reason: meta.reason || (req ? req.reason : ""),
       changedFields: diffFields(prevList[0]?.data, data),
       data,
     };
     setVersions((prev) => ({ ...prev, [id]: [snap, ...(prev[id] || [])] }));
-    setItems((prev) => prev.map((it) => (it.id === id ? { ...it, status: "active", current_version: n } : it)));
+    setItems((prev) => prev.map((it) => (
+      it.id === id ? { ...nextRecord, current_version: n, updated: today() } : it
+    )));
+    if (req) setChangeRequests((prev) => { const next = { ...prev }; delete next[id]; return next; });
     logEvent(id, "Approved", `${snap.versionId}${snap.changedFields.length ? ` · ${snap.changedFields.length} field(s) changed` : ""}`, meta.actor);
-  }, [items, versions, logEvent]);
+    return { ok: true };
+  }, [items, versions, changeRequests, logEvent]);
 
-  // Reject the pending record. Never-approved (v0) → back to Draft for revision;
-  // a pending change on an approved product → restore the last approved version.
+  // Reject what is pending. A change request is simply discarded — the item is
+  // untouched, no version is created, and it goes back to Approved because its
+  // approved values were never disturbed. A never-approved Draft returns to
+  // unsubmitted so the maker can revise it.
   const rejectItem = useCallback((id, meta = {}) => {
     const item = items.find((it) => it.id === id);
     if (!item) return;
-    const list = versions[id] || [];
-    setItems((prev) => prev.map((it) => {
-      if (it.id !== id) return it;
-      if ((it.current_version || 0) === 0) return { ...it, status: "draft" };
-      return { ...it, ...list[0].data, status: "active" }; // discard change
-    }));
-    logEvent(id, (item.current_version || 0) === 0 ? "Rejected — returned to Draft" : "Change rejected — reverted", meta.reason || "", meta.actor);
-  }, [items, versions, logEvent]);
+    const hadRequest = Boolean(changeRequests[id]);
+    setItems((prev) => prev.map((it) => (
+      it.id === id
+        ? { ...it, approval: (it.current_version || 0) === 0 ? "unapproved" : "approved" }
+        : it
+    )));
+    if (hadRequest) setChangeRequests((prev) => { const next = { ...prev }; delete next[id]; return next; });
+    logEvent(id, hadRequest ? "Change rejected — discarded" : "Returned to Draft", meta.reason || "", meta.actor);
+  }, [items, changeRequests, logEvent]);
+
+  // Withdraw your own open request — the maker's escape hatch. Without it the
+  // person who made a typo has to ask someone else to reject it for them.
+  const withdrawChange = useCallback((id, meta = {}) => {
+    const req = changeRequests[id];
+    if (!req) return { ok: false, error: "Nothing to withdraw." };
+    setChangeRequests((prev) => { const next = { ...prev }; delete next[id]; return next; });
+    setItems((prev) => prev.map((it) => (
+      it.id === id
+        ? { ...it, approval: (it.current_version || 0) === 0 ? "unapproved" : "approved" }
+        : it
+    )));
+    logEvent(id, "Change withdrawn", req.reason || "", meta.actor);
+    return { ok: true };
+  }, [changeRequests, logEvent]);
 
   // Stock adjustment (stock-opname / damage / shrinkage / correction). Sets a
   // location's on-hand count to the physical figure, rolls up total qty + value,
@@ -255,18 +350,27 @@ export function InventoryProvider({ children }) {
 
   const itemById = useCallback((id) => items.find((it) => it.id === id) || null, [items]);
   const versionsOf = useCallback((id) => versions[id] || [], [versions]);
+  const changeRequestFor = useCallback((id) => changeRequests[id] || null, [changeRequests]);
 
   const value = useMemo(
-    () => ({ items, addItem, updateItem, submitItem, approveItem, rejectItem, adjustStock, itemById, versionsOf, changeLog, movementLog }),
-    [items, addItem, updateItem, submitItem, approveItem, rejectItem, adjustStock, itemById, versionsOf, changeLog, movementLog],
+    () => ({ items, addItem, updateItem, submitItem, approveItem, rejectItem, withdrawChange, adjustStock, itemById, versionsOf, changeRequestFor, changeRequests, changeLog, movementLog }),
+    [items, addItem, updateItem, submitItem, approveItem, rejectItem, withdrawChange, adjustStock, itemById, versionsOf, changeRequestFor, changeRequests, changeLog, movementLog],
   );
   return <InventoryContext.Provider value={value}>{children}</InventoryContext.Provider>;
 }
 
-// A product is usable on a bill only once it's Active (approved). Draft / Pending
-// Review / Inactive products are excluded from bill line selection.
+// Selectable on a new document? That is a LIFECYCLE question only. An item with
+// a governed change in review stays usable — the bill copies its last approved
+// values, and the pending approval surfaces as a flag on the bill at posting
+// (see reviewWorkflow.js), which is where it belongs. Draft items are excluded
+// because they have no approved version for a line to copy.
 export function isUsableInBills(item) {
-  return (item?.status || "active") === "active";
+  return (item?.lifecycle || "active") === "active";
+}
+
+// Does this item carry an unapproved governed change? Drives the bill-side flag.
+export function hasPendingApproval(item) {
+  return (item?.approval || "approved") === "pending_approval";
 }
 
 export function useInventory() {

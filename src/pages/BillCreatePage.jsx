@@ -750,7 +750,7 @@ export default function BillCreatePage() {
     if (vendor) {
       const FIELD = { Vendor: "vendor", Tax: "tax", Documents: "attachments", "Transaction risk": "items", Workflow: "items" };
       const SKIP = new Set(["approval_stalled", "period_locked", "missing_document", "duplicate", "price_anomaly"]);
-      for (const f of computeBillFlags(flagDraft, vendor, { autoAssignLateBills: true })) {
+      for (const f of computeBillFlags(flagDraft, vendor, { autoAssignLateBills: true, items: inventoryItems })) {
         if (f.side || SKIP.has(f.key)) continue;
         list.push({ id: `eng-${f.key}`, severity: f.severity.toLowerCase(), field: FIELD[f.category] || "items", title: f.label, detail: f.message });
       }

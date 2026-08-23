@@ -1,14 +1,18 @@
 import { useState, useMemo } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { useInventory, VER_FIELD_LABEL } from "../state/InventoryContext";
+import { useInventory, VER_FIELD_LABEL, APPROVAL_TRIGGER_LABEL } from "../state/InventoryContext";
 import { useJournalEntries } from "../state/JournalEntriesContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
 import { useAccountingSettings } from "../state/AccountingSettingsContext";
-import { INV_CAT_LABELS, INV_UOM_LABELS, INV_STATUS_META } from "../data/seed/inventory";
+import { INV_CAT_LABELS, INV_UOM_LABELS } from "../data/seed/inventory";
+import { ITEM_LIFECYCLE_META, ITEM_APPROVAL_META } from "../data/seed/itemGovernance";
 import { COSTING_METHOD_LABELS } from "../data/seed/accountingSettings";
 import { COA_BY_CODE } from "../data/seed/coa";
 
 const ADJUST_REASONS = ["Stock count", "Damage", "Expiry", "Shrinkage", "Correction"];
+// Rendering a change request's proposed values needs the same formatting the
+// fields use elsewhere, so "58.000" never shows up where "Rp 58.000" belongs.
+const MONEY_FIELDS = new Set(["sales_price", "purchase_price", "cost_price", "unit_cost"]);
 const ADJUSTMENT_ACCOUNT = "5-1500"; // Inventory Adjustments (counter-account)
 import {
   productUom, productCost, productAccounts, productHistory, productAudit,
@@ -24,14 +28,17 @@ import "./product-detail.css";
 // the title; the rest splits across tabs: Information, Cost, Accounts, History,
 // Versions, and Audit Trail.
 //
-// Versioning / approval (mirrors Vendor): editing an Active product routes it to
-// Pending Review and it can't be used on bills until an approver (ap.post —
-// Finance Manager / Accounting Manager) approves it, which freezes a new version.
+// Two status axes (mirrors Vendor — see seed/itemGovernance.js). Lifecycle says
+// whether the item is usable on new documents; approval says whether its current
+// version is signed off. Editing a GOVERNED field on a live item opens a change
+// request and leaves the item Active and fully usable at its approved values —
+// the pending approval surfaces as a flag on the bill at posting instead. Only a
+// never-approved Draft is unusable, because there is no version to copy yet.
 
 export default function InventoryDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { itemById, updateItem, submitItem, approveItem, rejectItem, adjustStock, versionsOf, changeLog, movementLog } = useInventory();
+  const { itemById, updateItem, submitItem, approveItem, rejectItem, withdrawChange, adjustStock, versionsOf, changeRequestFor, changeLog, movementLog } = useInventory();
   const { entries: journalEntries, stagePendingDraft, peekNextJeNumber } = useJournalEntries();
   const { user, hasCapability } = useCurrentUser();
   const { inventoryCostingMethod } = useAccountingSettings();
@@ -65,10 +72,15 @@ export default function InventoryDetailPage() {
   }
 
   const service = isServiceItem(item);
-  const status = item.status || "active";
+  const lifecycle = item.lifecycle || "active";
+  const approval = item.approval || "approved";
   const out = !service && (item.qty || 0) <= 0;
-  const statusMeta = INV_STATUS_META[status] || INV_STATUS_META.active;
+  const lifeMeta = ITEM_LIFECYCLE_META[lifecycle] || ITEM_LIFECYCLE_META.active;
+  const apprMeta = ITEM_APPROVAL_META[approval] || ITEM_APPROVAL_META.approved;
   const catLabel = INV_CAT_LABELS[item.category] || item.category;
+  // The open change request, if any — proposed values held off the record.
+  const req = changeRequestFor(item.id);
+  const everApproved = (item.current_version || 0) > 0;
 
   const uom = productUom(item);
   const cost = productCost(item);
@@ -88,7 +100,12 @@ export default function InventoryDetailPage() {
   const auditLog = [...(changeLog[item.id] || []), ...productAudit(item).slice().reverse()];
 
   // Approver control — ap.post (Finance Manager + Accounting Manager), the same
-  // seat that approves vendors. SoD: whoever edits shouldn't also approve.
+  // seat that approves vendors. PLACEHOLDER: item approval should be its own
+  // verb (item.approve), but the Capability Catalog amendment that would add the
+  // item.* verbs is not approved yet (Item Master PRD OQ5 / C2), so borrowing the
+  // AP posting seat is the honest stand-in rather than inventing a capability.
+  // Approver ≠ submitter is enforced in InventoryContext, not here — a UI check
+  // alone would be bypassable.
   const canApprove = hasCapability("ap.post");
 
   const primaryLabel = uom.primary ? (INV_UOM_LABELS[uom.primary] || uom.primary) : "—";
@@ -105,6 +122,20 @@ export default function InventoryDetailPage() {
 
   const meta = { actor: user.name };
 
+  // A field's live value, and how to print it. Sales price can come from the
+  // derived cost breakdown when the record carries none.
+  const currentOf = (key) => (item[key] != null ? item[key] : cost[key]);
+  const showValue = (key, v) => {
+    if (v == null || v === "") return "—";
+    if (MONEY_FIELDS.has(key)) return formatRupiah(v);
+    if (key === "category") return INV_CAT_LABELS[v] || v;
+    if (key === "uom") return INV_UOM_LABELS[v] || v;
+    return String(v);
+  };
+  // Only the submitter may withdraw their own request; anyone else with the
+  // approver seat rejects it instead.
+  const canWithdraw = Boolean(req) && req.submittedBy === user.name;
+
   function openEdit() {
     setEditCost(String(item.unit_cost ?? ""));
     setEditSales(String(cost.sales_price ?? ""));
@@ -115,9 +146,12 @@ export default function InventoryDetailPage() {
     if (editCost !== "" && Number(editCost) !== item.unit_cost) patch.unit_cost = Number(editCost);
     if (editSales !== "" && Number(editSales) !== cost.sales_price) patch.sales_price = Number(editSales);
     if (!Object.keys(patch).length) { setEditOpen(false); return; }
-    const { routed } = updateItem(item.id, patch, meta);
+    const { requested, blocked } = updateItem(item.id, patch, meta);
+    if (blocked) { flash(blocked); return; }
     setEditOpen(false);
-    flash(routed ? "Saved — sent for review" : "Changes saved");
+    flash(requested.length
+      ? "Change requested — the item stays usable on bills meanwhile"
+      : "Changes saved");
   }
   // ── Stock adjustment → pre-filled manual journal ──────────────────────────
   function openAdjust() {
@@ -154,12 +188,21 @@ export default function InventoryDetailPage() {
     navigate("/journal-entry");
   }
 
-  function doSubmit() { submitItem(item.id, meta); flash("Submitted for review"); }
-  function doApprove() { approveItem(item.id, meta); flash("Approved"); }
+  function doSubmit() { submitItem(item.id, meta); flash("Submitted for approval"); }
+  // The context refuses a self-approval; surface its reason rather than failing
+  // silently, so the SoD rule teaches instead of just blocking.
+  function doApprove() {
+    const res = approveItem(item.id, meta);
+    flash(res?.ok ? "Approved" : (res?.error || "Could not approve"));
+  }
   function doReject() {
     if (reason.trim().length < 5) return;
     rejectItem(item.id, { ...meta, reason: reason.trim() });
     setRejectOpen(false); setReason(""); flash("Rejected");
+  }
+  function doWithdraw() {
+    const res = withdrawChange(item.id, meta);
+    flash(res?.ok ? "Change withdrawn" : (res?.error || "Nothing to withdraw"));
   }
 
   return (
@@ -173,7 +216,10 @@ export default function InventoryDetailPage() {
           <div className="vd-headinfo">
             <div className="vd-title-row">
               <span className="vd-title">{item.name}</span>
-              <span className={`iv-status iv-status-${statusMeta.tone}`}>{statusMeta.label}</span>
+              <span className={`iv-status iv-status-${lifeMeta.tone}`}>{lifeMeta.label}</span>
+              {approval !== "approved" && (
+                <span className={`iv-approval iv-approval-${apprMeta.tone}`}>{apprMeta.label}</span>
+              )}
               {out && <span className="vd-status blocked">Out of stock</span>}
             </div>
             <div className="vd-sub">
@@ -192,12 +238,17 @@ export default function InventoryDetailPage() {
                 <svg viewBox="0 0 24 24"><path d="M20 12H4" /><path d="M12 4v16" /></svg> Adjust stock
               </button>
             )}
-            {status === "draft" && (
+            {lifecycle === "draft" && approval === "unapproved" && (
               <button className="vd-btn primary" onClick={doSubmit}>
-                <svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg> Submit for review
+                <svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg> Submit for approval
               </button>
             )}
-            {status === "pending_review" && canApprove && (
+            {canWithdraw && (
+              <button className="vd-btn" onClick={doWithdraw}>
+                <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9" /><polyline points="3 4 3 12 11 12" /></svg> Withdraw change
+              </button>
+            )}
+            {approval === "pending_approval" && canApprove && (
               <>
                 <button className="vd-btn primary" onClick={doApprove}>
                   <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" /></svg> Approve
@@ -211,20 +262,50 @@ export default function InventoryDetailPage() {
           </div>
         </div>
 
-        {/* ── Lifecycle / gating banner ───────────────────────────── */}
-        {status === "draft" && (
+        {/* ── Lifecycle / approval banners ────────────────────────── */}
+        {/* Draft, never submitted — genuinely unusable, because no approved
+            version exists for a bill line to copy. */}
+        {lifecycle === "draft" && approval === "unapproved" && (
           <div className="vd-alert info">
             <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></svg>
-            <div><strong>Draft.</strong> This product can't be used on bills yet. Submit it for review to start the approval cycle.</div>
+            <div><strong>Draft.</strong> This item can't be used on bills yet — it has no approved version. Submit it for approval to start the first cycle.</div>
           </div>
         )}
-        {status === "pending_review" && (
+        {/* Draft, submitted — still unusable, for the same reason. */}
+        {lifecycle === "draft" && approval === "pending_approval" && (
           <div className="vd-alert flagged">
             <svg viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /></svg>
-            <div><strong>Pending review.</strong> Changes are awaiting approval — this product can't be used on new bills until approved. {canApprove ? "Review the change, then Approve or Reject." : "An approver (Finance Manager / Accounting Manager) must sign it off."}</div>
+            <div><strong>Awaiting first approval.</strong> Not selectable on bills until a version is signed off. {canApprove ? "Review it, then Approve or Reject." : "An approver (Finance Manager / Accounting Manager) must sign it off."}</div>
           </div>
         )}
-        {out && status === "active" && (
+        {/* Live item with a change in review — the case the old single status
+            got wrong. The item is Active, usable, and serving its approved
+            values; only the proposed change is waiting. */}
+        {req && everApproved && (
+          <div className="vd-alert info">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></svg>
+            <div>
+              <strong>Change awaiting approval.</strong> This item stays Active and usable on new bills at
+              {" "}v{item.current_version} — its approved values. Only the change below is waiting.
+              <div className="pd-cr-rows">
+                {Object.entries(req.patch).map(([k, v]) => (
+                  <div className="pd-cr-row" key={k}>
+                    <span className="pd-cr-field">{APPROVAL_TRIGGER_LABEL[k] || VER_FIELD_LABEL[k] || k}</span>
+                    <span className="pd-cr-from">{showValue(k, currentOf(k))}</span>
+                    <span className="pd-cr-arrow">→</span>
+                    <span className="pd-cr-to">{showValue(k, v)}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="pd-cr-meta">
+                Requested by {req.submittedBy} on {formatDate(req.submittedAt)}
+                {req.reason ? ` · ${req.reason}` : ""}
+                {canApprove && req.submittedBy === user.name ? " · you submitted this, so someone else must approve it" : ""}
+              </div>
+            </div>
+          </div>
+        )}
+        {out && lifecycle === "active" && (
           <div className="vd-alert flagged">
             <svg viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /></svg>
             <div><strong>Out of stock.</strong> This item has zero quantity on hand. Restock before committing it to new orders.</div>
@@ -272,7 +353,8 @@ export default function InventoryDetailPage() {
                 <Row l="Product ID" v={item.sku} mono />
                 <Row l="Product Name" v={item.name} />
                 <Row l="Category" v={<span className={`cat-badge inv-${item.category}`}>{catLabel}</span>} />
-                <Row l="Status" v={statusMeta.label} />
+                <Row l="Lifecycle" v={lifeMeta.label} />
+                <Row l="Approval" v={apprMeta.label} />
               </div>
 
               <div className="vd-card">
@@ -475,7 +557,7 @@ export default function InventoryDetailPage() {
           <div className="vd-modal" onClick={(e) => e.stopPropagation()}>
             <div className="vd-modal-title">Edit price — {item.name}</div>
             <div className="vd-modal-body">
-              {status === "active" && <>Saving a price change sends this product for review; it can't be used on new bills until approved.<br /><br /></>}
+              {lifecycle === "active" && <>Sales price is a governed field: saving opens a change request for an approver. The item stays Active and usable on new bills at its approved price meanwhile.<br /><br /></>}
               <div className="form-fld" style={{ marginBottom: 12 }}>
                 <label>Cost / Unit (Rp)</label>
                 <input type="number" min="0" value={editCost} onChange={(e) => setEditCost(e.target.value)} style={{ fontFamily: "var(--font-mono)" }} />
@@ -612,19 +694,23 @@ function JeStatusChip({ status }) {
   return <span className={`pd-je-status pd-je-${m.tone}`}>{m.label}</span>;
 }
 
-// Frozen snapshot of the price-bearing fields at approval time.
+// Frozen snapshot of the MASTER record at approval time. Quantity and stock
+// value are absent on purpose: they are stock figures owned elsewhere, and
+// freezing them into an approval would imply this module decides them.
 function VersionSnapshot({ data, reason }) {
   const d = data || {};
   const money = (v) => (v == null ? "—" : formatRupiah(v));
   return (
     <div className="vd-ver-snap">
       <Row l="Product ID" v={d.sku} mono />
-      <Row l="Status" v={INV_STATUS_META[d.status]?.label || d.status} />
-      <Row l="Cost / Unit" v={money(d.unit_cost)} mono />
+      <Row l="Name" v={d.name} />
+      <Row l="Category" v={INV_CAT_LABELS[d.category] || d.category || "—"} />
+      <Row l="Unit" v={d.uom ? (INV_UOM_LABELS[d.uom] || d.uom) : "—"} />
+      <Row l="Lifecycle" v={ITEM_LIFECYCLE_META[d.lifecycle]?.label || d.lifecycle || "—"} />
+      <Row l="Approval" v={ITEM_APPROVAL_META[d.approval]?.label || d.approval || "—"} />
       <Row l="Cost Price" v={money(d.cost_price)} mono />
       <Row l="Purchase Price" v={money(d.purchase_price)} mono />
       <Row l="Sales Price" v={money(d.sales_price)} mono />
-      <Row l="Stock Value" v={money(d.value)} mono />
       {reason && <div className="vd-ver-reason">Reason: {reason}</div>}
     </div>
   );

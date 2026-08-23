@@ -9,8 +9,10 @@
 //
 // Two fields carry the combined product-master + inventory view (2026 MVP —
 // see the team Slack thread):
-//   • `status`    — inventory status: "active" (sellable / stocked) or
-//                   "inactive" (discontinued / not stocked).
+//   • `status`    — LEGACY single status, kept as the seed input only. It is
+//                   mapped onto the two independent axes (lifecycle + approval)
+//                   by axesFromLegacy() in seed/itemGovernance.js; nothing reads
+//                   `status` at runtime. New records set lifecycle/approval.
 //   • `locations` — where the stock physically sits. A product's stock can be
 //                   spread across warehouses; `qty` is the roll-up of all
 //                   location quantities. Single-location items still carry one
@@ -43,16 +45,8 @@ export const INVENTORY = [
   {id:"INV019",sku:"SVC-0003",name:"Machine Installation Service",category:"service",qty:null,uom:null,unit_cost:2750000,value:null,tax_code:"ppn_masukan",status:"inactive",updated:"2025-02-05",locations:[]},
 ];
 
-// Inventory status lifecycle: Draft → Pending Review → Active, plus Inactive
-// (retired). `tone` maps to the pill styles in inventory.css.
-export const INV_STATUS_META = {
-  draft:          { label: "Draft",          tone: "draft" },
-  pending_review: { label: "Pending Review", tone: "pending" },
-  active:         { label: "Active",         tone: "active" },
-  inactive:       { label: "Inactive",       tone: "inactive" },
-};
-// Tab / display order for the list and any status pickers.
-export const INV_STATUS_ORDER = ["active", "draft", "pending_review", "inactive"];
+// Status lives on two axes now — lifecycle and approval. Labels, ordering and
+// the legacy mapping are in seed/itemGovernance.js.
 
 // Display labels for the inventory category badge.
 export const INV_CAT_LABELS = {

@@ -15,7 +15,6 @@ import {
   INV_UOM_SECONDARY,
   INV_CATEGORY_ACCOUNTS,
   INV_ACCOUNT_ROWS,
-  INV_STATUS_META,
 } from "../data/seed/inventory";
 import { COA_BY_CODE } from "../data/seed/coa";
 import { ACCOUNTING_SETTINGS, COSTING_METHOD_LABELS } from "../data/seed/accountingSettings";
@@ -154,25 +153,27 @@ export function productHistory(it) {
 export const ACTION_LABELS = { buy: "Buy", sell: "Sell", adjust: "Adjust" };
 
 // ── Audit trail ──────────────────────────────────────────────────────────────
-// The master-data change log for the product — who created it, edited it, and
-// moved it through the status lifecycle (Draft → Pending Review → Active →
-// Inactive). Distinct from Movement History (which tracks stock), this tracks
-// changes to the record itself. Deterministic per item for the prototype.
+// The master-data change log for the item — who created it, edited it, and moved
+// it along the two status axes (lifecycle Draft → Active → Inactive, and each
+// approval cycle). Distinct from Movement History (which tracks stock), this
+// tracks changes to the record itself. Deterministic per item for the prototype.
 const AUDIT_ACTORS = ["Rina Kusuma", "Budi Santoso", "Sarah Wijaya", "Andi Prasetyo"];
 const AUDIT_DATES = ["2025-01-15", "2025-02-03", "2025-02-20", "2025-03-10", "2025-03-28", "2025-04-12"];
-const STATUS_RANK = { draft: 0, pending_review: 1, active: 2, inactive: 3 };
 
 export function productAudit(item) {
   const rnd = seededRandom(idNum(item) + 202);
   const actor = () => AUDIT_ACTORS[Math.floor(rnd() * AUDIT_ACTORS.length)];
-  const status = item.status || "active";
-  const rank = STATUS_RANK[status] ?? 2;
+  const lifecycle = item.lifecycle || "active";
+  const approval = item.approval || "approved";
+  const everApproved = (item.current_version || 0) > 0;
 
-  const events = [{ action: "Created", detail: `Added as ${INV_STATUS_META.draft.label}`, actor: actor() }];
+  const events = [{ action: "Created", detail: "Added as Draft", actor: actor() }];
   if (!isServiceItem(item)) events.push({ action: "Updated", detail: "Set cost / unit and opening stock", actor: actor() });
-  if (rank >= 1) events.push({ action: "Submitted for review", detail: "Sent to a manager for approval", actor: actor() });
-  if (rank >= 2) events.push({ action: "Approved", detail: "Status set to Active", actor: actor() });
-  if (status === "inactive") events.push({ action: "Deactivated", detail: "Status set to Inactive", actor: actor() });
+  if (everApproved || approval !== "unapproved") events.push({ action: "Submitted for approval", detail: "Sent to a manager for sign-off", actor: actor() });
+  if (everApproved) events.push({ action: "Approved", detail: "Lifecycle set to Active", actor: actor() });
+  if (lifecycle === "inactive") events.push({ action: "Deactivated", detail: "Lifecycle set to Inactive", actor: actor() });
+  // A live item with a change in review — the open request is the newest event.
+  if (everApproved && approval === "pending_approval") events.push({ action: "Change requested", detail: "Governed field edited — awaiting approval", actor: actor() });
 
   // Oldest → newest; the final event is stamped with the item's last-updated date.
   const dates = AUDIT_DATES.slice(-events.length);

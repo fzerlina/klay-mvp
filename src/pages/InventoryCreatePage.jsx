@@ -32,7 +32,7 @@ export default function InventoryCreatePage() {
   // Information
   const [name, setName] = useState("");
   const [category, setCategory] = useState("");
-  const [status, setStatus] = useState("active");
+
   const [sku, setSku] = useState("");
 
   // Stock & Location
@@ -94,7 +94,7 @@ export default function InventoryCreatePage() {
       sku: sku.trim(),
       name: name.trim(),
       category,
-      status,
+
       uom: isService ? null : uom,
       unit_cost: Number(unitCost) || 0,
       locations: isService ? [] : locations,
@@ -138,12 +138,12 @@ export default function InventoryCreatePage() {
                   {CATEGORY_OPTIONS.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
                 </select>
               </div>
+              {/* No status picker: a new item always lands as Draft and reaches
+                  Active only through an approval. Letting the creator choose
+                  "Active" would be self-approval by dropdown. */}
               <div className="form-fld">
                 <label>Status</label>
-                <select value={status} onChange={(e) => setStatus(e.target.value)}>
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                </select>
+                <div className="vc-readonly">Draft — becomes Active once approved</div>
               </div>
             </div>
             <div className="form-fld" style={{ marginBottom: 0 }}>
