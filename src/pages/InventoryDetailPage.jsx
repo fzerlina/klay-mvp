@@ -12,13 +12,11 @@ import { COA_BY_CODE } from "../data/seed/coa";
 const ADJUST_REASONS = ["Stock count", "Damage", "Expiry", "Shrinkage", "Correction"];
 // Rendering a change request's proposed values needs the same formatting the
 // fields use elsewhere, so "58.000" never shows up where "Rp 58.000" belongs.
-const MONEY_FIELDS = new Set(["sales_price", "purchase_price", "cost_price", "unit_cost"]);
+const MONEY_FIELDS = new Set(["sales_price", "purchase_price"]);
 const ADJUSTMENT_ACCOUNT = "5-1500"; // Inventory Adjustments (counter-account)
-import {
-  productUom, productCost, productAccounts, productHistory, productAudit,
-  isServiceItem, ACTION_LABELS,
-} from "../lib/productDetail";
-import { formatRupiah, formatNumber, formatDate } from "../lib/format";
+import { productCost, productAccounts, productAudit, isServiceItem } from "../lib/productDetail";
+import { productUom, stockFor, sourceBadge, ACTION_LABELS } from "../lib/stockLedger";
+import { formatRupiah, formatRupiahExact, formatNumber, formatDate } from "../lib/format";
 import "./vendor-detail.css";
 import "./inventory.css";
 import "./product-detail.css";
@@ -48,8 +46,8 @@ export default function InventoryDetailPage() {
   const [histLoc, setHistLoc] = useState("all");
   const [openVer, setOpenVer] = useState(null);
   const [editOpen, setEditOpen] = useState(false);
-  const [editCost, setEditCost] = useState("");
   const [editSales, setEditSales] = useState("");
+  const [editPurchase, setEditPurchase] = useState("");
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [adjLoc, setAdjLoc] = useState("");
   const [adjQty, setAdjQty] = useState("");
@@ -74,7 +72,6 @@ export default function InventoryDetailPage() {
   const service = isServiceItem(item);
   const lifecycle = item.lifecycle || "active";
   const approval = item.approval || "approved";
-  const out = !service && (item.qty || 0) <= 0;
   const lifeMeta = ITEM_LIFECYCLE_META[lifecycle] || ITEM_LIFECYCLE_META.active;
   const apprMeta = ITEM_APPROVAL_META[approval] || ITEM_APPROVAL_META.approved;
   const catLabel = INV_CAT_LABELS[item.category] || item.category;
@@ -85,8 +82,13 @@ export default function InventoryDetailPage() {
   const uom = productUom(item);
   const cost = productCost(item);
   const accounts = productAccounts(item);
-  // Live stock movements (session) prepended to the seeded baseline.
-  const history = [...(movementLog[item.id] || []), ...productHistory(item)];
+  // Every stock figure on this page is replayed from the movement ledger. The
+  // item record carries no quantity, cost or value to read.
+  const st = stockFor(item, movementLog[item.id] || [], inventoryCostingMethod);
+  const history = st.rows;
+  const out = !service && st.on_hand != null && st.on_hand <= 0;
+  const noLedger = !service && st.on_hand == null;
+  const badge = sourceBadge(st.as_of);
   const inventoryAccountCode = accounts.find((a) => a.key === "inventory")?.code || null;
   // A movement reaches the GL only once its journal entry posts. Surface each
   // movement's JE status so History reads as a per-item ledger — any non-Posted
@@ -111,10 +113,16 @@ export default function InventoryDetailPage() {
   const primaryLabel = uom.primary ? (INV_UOM_LABELS[uom.primary] || uom.primary) : "—";
   const secondaryLabel = uom.secondary ? (INV_UOM_LABELS[uom.secondary] || uom.secondary) : "—";
 
+  // Per-location balances are the ledger replayed per warehouse — not a stored
+  // split, and never quantity × a typed cost.
   const locs = service
     ? []
-    : (Array.isArray(item.locations) && item.locations.length ? item.locations : [{ loc: "Main Warehouse", qty: item.qty || 0 }]);
-  const locRows = locs.map((l) => ({ loc: l.loc, qty: l.qty || 0, value: (l.qty || 0) * (item.unit_cost || 0) }));
+    : (st.byLocation.length
+        ? st.byLocation
+        : (Array.isArray(item.locations) && item.locations.length
+            ? item.locations.map((l) => ({ loc: l.loc, qty: 0, value: 0 }))
+            : [{ loc: "Main Warehouse", qty: 0, value: 0 }]));
+  const locRows = locs;
 
   // Movement History location filter.
   const histLocOptions = locs.map((l) => l.loc);
@@ -136,14 +144,17 @@ export default function InventoryDetailPage() {
   // approver seat rejects it instead.
   const canWithdraw = Boolean(req) && req.submittedBy === user.name;
 
+  // Only prices a person owns are editable here. Cost / unit is absent on
+  // purpose: it is replayed from the ledger, so there is no field to put in a
+  // form. That is the whole fix — the number can no longer be typed.
   function openEdit() {
-    setEditCost(String(item.unit_cost ?? ""));
-    setEditSales(String(cost.sales_price ?? ""));
+    setEditSales(cost.sales_price == null ? "" : String(cost.sales_price));
+    setEditPurchase(cost.purchase_price == null ? "" : String(cost.purchase_price));
     setEditOpen(true);
   }
   function saveEdit() {
     const patch = {};
-    if (editCost !== "" && Number(editCost) !== item.unit_cost) patch.unit_cost = Number(editCost);
+    if (editPurchase !== "" && Number(editPurchase) !== cost.purchase_price) patch.purchase_price = Number(editPurchase);
     if (editSales !== "" && Number(editSales) !== cost.sales_price) patch.sales_price = Number(editSales);
     if (!Object.keys(patch).length) { setEditOpen(false); return; }
     const { requested, blocked } = updateItem(item.id, patch, meta);
@@ -163,14 +174,20 @@ export default function InventoryDetailPage() {
   }
   const adjTargetQty = locs.find((l) => l.loc === adjLoc)?.qty ?? locs[0]?.qty ?? 0;
   const adjDelta = adjQty === "" ? 0 : (Number(adjQty) || 0) - adjTargetQty;
-  const adjValue = adjDelta * (item.unit_cost || 0);
+  // Valued at what the stock is CURRENTLY carried at, frozen onto the movement
+  // when it is written. An item with no stock yet has no carrying cost, so an
+  // opening balance falls back to the seeded figure.
+  // Rounded to whole rupiah: this cost is about to be frozen onto a movement and
+  // posted as a journal amount, and a journal cannot carry a fraction of a rupiah.
+  const adjUnitCost = Math.round(st.unit_cost != null ? st.unit_cost : (item.unit_cost || 0));
+  const adjValue = adjDelta * adjUnitCost;
   const invAcctName = inventoryAccountCode ? (COA_BY_CODE[inventoryAccountCode]?.name || inventoryAccountCode) : "Inventory";
   const adjAcctName = COA_BY_CODE[ADJUSTMENT_ACCOUNT]?.name || "Inventory Adjustments";
 
   function saveAdjust() {
     if (adjQty === "" || adjDelta === 0) { setAdjustOpen(false); return; }
     const jeNo = peekNextJeNumber();
-    adjustStock(item.id, { loc: adjLoc, newQty: Number(adjQty), reason: adjReason, note: adjNote, actor: user.name, je_number: jeNo });
+    adjustStock(item.id, { loc: adjLoc, newQty: Number(adjQty), reason: adjReason, note: adjNote, actor: user.name, je_number: jeNo, method: inventoryCostingMethod });
     // Decrease → Dr Inventory Adjustments / Cr Inventory. Increase → the reverse.
     const amt = Math.abs(adjValue);
     const decrease = adjDelta < 0;
@@ -231,7 +248,7 @@ export default function InventoryDetailPage() {
           </div>
           <div className="vd-actions">
             <button className="vd-btn" onClick={openEdit}>
-              <svg viewBox="0 0 24 24"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg> Edit price
+              <svg viewBox="0 0 24 24"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg> Edit prices
             </button>
             {!service && (
               <button className="vd-btn" onClick={openAdjust}>
@@ -313,18 +330,31 @@ export default function InventoryDetailPage() {
         )}
 
         {/* ── Hero KPIs ───────────────────────────────────────────── */}
+        {/* The first three are DERIVED from the movement ledger, so each carries
+            a source badge saying whose number it is and how old. Where there is
+            no ledger they read "No stock recorded" — never Rp 0, which would
+            look like a figure someone checked. */}
         <div className="pd-hero">
           <div className="pd-kpi">
             <div className="pd-kpi-lbl">Stock Count</div>
-            <div className="pd-kpi-val">{service ? "—" : <>{(item.qty || 0).toLocaleString("id-ID")} <span className="pd-kpi-unit">{primaryLabel}</span></>}</div>
+            <div className="pd-kpi-val">
+              {service ? "—" : (noLedger ? <span className="pd-kpi-none">No stock recorded</span> : <>{st.on_hand.toLocaleString("id-ID")} <span className="pd-kpi-unit">{primaryLabel}</span></>)}
+            </div>
+            {!service && <div className="pd-kpi-src">{badge}</div>}
           </div>
           <div className="pd-kpi">
             <div className="pd-kpi-lbl">Total Stock Value</div>
-            <div className="pd-kpi-val">{service ? "—" : formatRupiah(item.value)}</div>
+            <div className="pd-kpi-val">
+              {service ? "—" : (st.stock_value == null ? <span className="pd-kpi-none">No stock recorded</span> : formatRupiahExact(st.stock_value))}
+            </div>
+            {!service && <div className="pd-kpi-src">{badge}</div>}
           </div>
           <div className="pd-kpi">
             <div className="pd-kpi-lbl">Cost / Unit</div>
-            <div className="pd-kpi-val">{formatRupiah(item.unit_cost)}</div>
+            <div className="pd-kpi-val">
+              {st.unit_cost == null ? <span className="pd-kpi-none">{service ? "—" : "Nothing on hand"}</span> : formatRupiah(Math.round(st.unit_cost))}
+            </div>
+            {!service && <div className="pd-kpi-src">{st.method === "actual_cost" ? "Actual cost (FIFO layers)" : "Weighted average"}</div>}
           </div>
           <div className="pd-kpi">
             <div className="pd-kpi-lbl">Locations</div>
@@ -371,7 +401,8 @@ export default function InventoryDetailPage() {
                 </div>
               ) : (
                 <div className="vd-card span2">
-                  <div className="vd-card-title">Stock by Location</div>
+                  <div className="vd-card-title">Stock by Location <span className="pd-ro-tag">Derived</span></div>
+                  <div className="pd-ro-note" style={{ marginTop: 0, marginBottom: 10 }}>{badge}</div>
                   <div className="vd-tx-tablewrap">
                     <table className="vd-tx-table">
                       <thead>
@@ -386,13 +417,13 @@ export default function InventoryDetailPage() {
                           <tr key={i}>
                             <td>{l.loc}</td>
                             <td className="num">{l.qty.toLocaleString("id-ID")} {primaryLabel}</td>
-                            <td className="num">{formatRupiah(l.value)}</td>
+                            <td className="num">{formatRupiahExact(l.value)}</td>
                           </tr>
                         ))}
                         <tr className="pd-loc-total">
                           <td>Total</td>
-                          <td className="num">{(item.qty || 0).toLocaleString("id-ID")} {primaryLabel}</td>
-                          <td className="num">{formatRupiah(item.value)}</td>
+                          <td className="num">{(st.on_hand || 0).toLocaleString("id-ID")} {primaryLabel}</td>
+                          <td className="num">{st.stock_value == null ? "No stock recorded" : formatRupiahExact(st.stock_value)}</td>
                         </tr>
                       </tbody>
                     </table>
@@ -408,16 +439,25 @@ export default function InventoryDetailPage() {
           <div className="vd-body">
             <div className="vd-grid">
               <div className="vd-card">
-                <div className="vd-card-title">Cost &amp; Pricing</div>
-                <Row l="Cost / Unit" v={formatRupiah(item.unit_cost)} mono />
-                <Row l="Cost Price" v={formatRupiah(cost.cost_price)} mono />
+                <div className="vd-card-title">Prices <span className="pd-ro-tag">Entered</span></div>
+                <Row l="Sales Price" v={cost.sales_price == null ? "Not sold" : formatRupiah(cost.sales_price)} mono />
                 <Row l="Purchase Price" v={formatRupiah(cost.purchase_price)} mono />
-                <Row l="Sales Price" v={formatRupiah(cost.sales_price)} mono />
+                <div className="pd-ro-note">
+                  Sales price is governed — changing it opens a change request. Purchase price is
+                  <strong> reference only and does not value inventory</strong>: it pre-fills a bill line and
+                  refreshes from the last price a supplier invoiced, so it needs no approval.
+                </div>
               </div>
               <div className="vd-card">
-                <div className="vd-card-title">Costing Method <span className="pd-ro-tag">Read-only</span></div>
+                <div className="vd-card-title">Valuation <span className="pd-ro-tag">Derived</span></div>
+                <Row l="Cost / Unit" v={st.unit_cost == null ? "Nothing on hand" : formatRupiah(Math.round(st.unit_cost))} mono />
+                <Row l="Stock Value" v={st.stock_value == null ? "No stock recorded" : formatRupiahExact(st.stock_value)} mono />
                 <Row l="Method" v={service ? "—" : (COSTING_METHOD_LABELS[inventoryCostingMethod] || inventoryCostingMethod)} />
-                <div className="pd-ro-note">Costing method is a company-wide policy, set once in <Link to="/inventory-settings" className="pd-je">Accounting Settings</Link> — it can't be changed per product.</div>
+                <div className="pd-ro-note">
+                  {badge}. Nobody types these — each movement stores the cost it happened at, and these
+                  are replayed from them. The costing method decides how a movement OUT is valued; it is a
+                  company-wide policy set in <Link to="/inventory-settings" className="pd-je">Accounting Settings</Link>.
+                </div>
               </div>
             </div>
           </div>
@@ -555,16 +595,25 @@ export default function InventoryDetailPage() {
       {editOpen && (
         <div className="vd-modal-overlay" onClick={() => setEditOpen(false)}>
           <div className="vd-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="vd-modal-title">Edit price — {item.name}</div>
+            <div className="vd-modal-title">Edit prices — {item.name}</div>
             <div className="vd-modal-body">
-              {lifecycle === "active" && <>Sales price is a governed field: saving opens a change request for an approver. The item stays Active and usable on new bills at its approved price meanwhile.<br /><br /></>}
+              {lifecycle === "active" && <>Sales price is a governed field: saving opens a change request for an approver. The item stays Active and usable on new bills at its approved price meanwhile. Purchase price saves immediately.<br /><br /></>}
               <div className="form-fld" style={{ marginBottom: 12 }}>
-                <label>Cost / Unit (Rp)</label>
-                <input type="number" min="0" value={editCost} onChange={(e) => setEditCost(e.target.value)} style={{ fontFamily: "var(--font-mono)" }} />
-              </div>
-              <div className="form-fld" style={{ marginBottom: 0 }}>
-                <label>Sales Price (Rp)</label>
+                <label>Sales Price (Rp) <span className="pd-fld-tag">governed</span></label>
                 <input type="number" min="0" value={editSales} onChange={(e) => setEditSales(e.target.value)} style={{ fontFamily: "var(--font-mono)" }} />
+              </div>
+              <div className="form-fld" style={{ marginBottom: 12 }}>
+                <label>Purchase Price (Rp) <span className="pd-fld-tag">reference</span></label>
+                <input type="number" min="0" value={editPurchase} onChange={(e) => setEditPurchase(e.target.value)} style={{ fontFamily: "var(--font-mono)" }} />
+                <span className="vc-hint">Pre-fills a bill line. Does not value inventory, so it needs no approval.</span>
+              </div>
+              {/* Cost / unit is deliberately not here. It is replayed from the
+                  movement ledger, so there is no field to edit — which is what
+                  stops an April edit from re-valuing January. */}
+              <div className="pd-ro-note" style={{ marginBottom: 0 }}>
+                <strong>Cost / unit isn't editable.</strong> It comes from the movement ledger
+                ({st.unit_cost == null ? "nothing on hand" : formatRupiah(Math.round(st.unit_cost))}).
+                To change what stock is carried at, record a movement — use Adjust stock.
               </div>
             </div>
             <div className="vd-modal-actions">
@@ -708,7 +757,6 @@ function VersionSnapshot({ data, reason }) {
       <Row l="Unit" v={d.uom ? (INV_UOM_LABELS[d.uom] || d.uom) : "—"} />
       <Row l="Lifecycle" v={ITEM_LIFECYCLE_META[d.lifecycle]?.label || d.lifecycle || "—"} />
       <Row l="Approval" v={ITEM_APPROVAL_META[d.approval]?.label || d.approval || "—"} />
-      <Row l="Cost Price" v={money(d.cost_price)} mono />
       <Row l="Purchase Price" v={money(d.purchase_price)} mono />
       <Row l="Sales Price" v={money(d.sales_price)} mono />
       {reason && <div className="vd-ver-reason">Reason: {reason}</div>}

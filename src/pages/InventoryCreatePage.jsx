@@ -38,11 +38,10 @@ export default function InventoryCreatePage() {
   // Stock & Location
   const [uom, setUom] = useState("pcs");
   const [unitCost, setUnitCost] = useState("");
-  const [locations, setLocations] = useState([{ loc: "", qty: "" }]);
+  const [locations, setLocations] = useState([{ loc: "" }]);
 
   // Cost
   const [salesPrice, setSalesPrice] = useState("");
-  const [costPrice, setCostPrice] = useState("");
   const [purchasePrice, setPurchasePrice] = useState("");
 
   const [toast, setToast] = useState("");
@@ -56,15 +55,6 @@ export default function InventoryCreatePage() {
   const isService = category === "service";
   const sec = INV_UOM_SECONDARY[uom];
   const primaryLabel = INV_UOM_LABELS[uom] || uom;
-
-  const totalQty = useMemo(
-    () => locations.reduce((s, l) => s + (Number(l.qty) || 0), 0),
-    [locations],
-  );
-  const previewValue = useMemo(
-    () => (isService ? 0 : totalQty * (Number(unitCost) || 0)),
-    [isService, totalQty, unitCost],
-  );
 
   // SKU preview — next code for the chosen category (illustrative).
   const skuPreview = useMemo(() => {
@@ -84,7 +74,7 @@ export default function InventoryCreatePage() {
   function setLoc(i, key, val) {
     setLocations((prev) => prev.map((l, idx) => (idx === i ? { ...l, [key]: val } : l)));
   }
-  function addLoc() { setLocations((prev) => [...prev, { loc: "", qty: "" }]); }
+  function addLoc() { setLocations((prev) => [...prev, { loc: "" }]); }
   function removeLoc(i) { setLocations((prev) => prev.filter((_, idx) => idx !== i)); }
 
   function onSave() {
@@ -98,7 +88,6 @@ export default function InventoryCreatePage() {
       uom: isService ? null : uom,
       unit_cost: Number(unitCost) || 0,
       locations: isService ? [] : locations,
-      cost_price: costPrice !== "" ? costPrice : undefined,
       purchase_price: purchasePrice !== "" ? purchasePrice : undefined,
       sales_price: salesPrice !== "" ? salesPrice : undefined,
     });
@@ -175,12 +164,16 @@ export default function InventoryCreatePage() {
                 </div>
               </div>
 
-              {/* Per-location opening stock */}
-              <label className="ivc-sub">Opening stock by location</label>
+              {/* Warehouses only — no opening quantities. Putting stock into the
+                  system is a financial event that needs a posted journal entry,
+                  so it is recorded as a movement from the item's page once this
+                  item exists. Typing an opening quantity here alongside a cost
+                  is exactly the "quantity × a typed cost" the ledger removed. */}
+              <label className="ivc-sub">Warehouses this item is stocked in</label>
               {locations.map((l, i) => (
                 <div className="ivc-locrow" key={i}>
                   <input type="text" value={l.loc} onChange={(e) => setLoc(i, "loc", e.target.value)} placeholder="Warehouse (e.g. Jakarta Warehouse)" />
-                  <input type="number" min="0" value={l.qty} onChange={(e) => setLoc(i, "qty", e.target.value)} placeholder="0" style={{ fontFamily: "var(--font-mono)" }} />
+                  <input type="text" value="opening balance posted separately" readOnly tabIndex={-1} className="ivc-ro" />
                   <button type="button" className="ivc-locdel" onClick={() => removeLoc(i)} disabled={locations.length === 1} aria-label="Remove location">
                     <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12" /></svg>
                   </button>
@@ -191,19 +184,11 @@ export default function InventoryCreatePage() {
                 Add location
               </button>
 
-              <div className="fg3" style={{ marginTop: 16, marginBottom: 0 }}>
-                <div className="form-fld">
-                  <label>Cost / Unit (Rp)</label>
-                  <input type="number" min="0" value={unitCost} onChange={(e) => setUnitCost(e.target.value)} placeholder="0" style={{ fontFamily: "var(--font-mono)" }} />
-                </div>
-                <div className="form-fld">
-                  <label>Total Stock Count</label>
-                  <input type="text" value={`${totalQty.toLocaleString("id-ID")} ${primaryLabel}`} readOnly tabIndex={-1} className="ivc-ro" />
-                </div>
-                <div className="form-fld">
-                  <label>Stock Value</label>
-                  <input type="text" value={formatRupiah(previewValue)} readOnly tabIndex={-1} className="ivc-ro" style={{ fontWeight: 600 }} />
-                </div>
+              <div className="ivc-note" style={{ marginTop: 14 }}>
+                <strong>No opening stock or cost here.</strong> Once the item exists, record its opening
+                balance from its page with <em>Adjust stock</em> — that writes a movement and stages the
+                journal entry it needs. Stock count, cost / unit and stock value are then replayed from
+                the movement ledger; none of them is a field anyone types.
               </div>
             </div>
           )}
@@ -214,35 +199,35 @@ export default function InventoryCreatePage() {
             {isService ? (
               <div className="fg3">
                 <div className="form-fld">
-                  <label>Cost / Unit (Rp)</label>
+                  <label>Rate / Unit (Rp)</label>
                   <input type="number" min="0" value={unitCost} onChange={(e) => setUnitCost(e.target.value)} placeholder="0" style={{ fontFamily: "var(--font-mono)" }} />
                 </div>
                 <div className="form-fld">
                   <label>Sales Price (Rp)</label>
-                  <input type="number" min="0" value={salesPrice} onChange={(e) => setSalesPrice(e.target.value)} placeholder="Auto from cost" style={{ fontFamily: "var(--font-mono)" }} />
+                  <input type="number" min="0" value={salesPrice} onChange={(e) => setSalesPrice(e.target.value)} placeholder="Blank if not sold" style={{ fontFamily: "var(--font-mono)" }} />
                 </div>
                 <div className="form-fld">
                   <label>Purchase Price (Rp)</label>
-                  <input type="number" min="0" value={purchasePrice} onChange={(e) => setPurchasePrice(e.target.value)} placeholder="Auto from cost" style={{ fontFamily: "var(--font-mono)" }} />
+                  <input type="number" min="0" value={purchasePrice} onChange={(e) => setPurchasePrice(e.target.value)} placeholder="Reference only" style={{ fontFamily: "var(--font-mono)" }} />
                 </div>
               </div>
             ) : (
-              <div className="fg3" style={{ marginBottom: 0 }}>
+              <div className="fg2" style={{ marginBottom: 0 }}>
                 <div className="form-fld">
                   <label>Sales Price (Rp)</label>
-                  <input type="number" min="0" value={salesPrice} onChange={(e) => setSalesPrice(e.target.value)} placeholder="Auto from cost" style={{ fontFamily: "var(--font-mono)" }} />
-                </div>
-                <div className="form-fld">
-                  <label>Cost Price (Rp)</label>
-                  <input type="number" min="0" value={costPrice} onChange={(e) => setCostPrice(e.target.value)} placeholder="Defaults to Cost / Unit" style={{ fontFamily: "var(--font-mono)" }} />
+                  <input type="number" min="0" value={salesPrice} onChange={(e) => setSalesPrice(e.target.value)} placeholder="Blank if not sold" style={{ fontFamily: "var(--font-mono)" }} />
                 </div>
                 <div className="form-fld">
                   <label>Purchase Price (Rp)</label>
-                  <input type="number" min="0" value={purchasePrice} onChange={(e) => setPurchasePrice(e.target.value)} placeholder="Auto from cost" style={{ fontFamily: "var(--font-mono)" }} />
+                  <input type="number" min="0" value={purchasePrice} onChange={(e) => setPurchasePrice(e.target.value)} placeholder="Reference only" style={{ fontFamily: "var(--font-mono)" }} />
                 </div>
               </div>
             )}
-            <span className="vc-hint" style={{ marginTop: 10, display: "block" }}>Costing method is set company-wide in Accounting Settings. Prices left blank are estimated from the cost when the product is created.</span>
+            <span className="vc-hint" style={{ marginTop: 10, display: "block" }}>
+              A blank sales price stays blank — it is never estimated from cost, and an item without one
+              can't go on a sales document. Purchase price is reference only and does not value inventory.
+              What stock is carried at comes from the movement ledger, not from a field here.
+            </span>
           </div>
 
           {/* 4 — Accounts (read-only preview) */}

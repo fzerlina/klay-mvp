@@ -3,7 +3,9 @@ import { useNavigate } from "react-router-dom";
 import { useInventory } from "../state/InventoryContext";
 import { INV_CAT_LABELS, INV_UOM_LABELS } from "../data/seed/inventory";
 import { ITEM_LIFECYCLE_META, ITEM_LIFECYCLE_ORDER, ITEM_APPROVAL_META } from "../data/seed/itemGovernance";
-import { formatRupiah, formatNumber, formatDate } from "../lib/format";
+import { useAccountingSettings } from "../state/AccountingSettingsContext";
+import { stockFor } from "../lib/stockLedger";
+import { formatRupiah, formatRupiahExact, formatNumber, formatDate } from "../lib/format";
 import "./modules.css";
 import "./invoices-ledger.css";
 import "./inventory.css";
@@ -16,13 +18,14 @@ import "./inventory.css";
 // A service is non-stock: no quantity, location, or stock value — only a rate.
 const isService = (it) => it.category === "service";
 
-// Locations for a product — fall back to a single synthetic location for items
-// created before the field existed, so the row model stays uniform. Services
-// carry no location.
-function locationsOf(it) {
+// Locations for a product, with the on-hand balance each one replayed to. A
+// warehouse the item is stocked in but currently holds none of still shows, so
+// the split stays legible. Services carry no location.
+function locationsOf(it, st) {
   if (isService(it)) return [];
-  if (Array.isArray(it.locations) && it.locations.length) return it.locations;
-  return [{ loc: "Main Warehouse", qty: it.qty || 0 }];
+  if (st && st.byLocation.length) return st.byLocation.map((l) => ({ loc: l.loc, qty: l.qty }));
+  if (Array.isArray(it.locations) && it.locations.length) return it.locations.map((l) => ({ loc: l.loc, qty: 0 }));
+  return [{ loc: "Main Warehouse", qty: 0 }];
 }
 
 // Lifecycle pill — "is this item usable for new transactions?". The tabs scope
@@ -51,17 +54,27 @@ function LocationCell({ it, locs }) {
   return <span className="iv-loc-single">{locs[0]?.loc || "—"}</span>;
 }
 
-// Stock count — services show "—"; an out-of-stock product shows a muted 0 so it
-// stays visually distinct from a service (which has no stock concept at all).
-function StockCountCell({ it }) {
-  if (isService(it)) return <span className="iv-dash">—</span>;
-  const q = it.qty || 0;
-  if (q <= 0) return <span className="iv-stock-out-num">0</span>;
-  return <span className="iv-stock-qty">{formatNumber(q)}</span>;
+// Stock count — services show "—" (no stock concept at all); an item with a
+// ledger that nets to nothing shows a muted 0, which is a KNOWN zero; an item
+// with no ledger yet shows "—" too, because we don't know, and a zero there
+// would read as a checked figure.
+function StockCountCell({ it, st }) {
+  if (isService(it) || !st || st.on_hand == null) return <span className="iv-dash">—</span>;
+  if (st.on_hand <= 0) return <span className="iv-stock-out-num">0</span>;
+  return <span className="iv-stock-qty">{formatNumber(st.on_hand)}</span>;
 }
 
-function InventoryRow({ it, expanded, onToggle, onOpen }) {
-  const locs = locationsOf(it);
+// A derived money figure, or "—" when there is nothing to derive it from. Never
+// Rp 0 for "unknown" — see stockLedger.js.
+function DerivedMoney({ v }) {
+  if (v == null) return <span className="iv-dash">—</span>;
+  // A replayed zero is a fact, so it prints as Rp 0. Only "we have no ledger"
+  // gets the dash.
+  return <>{formatRupiahExact(Math.round(v))}</>;
+}
+
+function InventoryRow({ it, st, expanded, onToggle, onOpen }) {
+  const locs = locationsOf(it, st);
   const multi = locs.length > 1;
   return (
     <>
@@ -77,10 +90,10 @@ function InventoryRow({ it, expanded, onToggle, onOpen }) {
         <div className="iv-name">{it.name}</div>
         <div><span className={`cat-badge inv-${it.category}`}>{INV_CAT_LABELS[it.category] || it.category}</span></div>
         <div className="iv-loc-cell"><LocationCell it={it} locs={locs} /></div>
-        <div className="iv-num"><StockCountCell it={it} /></div>
+        <div className="iv-num"><StockCountCell it={it} st={st} /></div>
         <div className="iv-uom">{isService(it) ? "—" : (INV_UOM_LABELS[it.uom] || it.uom || "—")}</div>
-        <div className="iv-num">{formatRupiah(it.unit_cost)}</div>
-        <div className="iv-num iv-value">{isService(it) ? <span className="iv-dash">—</span> : formatRupiah(it.value)}</div>
+        <div className="iv-num"><DerivedMoney v={st?.unit_cost} /></div>
+        <div className="iv-num iv-value"><DerivedMoney v={st?.stock_value} /></div>
         <div className="iv-status-cell">
           <StatusPill lifecycle={it.lifecycle || "active"} />
           <ApprovalChip approval={it.approval} />
@@ -209,7 +222,18 @@ function FilterPopover({ values, locationOptions, onChange, onClose }) {
 
 export default function InventoryPage() {
   const navigate = useNavigate();
-  const { items } = useInventory();
+  const { items, movementLog } = useInventory();
+  const { inventoryCostingMethod } = useAccountingSettings();
+
+  // Every stock figure on this page is replayed from the movement ledger — no
+  // row reads a quantity or cost field, because none exist to read. Memoised on
+  // the costing method as well, since switching Average ⇄ Actual in Settings
+  // genuinely changes what stock is worth.
+  const stockById = useMemo(() => {
+    const map = {};
+    for (const it of items) map[it.id] = stockFor(it, movementLog[it.id] || [], inventoryCostingMethod);
+    return map;
+  }, [items, movementLog, inventoryCostingMethod]);
 
   const [tab, setTab] = useState("active");
   const [search, setSearch] = useState("");
@@ -225,9 +249,9 @@ export default function InventoryPage() {
   // Distinct warehouses across all (non-service) stock — feeds the Location filter.
   const locationOptions = useMemo(() => {
     const s = new Set();
-    items.forEach((it) => { if (!isService(it)) locationsOf(it).forEach((l) => l.loc && s.add(l.loc)); });
+    items.forEach((it) => { if (!isService(it)) locationsOf(it, stockById[it.id]).forEach((l) => l.loc && s.add(l.loc)); });
     return [...s].sort();
-  }, [items]);
+  }, [items, stockById]);
 
   // Tabs scope the list by LIFECYCLE only. Approval is a separate axis and
   // deliberately not a tab: a live item with a change in review belongs under
@@ -263,42 +287,51 @@ export default function InventoryPage() {
       // Services have no stock concept — never match a With/No Stock filter.
       list = list.filter((it) => {
         if (isService(it)) return false;
-        const isOut = (it.qty || 0) <= 0;
+        const st = stockById[it.id];
+        // An item with no ledger is neither In nor Out — we do not know.
+        if (!st || st.on_hand == null) return false;
+        const isOut = st.on_hand <= 0;
         return (filterValues.stock.has("out") && isOut) || (filterValues.stock.has("in") && !isOut);
       });
     }
     if (filterValues.locations.size > 0) {
-      list = list.filter((it) => !isService(it) && locationsOf(it).some((l) => filterValues.locations.has(l.loc)));
+      list = list.filter((it) => !isService(it) && locationsOf(it, stockById[it.id]).some((l) => filterValues.locations.has(l.loc)));
     }
     const q = search.toLowerCase().trim();
     if (q) list = list.filter((it) =>
       it.name.toLowerCase().includes(q) ||
       it.sku.toLowerCase().includes(q) ||
       (INV_CAT_LABELS[it.category] || "").toLowerCase().includes(q) ||
-      locationsOf(it).some((l) => (l.loc || "").toLowerCase().includes(q)),
+      locationsOf(it, stockById[it.id]).some((l) => (l.loc || "").toLowerCase().includes(q)),
     );
     return list;
-  }, [items, tab, filterValues, search]);
+  }, [items, tab, filterValues, search, stockById]);
 
   const rows = useMemo(() => {
     const arr = [...filtered];
+    const num = (it, key) => stockById[it.id]?.[key] ?? 0;
     switch (effectiveSort) {
       case "updated-desc": arr.sort((a, b) => (b.updated || "").localeCompare(a.updated || "")); break;
       case "name-asc":   arr.sort((a, b) => a.name.localeCompare(b.name)); break;
       case "name-desc":  arr.sort((a, b) => b.name.localeCompare(a.name)); break;
       case "sku-asc":    arr.sort((a, b) => a.sku.localeCompare(b.sku)); break;
-      case "qty-desc":   arr.sort((a, b) => (b.qty || 0) - (a.qty || 0)); break;
-      case "qty-asc":    arr.sort((a, b) => (a.qty || 0) - (b.qty || 0)); break;
-      case "cost-desc":  arr.sort((a, b) => (b.unit_cost || 0) - (a.unit_cost || 0)); break;
-      case "cost-asc":   arr.sort((a, b) => (a.unit_cost || 0) - (b.unit_cost || 0)); break;
-      case "value-desc": arr.sort((a, b) => (b.value || 0) - (a.value || 0)); break;
-      case "value-asc":  arr.sort((a, b) => (a.value || 0) - (b.value || 0)); break;
+      // Stock sorts read the replayed figures, so they order what is on screen.
+      case "qty-desc":   arr.sort((a, b) => num(b, "on_hand") - num(a, "on_hand")); break;
+      case "qty-asc":    arr.sort((a, b) => num(a, "on_hand") - num(b, "on_hand")); break;
+      case "cost-desc":  arr.sort((a, b) => num(b, "unit_cost") - num(a, "unit_cost")); break;
+      case "cost-asc":   arr.sort((a, b) => num(a, "unit_cost") - num(b, "unit_cost")); break;
+      case "value-desc": arr.sort((a, b) => num(b, "stock_value") - num(a, "stock_value")); break;
+      case "value-asc":  arr.sort((a, b) => num(a, "stock_value") - num(b, "stock_value")); break;
       default: break;
     }
     return arr;
-  }, [filtered, effectiveSort]);
+  }, [filtered, effectiveSort, stockById]);
 
-  const totalValue = useMemo(() => rows.reduce((s, r) => s + (r.value || 0), 0), [rows]);
+  // Sums the replayed values of the rows on screen — never a stored total.
+  const totalValue = useMemo(
+    () => rows.reduce((s, r) => s + (stockById[r.id]?.stock_value || 0), 0),
+    [rows, stockById],
+  );
 
   const toggleExpand = (id) => setExpanded((prev) => {
     const next = new Set(prev);
@@ -396,6 +429,7 @@ export default function InventoryPage() {
                   <InventoryRow
                     key={it.id}
                     it={it}
+                    st={stockById[it.id]}
                     expanded={expanded.has(it.id)}
                     onToggle={() => toggleExpand(it.id)}
                     onOpen={() => navigate(`/inventory/${it.id}`)}

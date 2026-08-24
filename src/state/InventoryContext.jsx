@@ -1,6 +1,7 @@
 import { createContext, useContext, useMemo, useState, useCallback } from "react";
 import { INVENTORY as SEED_INVENTORY } from "../data/seed/inventory";
 import { axesFromLegacy, seedApprovalFor, seedChangeRequestFor } from "../data/seed/itemGovernance";
+import { stockFor } from "../lib/stockLedger";
 import { TODAY } from "../lib/clock";
 
 const InventoryContext = createContext(null);
@@ -37,13 +38,13 @@ export const APPROVAL_TRIGGER_LABEL = {
 // them here would imply this module owns them.
 const VERSIONED_FIELDS = [
   "sku", "name", "category", "uom",
-  "cost_price", "purchase_price", "sales_price", "tax_code",
+  "purchase_price", "sales_price", "tax_code",
   "lifecycle", "approval",
 ];
 export const VER_FIELD_LABEL = {
   sku: "Product ID", name: "Name", category: "Category", uom: "Unit",
-  cost_price: "Cost price", purchase_price: "Purchase price",
-  sales_price: "Sales price", tax_code: "Tax treatment",
+  purchase_price: "Purchase price", sales_price: "Sales price",
+  tax_code: "Tax treatment",
   lifecycle: "Lifecycle", approval: "Approval",
 };
 
@@ -152,16 +153,14 @@ export function InventoryProvider({ children }) {
     const category = draft.category || "supplies";
     const sku = draft.sku?.trim() || nextSku(items, category);
     const isService = category === "service";
-    const unit_cost = Number(draft.unit_cost) || 0;
-
+    // No opening stock and no cost are captured here. Putting stock into the
+    // system is a financial event that needs a posted journal entry, so it is
+    // recorded as a movement from the item's page — never typed into a "new
+    // item" form, where it would silently become quantity × a typed cost.
+    // Warehouses are captured as names only; their balances come from movements.
     const locations = Array.isArray(draft.locations)
-      ? draft.locations
-          .filter((l) => (l.loc || "").trim())
-          .map((l) => ({ loc: l.loc.trim(), qty: Number(l.qty) || 0 }))
+      ? draft.locations.filter((l) => (l.loc || "").trim()).map((l) => ({ loc: l.loc.trim(), qty: 0 }))
       : [];
-    const qty = isService
-      ? null
-      : (locations.length ? locations.reduce((s, l) => s + l.qty, 0) : Number(draft.qty) || 0);
 
     const record = {
       id,
@@ -169,9 +168,6 @@ export function InventoryProvider({ children }) {
       name: draft.name?.trim() || "Untitled item",
       category,
       uom: isService ? null : (draft.uom || "pcs"),
-      qty,
-      unit_cost,
-      value: isService ? null : (qty || 0) * unit_cost,
       // A new item is a Draft that has not been submitted. It is not selectable
       // on documents until an approver signs off a first version — there is no
       // approved unit, price or tax treatment for a bill line to copy yet.
@@ -180,9 +176,11 @@ export function InventoryProvider({ children }) {
       current_version: 0,
       tax_code: draft.tax_code || "ppn_masukan",
       updated: today(),
-      locations: isService ? [] : (locations.length ? locations : [{ loc: "Main Warehouse", qty: qty || 0 }]),
+      locations: isService ? [] : (locations.length ? locations : [{ loc: "Main Warehouse", qty: 0 }]),
       notes: draft.notes?.trim() || "",
-      ...(draft.cost_price != null ? { cost_price: Number(draft.cost_price) } : {}),
+      // A service's rate is not a stock valuation — it has no stock to value —
+      // so it is the one place a per-unit figure may still be entered.
+      ...(isService && draft.unit_cost ? { unit_cost: Number(draft.unit_cost) } : {}),
       ...(draft.purchase_price != null ? { purchase_price: Number(draft.purchase_price) } : {}),
       ...(draft.sales_price != null ? { sales_price: Number(draft.sales_price) } : {}),
     };
@@ -315,38 +313,45 @@ export function InventoryProvider({ children }) {
     return { ok: true };
   }, [changeRequests, logEvent]);
 
-  // Stock adjustment (stock-opname / damage / shrinkage / correction). Sets a
-  // location's on-hand count to the physical figure, rolls up total qty + value,
-  // and records a movement + audit event. The GL side is booked separately as a
-  // manual journal (the detail page stages a pre-filled draft) — this is the
-  // periodic model, so stock updates here and the books follow when that posts.
-  const adjustStock = useCallback((id, { loc, newQty, reason, note, actor, je_number } = {}) => {
+  // Stock adjustment (stock-opname / damage / shrinkage / correction, and the
+  // opening balance of a new item — same shape, different reason).
+  //
+  // This now writes ONE movement and nothing else. It does not touch a quantity
+  // or value field, because there are none to touch: the balance it produces is
+  // whatever replaying the ledger says. The cost is read from the ledger at this
+  // moment and FROZEN onto the row, so a later cost change cannot reach back and
+  // re-value this adjustment. The GL side is booked separately as a manual
+  // journal (the detail page stages a pre-filled draft) — the periodic model, so
+  // stock moves here and the books follow when that posts.
+  const adjustStock = useCallback((id, { loc, newQty, reason, note, actor, je_number, method = "average_cost" } = {}) => {
     const item = items.find((it) => it.id === id);
     if (!item || item.category === "service") return null;
-    const locs = Array.isArray(item.locations) && item.locations.length
-      ? item.locations
-      : [{ loc: "Main Warehouse", qty: item.qty || 0 }];
-    const targetLoc = locs.find((l) => l.loc === loc) || locs[0];
-    const oldQty = targetLoc ? (targetLoc.qty || 0) : 0;
+
+    const stock = stockFor(item, movementLog[id] || [], method);
+    const locName = loc || stock.byLocation[0]?.loc
+      || (Array.isArray(item.locations) && item.locations[0]?.loc) || "Main Warehouse";
+    const oldQty = stock.byLocation.find((l) => l.loc === locName)?.qty || 0;
     const nq = Number(newQty) || 0;
     const delta = nq - oldQty;
-    const unitCost = item.unit_cost || 0;
-    const valueDelta = delta * unitCost;
+    if (!delta) return { delta: 0, valueDelta: 0, oldQty, newQty: nq, loc: locName };
 
-    const nextLocs = locs.map((l) => (l.loc === targetLoc.loc ? { ...l, qty: nq } : l));
-    const totalQty = nextLocs.reduce((s, l) => s + (l.qty || 0), 0);
-    setItems((prev) => prev.map((it) => (
-      it.id === id ? { ...it, locations: nextLocs, qty: totalQty, value: totalQty * unitCost, updated: today() } : it
-    )));
+    // An item with no stock yet has no carrying cost, so an opening balance has
+    // to state its own. Falling back to the legacy seed figure keeps the demo
+    // sensible; a real build would take it from the purchase document.
+    // Rounded to whole rupiah — this figure is frozen onto the movement and posted
+    // as a journal amount, and a journal cannot carry a fraction of a rupiah.
+    const unitCost = Math.round(stock.unit_cost != null ? stock.unit_cost : (item.unit_cost || 0));
+    const valueDelta = delta * unitCost;
 
     const reasonLabel = reason ? `${reason}${note ? ` — ${note}` : ""}` : (note || "");
     setMovementLog((prev) => ({
       ...prev,
-      [id]: [{ date: today(), action: "adjust", loc: targetLoc.loc, unit: delta, unit_cost: unitCost, value: valueDelta, je: je_number || null, note: reasonLabel }, ...(prev[id] || [])],
+      [id]: [{ date: today(), action: "adjust", loc: locName, unit: delta, unit_cost: unitCost, value: valueDelta, je: je_number || null, note: reasonLabel }, ...(prev[id] || [])],
     }));
-    logEvent(id, "Stock adjusted", `${targetLoc.loc}: ${oldQty.toLocaleString("id-ID")} → ${nq.toLocaleString("id-ID")} (${delta >= 0 ? "+" : ""}${delta.toLocaleString("id-ID")})${reason ? ` · ${reason}` : ""}`, actor);
-    return { delta, valueDelta, oldQty, newQty: nq, loc: targetLoc.loc };
-  }, [items, logEvent]);
+    setItems((prev) => prev.map((it) => (it.id === id ? { ...it, updated: today() } : it)));
+    logEvent(id, "Stock adjusted", `${locName}: ${oldQty.toLocaleString("id-ID")} → ${nq.toLocaleString("id-ID")} (${delta >= 0 ? "+" : ""}${delta.toLocaleString("id-ID")})${reason ? ` · ${reason}` : ""}`, actor);
+    return { delta, valueDelta, oldQty, newQty: nq, loc: locName, unitCost };
+  }, [items, movementLog, logEvent]);
 
   const itemById = useCallback((id) => items.find((it) => it.id === id) || null, [items]);
   const versionsOf = useCallback((id) => versions[id] || [], [versions]);

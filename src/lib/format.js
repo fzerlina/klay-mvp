@@ -9,6 +9,15 @@ export function formatRupiah(n) {
   return "Rp " + n.toLocaleString("id-ID");
 }
 
+// Same, but a real zero prints as Rp 0 rather than a dash. Use this where zero
+// is a FACT rather than an absence — a stock ledger that has been replayed and
+// nets to nothing has a value of Rp 0, and collapsing that into the same dash
+// used for "no data" loses the distinction between checked and unknown.
+export function formatRupiahExact(n) {
+  if (n == null) return DASH;
+  return "Rp " + n.toLocaleString("id-ID");
+}
+
 // Plain number with id-ID grouping (1.500.000). Empty / zero → em-dash.
 export function formatNumber(n) {
   if (n == null || n === 0) return DASH;

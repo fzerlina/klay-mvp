@@ -70,6 +70,16 @@
 /* A field the form shows but doesn't let you set (new items are always Draft). */
 .vc-readonly { display: flex; align-items: center; height: 36px; padding: 0 10px; border: 1px solid var(--color-border-default); border-radius: 6px; background: var(--color-surface-sunken, #EFEBE4); color: var(--color-text-secondary); font-size: 13px; }
 
+/* Derived figures carry their source. Small and quiet — it should be findable,
+   not shouty, but always present so a reader knows whose number this is. */
+.pd-kpi-src { margin-top: 4px; font-size: 10px; color: var(--color-text-tertiary); letter-spacing: .01em; }
+/* "No stock recorded" / "Nothing on hand" — never Rp 0 for an unknown. */
+.pd-kpi-none { font-size: 14px; font-weight: 400; color: var(--color-text-tertiary); }
+/* Tag beside a form label saying whether the field is gated. */
+.pd-fld-tag { margin-left: 6px; padding: 1px 6px; border-radius: 9999px; font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; background: var(--color-surface-sunken, #EFEBE4); color: var(--color-text-tertiary); }
+/* Explanatory note inside a create-form section. */
+.ivc-note { padding: 10px 12px; border: 1px solid var(--color-border-default); border-left: 3px solid var(--color-border-strong, #C9BFB0); border-radius: 6px; background: var(--color-surface-sunken, #EFEBE4); font-size: 12px; line-height: 1.55; color: var(--color-text-secondary); }
+
 /* Change request — the proposed values, shown beside the approved ones. */
 .pd-cr-rows { display: flex; flex-direction: column; gap: 4px; margin: 8px 0 6px; }
 .pd-cr-row { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
