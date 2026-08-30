@@ -5,7 +5,6 @@ import { useBills } from "../state/BillsContext";
 import { useVendors } from "../state/VendorsContext";
 import { usePayments, PAYMENT_STATUS_META } from "../state/PaymentsContext";
 import { useJournalEntries } from "../state/JournalEntriesContext";
-import { useInventory } from "../state/InventoryContext";
 import { formatRupiah, formatDateEn, initials } from "../lib/format";
 import {
   workflowStatus,
@@ -1067,7 +1066,6 @@ export default function BillDetailPage() {
   const { closedThrough, autoAssignLateBills, nextOpenPeriod } = useClosePeriod();
   const { hasLevel, hasCapability, level, user } = useCurrentUser();
   const { vendorById } = useVendors();
-  const { items: inventoryItems } = useInventory();
   const [tab, setTab] = useState("detail");
   const [docView, setDocView] = useState("invoice");
   const [toast, setToast] = useState("");
@@ -1144,7 +1142,7 @@ export default function BillDetailPage() {
   // field-confidence gaps. Rule flags are authoritative for anything they cover
   // (severity per the review flowchart); field-confidence items only fill fields
   // no rule flag already speaks to, so nothing is listed twice.
-  const flags = billFlags(bill, vendor, { autoAssignLateBills, items: inventoryItems });
+  const flags = billFlags(bill, vendor, { autoAssignLateBills });
   const FLAG_FIELD_COVER = {
     price_anomaly: ["total", "poNo"],
     tax_omitted: ["pph23"],

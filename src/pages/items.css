@@ -1,0 +1,158 @@
+/* ── Item Master — the catalogue list, create form, and shared item chrome ── */
+.im-lede { margin-top: 6px; font-size: 13px; color: var(--color-text-secondary); max-width: 640px; }
+
+.im-scroll { overflow-x: auto; }
+.im-inner { min-width: 1140px; }
+
+/* One row per item — flat. There is no expand-to-locations here: a per-location
+   split is a stock view, and stock views belong to the Inventory Sub-Ledger. */
+.im-col-header, .im-row, .im-group-header {
+  display: grid;
+  grid-template-columns: 100px minmax(190px, 1fr) 122px 108px 92px 120px 108px 132px 150px;
+  gap: 10px;
+  align-items: center;
+  padding: 11px 18px;
+}
+.im-col-header {
+  background: var(--color-surface-sunken);
+  font-size: 9.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--color-text-tertiary);
+  padding: 9px 18px;
+  border-top: .5px solid var(--color-border-default);
+  border-bottom: .5px solid var(--color-border-default);
+}
+.im-row {
+  border-bottom: 1px solid var(--color-border-subtle);
+  cursor: pointer;
+  font-size: 12.5px;
+}
+.im-row:hover { background: var(--color-surface-hover, #F7F4EE); }
+
+.im-num { text-align: right; font-family: var(--font-mono); white-space: nowrap; }
+.im-col-header .im-num { font-family: inherit; }
+
+.im-sku { font-family: var(--font-mono); font-size: 11.5px; color: var(--color-text-secondary); white-space: nowrap; }
+.im-name { font-weight: 600; color: var(--color-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.im-value { font-weight: 700; color: var(--color-text-primary); }
+.im-dash { color: var(--color-text-tertiary); }
+
+/* Primary unit column */
+.im-uom { font-size: 11.5px; color: var(--color-text-secondary); white-space: nowrap; }
+
+/* A counted zero — distinct from "no record" and from a service dash */
+.im-stock-out-num { font-family: var(--font-mono); font-weight: 600; color: var(--color-danger-text, #C0392B); }
+
+/* Lifecycle pill — the only status axis. */
+.im-status-cell { display: flex; align-items: center; min-width: 0; }
+.im-status { display: inline-flex; align-items: center; padding: 2px 10px; border-radius: 9999px; font-size: 10px; font-weight: 700; letter-spacing: .02em; border: 1px solid transparent; }
+.im-status-active { background: var(--color-success-surface, #E7F3EC); color: var(--color-success-text, #1B7A46); border-color: #C5E4D1; }
+.im-status-inactive { background: var(--color-surface-sunken, #EFEBE4); color: var(--color-text-tertiary); border-color: var(--color-border-default); }
+.im-status-draft { background: var(--color-surface-sunken, #EFEBE4); color: var(--color-text-secondary); border-color: var(--color-border-default); border-style: dashed; }
+.im-status-pending { background: var(--warning-surface); color: var(--warning-text); border-color: var(--warning-border); }
+
+/* A field the form shows but doesn't let you set (new items are always Draft). */
+.vc-readonly { display: flex; align-items: center; height: 36px; padding: 0 10px; border: 1px solid var(--color-border-default); border-radius: 6px; background: var(--color-surface-sunken, #EFEBE4); color: var(--color-text-secondary); font-size: 13px; }
+
+/* Derived figures carry their source. Small and quiet — it should be findable,
+   not shouty, but always present so a reader knows whose number this is. */
+.imd-kpi-src { margin-top: 4px; font-size: 10px; color: var(--color-text-tertiary); letter-spacing: .01em; }
+/* "No stock recorded" / "Nothing on hand" — never Rp 0 for an unknown. */
+.imd-kpi-none { font-size: 14px; font-weight: 400; color: var(--color-text-tertiary); }
+/* Tag beside a form label saying whether the field is gated. */
+.imd-fld-tag { margin-left: 6px; padding: 1px 6px; border-radius: 9999px; font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; background: var(--color-surface-sunken, #EFEBE4); color: var(--color-text-tertiary); }
+/* Explanatory note inside a create-form section. */
+.imc-note { padding: 10px 12px; border: 1px solid var(--color-border-default); border-left: 3px solid var(--color-border-strong, #C9BFB0); border-radius: 6px; background: var(--color-surface-sunken, #EFEBE4); font-size: 12px; line-height: 1.55; color: var(--color-text-secondary); }
+
+/* Change request — the proposed values, shown beside the approved ones. */
+.imd-cr-rows { display: flex; flex-direction: column; gap: 4px; margin: 8px 0 6px; }
+.imd-cr-row { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
+.imd-cr-field { min-width: 110px; color: var(--color-text-tertiary); }
+.imd-cr-from { font-family: var(--font-mono); color: var(--color-text-tertiary); text-decoration: line-through; }
+.imd-cr-arrow { color: var(--color-text-tertiary); }
+.imd-cr-to { font-family: var(--font-mono); font-weight: 600; color: var(--color-text-primary); }
+.imd-cr-meta { font-size: 11px; color: var(--color-text-tertiary); }
+.im-stock { display: inline-flex; align-items: baseline; gap: 5px; flex-wrap: wrap; }
+.im-stock-qty { font-family: var(--font-mono); font-weight: 600; color: var(--color-text-primary); }
+.im-stock-uom { font-size: 11px; color: var(--color-text-tertiary); }
+
+/* ── Add New Item form ────────────────────────────────────────────────────── */
+/* Read-only (derived) field */
+.imc-ro { background: var(--color-surface-sunken); color: var(--color-text-secondary); font-family: var(--font-mono); }
+
+/* Accounts preview (read-only) */
+.imc-rotag { margin-left: 8px; font-size: 9px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--color-text-tertiary); background: var(--color-surface-sunken); border: 1px solid var(--color-border-default); border-radius: 9999px; padding: 2px 7px; vertical-align: middle; }
+.imc-acct-empty { font-size: 12.5px; color: var(--color-text-tertiary); padding: 6px 0; }
+.imc-acct-list { display: flex; flex-direction: column; }
+.imc-acct-row { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--color-border-subtle); font-size: 12.5px; }
+.imc-acct-row:last-child { border-bottom: none; }
+.imc-acct-lbl { color: var(--color-text-tertiary); }
+.imc-acct-val { color: var(--color-text-primary); text-align: right; font-weight: 500; }
+.imc-acct-code { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-tertiary); margin-left: 6px; }
+.imc-acct-na { color: var(--color-text-tertiary); font-weight: 400; }
+
+/* ── The sub-ledger column group ─────────────────────────────────────────────
+   On-hand and Stock Value are the only two columns on this page Item Master
+   does not own. They sit under a band that says so by name, because an
+   unlabelled figure on an item list reads as the item's own — and this one can
+   be stale, or absent, in ways the rest of the row never is. */
+.im-group-header {
+  padding: 7px 18px 0;
+  background: var(--color-surface-sunken);
+  border-top: .5px solid var(--color-border-default);
+}
+.im-group-span {
+  grid-column: 7 / 9;
+  display: flex; align-items: center; gap: 6px;
+  font-size: 9px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--color-text-tertiary);
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--color-border-default);
+}
+.im-group-span svg { width: 11px; height: 11px; stroke: currentColor; fill: none; stroke-width: 2; }
+.im-group-asof {
+  grid-column: 9 / 10;
+  font-size: 9.5px; letter-spacing: 0; text-transform: none; font-weight: 500;
+  color: var(--color-text-tertiary); white-space: nowrap;
+}
+.im-col-header { border-top: none; }
+
+/* Item Type badge — the axis that decides whether stock is a concept at all. */
+.im-type {
+  display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 5px;
+  font-size: 10px; font-weight: 600; letter-spacing: .01em; white-space: nowrap;
+  border: 1px solid var(--color-border-default); color: var(--color-text-secondary);
+  background: var(--color-surface-sunken);
+}
+.im-type-stocked { color: var(--color-text-primary); }
+.im-type-non_stocked, .im-type-service { font-style: italic; }
+
+/* The three ways a stock figure can have no number. Kept visually distinct on
+   purpose — "we checked and it's zero" and "we have no idea" must never look
+   alike, and neither may look like Rp 0. */
+.im-none { color: var(--color-text-tertiary); font-size: 11.5px; font-style: italic; }
+.im-unavail {
+  color: var(--warning-text); font-size: 11px; font-weight: 600;
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.im-unavail::before {
+  content: ""; width: 5px; height: 5px; border-radius: 50%;
+  background: currentColor; flex: none;
+}
+
+/* Sub-ledger outage banner — shown once at the top of the page rather than
+   repeated per row, with what it disables spelled out. */
+.im-outage {
+  display: flex; gap: 10px; align-items: flex-start;
+  margin: 0 0 14px; padding: 11px 14px; border-radius: 8px;
+  background: var(--warning-surface); border: 1px solid var(--warning-border);
+  color: var(--warning-text); font-size: 12.5px; line-height: 1.5;
+}
+.im-outage svg { width: 15px; height: 15px; flex: none; margin-top: 1px; stroke: currentColor; fill: none; stroke-width: 2; }
+
+/* Locked-field marker on the detail page. */
+.im-lock {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10px; font-weight: 600; letter-spacing: .02em;
+  color: var(--color-text-tertiary);
+}
+.im-lock svg { width: 10px; height: 10px; stroke: currentColor; fill: none; stroke-width: 2.2; }

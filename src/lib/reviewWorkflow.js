@@ -6,9 +6,9 @@
 //   REVIEW    — needs a human to acknowledge / fix; does NOT hard-block posting
 //   ADVISORY  — informational; never blocks
 //
-// The engine is PURE: computeBillFlags(bill) reads the bill plus its vendor and
-// item masters, and returns a flat flag list. Master state can be passed in
-// (vendorArg, opts.items) so live in-session edits are reflected; it falls back
+// The engine is PURE: computeBillFlags(bill) reads the bill plus its vendor
+// master, and returns a flat flag list. Master state can be passed in
+// (vendorArg) so live in-session edits are reflected; it falls back
 // to the seed. Resolution state (acknowledged / overridden)
 // lives on the bill record (review_ack / review_overrides), applied by the
 // selector helpers below so the UI can gate the Post action via canPost().
@@ -21,8 +21,6 @@
 import { daysSince } from "./clock";
 import { workflowStatus, isApPeriodLocked, billPeriod, DEMO_OVERRIDES } from "./billStatus";
 import { VENDORS } from "../data/seed/vendors";
-import { INVENTORY } from "../data/seed/inventory";
-import { axesFromLegacy, seedApprovalFor } from "../data/seed/itemGovernance";
 
 export const SEVERITY = { BLOCKING: "BLOCKING", REVIEW: "REVIEW", ADVISORY: "ADVISORY" };
 
@@ -92,23 +90,6 @@ function flag(bill, key, { label, severity, category, message, ownerRole = "ap_s
 
 const has = (t, ...subs) => subs.some((s) => (t || "").toLowerCase().includes(s));
 
-// Items whose current version is awaiting sign-off, resolved from the seed.
-// Callers holding live inventory state pass opts.items instead, so approving an
-// item in-session clears the flag on its bills straight away.
-const SEED_ITEMS = INVENTORY.map((it) => ({
-  ...it,
-  approval: seedApprovalFor(it.id, axesFromLegacy(it.status).approval),
-}));
-
-// A bill line references an item by description — the picker writes the item
-// name into it, so match on containment either way to survive hand-typed lines.
-function lineMatchesItem(desc, name) {
-  const d = (desc || "").toLowerCase().trim();
-  const n = (name || "").toLowerCase().trim();
-  if (!d || n.length < 4) return false;
-  return d === n || d.includes(n);
-}
-
 // ── The engine ──────────────────────────────────────────────────────────────
 // Returns every flag the bill trips, in evaluation order. opts.autoAssignLateBills
 // (default true) reflects the Settings → Accounting toggle: when ON, a bill in a
@@ -145,24 +126,6 @@ export function computeBillFlags(bill, vendorArg, opts = {}) {
       label: "Vendor pending approval", severity: SEVERITY.REVIEW, category: "Vendor",
       ownerRole: "finance_manager",
       message: `${vendor.name} is pending approval — a manager must sign off the vendor (in Vendor Master) before this bill can be posted or paid.`,
-    });
-  }
-
-  // An item on this bill has a governed change awaiting sign-off. Item Master
-  // SoD, mirroring the vendor check above: the item stays usable so the bill can
-  // be raised and submitted at the item's last APPROVED values, and only posting
-  // and payment wait for the approver. Clears when the item's approval →
-  // Approved. (Item Master PRD §7.4 — a change request never takes a live item
-  // out of service.)
-  const pendingItems = (opts.items || SEED_ITEMS)
-    .filter((it) => it.approval === "pending_approval")
-    .filter((it) => (bill.items || []).some((l) => lineMatchesItem(l.desc, it.name)));
-  if (pendingItems.length) {
-    const names = pendingItems.map((it) => `${it.name} (${it.sku})`).join(", ");
-    push("item_pending", {
-      label: "Item pending approval", severity: SEVERITY.REVIEW, category: "Item",
-      ownerRole: "finance_manager",
-      message: `${names} ${pendingItems.length > 1 ? "have" : "has"} a change awaiting approval — a manager must sign it off in Inventory before this bill can be posted or paid.`,
     });
   }
 

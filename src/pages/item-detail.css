@@ -1,0 +1,47 @@
+/* ── Item Detail — extends the shared vd-* detail layout ─────────────────── */
+
+.dim { color: var(--color-text-tertiary); font-weight: 400; }
+
+/* Hero KPI strip */
+.imd-hero { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 4px 32px 0; }
+@media (max-width: 720px) { .imd-hero { grid-template-columns: 1fr 1fr; } }
+.imd-kpi { background: var(--color-surface-raised); border: 1px solid var(--color-border-default); border-radius: var(--radius-md); padding: 14px 16px; }
+.imd-kpi-lbl { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--color-text-tertiary); margin-bottom: 6px; }
+.imd-kpi-val { font-size: 20px; font-weight: 800; color: var(--color-text-primary); font-family: var(--font-mono); }
+.imd-kpi-unit { font-size: 12px; font-weight: 600; color: var(--color-text-tertiary); font-family: var(--font-sans); }
+
+/* Per-location total row */
+.imd-loc-total td { font-weight: 700; color: var(--color-text-primary); border-top: 1.5px solid var(--color-border-default); }
+
+/* Edit-price modal fields (form-fld base lives elsewhere) */
+.vd-modal .form-fld { margin-bottom: 0; }
+.vd-modal .form-fld label { display: block; font-size: 11px; font-weight: 600; color: var(--color-text-secondary); margin-bottom: 5px; }
+.vd-modal .form-fld input,
+.vd-modal .form-fld select { width: 100%; padding: 8px 10px; border: 1px solid var(--color-border-default); border-radius: var(--radius-sm); font-size: 13px; background: var(--color-surface); color: var(--color-text-primary); box-sizing: border-box; font-family: var(--font-sans); }
+.vd-modal .form-fld input:focus,
+.vd-modal .form-fld select:focus { outline: none; border-color: var(--color-action); }
+
+/* Read-only GL mapping and source notes */
+.imd-ro-tag {
+  margin-left: 8px; font-size: 9px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--color-text-tertiary); background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-default); border-radius: 9999px; padding: 2px 7px; vertical-align: middle;
+}
+.imd-acct { display: inline-flex; align-items: baseline; gap: 8px; justify-content: flex-end; }
+.imd-acct-code { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-tertiary); }
+.imd-ro-note { margin-top: 10px; font-size: 11.5px; color: var(--color-text-tertiary); }
+
+.imd-je { font-family: var(--font-mono); font-size: 11.5px; color: var(--color-action); text-decoration: none; }
+.imd-je:hover { text-decoration: underline; }
+
+/* Movement-row chrome — action badges, JE posting chips, the adjust modal —
+   went with the movements themselves. That styling belongs to the Inventory
+   Sub-Ledger's own screens when it gets them, not to the catalogue. */
+
+/* Edit modal — one form over the whole record. Wider than the shared modal
+   because there is no approval step to split the edit across two screens. */
+.imd-edit-modal { max-width: 620px; }
+.imd-edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; }
+.imd-edit-full { grid-column: 1 / -1; }
+.imd-edit-grid select:disabled,
+.imd-edit-grid input:disabled { opacity: .6; cursor: not-allowed; background: var(--color-surface-sunken); }

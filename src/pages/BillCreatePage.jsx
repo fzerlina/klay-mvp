@@ -2,8 +2,8 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useBills } from "../state/BillsContext";
 import { useVendors } from "../state/VendorsContext";
-import { useInventory, isUsableInBills } from "../state/InventoryContext";
-import { INV_CATEGORY_ACCOUNTS, INV_CAT_LABELS } from "../data/seed/inventory";
+import { useItems, isUsableInBills } from "../state/ItemsContext";
+import { ITEM_CATEGORY_ACCOUNTS, ITEM_CAT_LABELS } from "../data/seed/items";
 import { formatDate, initials } from "../lib/format";
 import { previewJournalLines } from "../lib/billJournalPreview";
 import { computeBillFlags } from "../lib/reviewWorkflow";
@@ -422,10 +422,10 @@ export default function BillCreatePage() {
   const navigate = useNavigate();
   const { addBill, bills } = useBills();
   const { vendors, addVendor } = useVendors();
-  const { items: inventoryItems } = useInventory();
+  const { items: catalogueItems } = useItems();
   // Only Active (approved) products can be put on a bill — Draft / Pending
   // Review / Inactive items are excluded from the line-item picker.
-  const billableProducts = useMemo(() => inventoryItems.filter(isUsableInBills), [inventoryItems]);
+  const billableProducts = useMemo(() => catalogueItems.filter(isUsableInBills), [catalogueItems]);
 
   // Inline vendor creation state — opened from the vendor combobox when the
   // FM searches for a vendor that doesn't exist yet.
@@ -623,14 +623,21 @@ export default function BillCreatePage() {
   function updateRow(i, patch)         { setItems((p) => p.map((it, idx) => (idx === i ? { ...it, ...patch } : it))); }
   function delRow(i)                   { setItems((p) => p.filter((_, idx) => idx !== i)); }
 
-  // Line description doubles as a product picker: if the typed/selected value
-  // matches a billable (Active) product, fill its unit cost and inventory GL
-  // account. Free text still works for non-inventory lines (services, expenses).
+  // Line description doubles as an item picker: if the typed/selected value
+  // matches a billable (Active) item, COPY its purchase price and inventory GL
+  // account onto the line. Free text still works for lines with no catalogue
+  // entry (one-off services, overheads).
+  //
+  // Copying is the whole contract (Item Master PRD §0.2): the line keeps its own
+  // value from this moment, so editing the item's purchase price next month can
+  // never restate this bill. It is deliberately the PURCHASE PRICE and not a
+  // stock cost — Item Master publishes no cost, and a line priced from a
+  // valuation would be a figure read at reporting time.
   function onRowDesc(i, value) {
     const p = billableProducts.find((x) => x.name.toLowerCase() === value.trim().toLowerCase());
     if (!p) { updateRow(i, { desc: value }); return; }
-    const invAcct = INV_CATEGORY_ACCOUNTS[p.category]?.inventory;
-    const patch = { desc: p.name, price: p.unit_cost || 0 };
+    const invAcct = ITEM_CATEGORY_ACCOUNTS[p.category]?.inventory;
+    const patch = { desc: p.name, price: p.purchase_price || 0 };
     if (invAcct && EXPENSE_ACCOUNTS.some((a) => a.code === invAcct)) patch.acct = invAcct;
     updateRow(i, patch);
   }
@@ -750,7 +757,7 @@ export default function BillCreatePage() {
     if (vendor) {
       const FIELD = { Vendor: "vendor", Tax: "tax", Documents: "attachments", "Transaction risk": "items", Workflow: "items" };
       const SKIP = new Set(["approval_stalled", "period_locked", "missing_document", "duplicate", "price_anomaly"]);
-      for (const f of computeBillFlags(flagDraft, vendor, { autoAssignLateBills: true, items: inventoryItems })) {
+      for (const f of computeBillFlags(flagDraft, vendor, { autoAssignLateBills: true })) {
         if (f.side || SKIP.has(f.key)) continue;
         list.push({ id: `eng-${f.key}`, severity: f.severity.toLowerCase(), field: FIELD[f.category] || "items", title: f.label, detail: f.message });
       }
@@ -1134,11 +1141,11 @@ export default function BillCreatePage() {
                   })}
                 </tbody>
               </table>
-              {/* Product picker source — only Active (approved) inventory items;
-                  picking one fills its unit cost + inventory account. */}
+              {/* Item picker source — only Active (approved) catalogue items;
+                  picking one COPIES its purchase price + inventory account. */}
               <datalist id="klay-inv-products">
                 {billableProducts.map((p) => (
-                  <option key={p.id} value={p.name}>{p.sku} · {INV_CAT_LABELS[p.category] || p.category}</option>
+                  <option key={p.id} value={p.name}>{p.sku} · {ITEM_CAT_LABELS[p.category] || p.category}</option>
                 ))}
               </datalist>
             </div>

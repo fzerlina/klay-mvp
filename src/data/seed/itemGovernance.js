@@ -1,33 +1,45 @@
-// Item status axes — layered onto the inventory seed the same way vendor
-// lifecycle/approval is (see vendorHealth.js), so the two masters behave alike.
+// Item lifecycle — layered onto the item catalogue (seed/items.js).
 //
-// Two INDEPENDENT axes (Item Master PRD, §7):
-//   1. LIFECYCLE — is the item usable for new transactions?
-//        draft    → being written; never had an approved version, so there is
-//                   nothing for a bill line to copy. Not selectable.
-//        active   → usable on documents, always at its last approved version
-//        inactive → retired, replaced, or merged away. Posted history stays
-//                   intact and drillable; not selectable on new documents.
-//   2. APPROVAL — has the current version of the record been signed off?
-//        unapproved       → drafted but not yet submitted
-//        pending_approval → waiting on an approver, either for a brand-new item
-//                           or for a governed change to a live one
-//        approved         → signed off; a frozen version exists
+// NOTHING IN ITEM MASTER IS APPROVAL-GATED. Creating an item needs no sign-off,
+// and neither does changing one. There is one axis here, not two.
 //
-// The combination that matters is ACTIVE + PENDING_APPROVAL: a live item with a
-// governed change waiting. Its lifecycle never moves, so it stays fully usable
-// on new bills at its last approved values while the change sits in review. The
-// old single-status model flipped the whole item to "Pending Review", which
-// pulled it out of the bill picker and took it offline for as long as review
-// took — an approval queue should never stop people raising documents.
+// The earlier model had a second APPROVAL axis: governed fields (name, category,
+// units, sales price, tax treatment) opened a change request that a second
+// person had to sign off, on the reasoning that a bill line copies those values
+// and the books then depend on the copy. The reasoning was right about where the
+// risk sits and wrong about the remedy. Master-data approval taxes every small
+// edit, and the workarounds it breeds — creating a near-duplicate item, or
+// picking an existing one that is close enough — are worse than the thing it
+// guards against and leave no record to detect.
 //
-// Where items differ from vendors: a vendor Draft becomes Active on Submit and
-// is usable while approval is still pending, because a vendor supplies no values
-// to a bill LINE. An item does (unit, price, tax treatment, GL account), so it
-// stays Draft until an approver has signed a version off. Approval only stops
-// blocking bill creation once there is something approved to copy.
+// What replaces it is not nothing. Two mechanisms carry the weight instead:
+//
+//   1. VERSIONS. Every change freezes a snapshot, and a document copies from a
+//      version rather than reading the item at reporting time. An edit made in
+//      April therefore cannot restate a bill raised in January — which was
+//      always the actual exposure, and which approval only ever addressed
+//      indirectly. See ItemsContext.snapshotData / the governing rule in §0.2.
+//   2. THE AUDIT TRAIL. Who changed what, when, from what to what. Detection
+//      after the fact rather than permission before it.
+//
+// Guards that remain are NOT approvals — they are physical constraints, and they
+// still refuse:
+//   • unit fields lock while the Inventory Sub-Ledger reports stock
+//   • deactivation is blocked while stock exists
+//   • both fail closed when the sub-ledger cannot be reached
+//
+// LIFECYCLE — is the item usable for new transactions?
+//   draft    → an incomplete record: a migration/import batch nobody has
+//              finished off. NOT produced by the create form, which lands items
+//              Active. Kept because the provisioning window (§7.5) is defined on
+//              Draft — during migration, before opening balances post, unit
+//              fields must stay editable. Goes live via Activate, which is a
+//              completion step and not a sign-off.
+//   active   → usable on documents, at its current version
+//   inactive → retired, replaced, or merged away. Posted history stays intact
+//              and drillable; not selectable on new documents.
 
-// Lifecycle pill labels; `tone` maps to the pill styles in inventory.css.
+// Lifecycle pill labels; `tone` maps to the pill styles in items.css.
 export const ITEM_LIFECYCLE_META = {
   draft:    { label: "Draft",    tone: "draft" },
   active:   { label: "Active",   tone: "active" },
@@ -36,62 +48,13 @@ export const ITEM_LIFECYCLE_META = {
 // Tab / display order for the list.
 export const ITEM_LIFECYCLE_ORDER = ["active", "draft", "inactive"];
 
-// Approval chip labels. Shown beside the lifecycle pill, never instead of it.
-export const ITEM_APPROVAL_META = {
-  unapproved:       { label: "Not submitted",   tone: "draft" },
-  pending_approval: { label: "Pending approval", tone: "pending" },
-  approved:         { label: "Approved",         tone: "active" },
-};
-
-// The seed predates the split and carries one four-value `status`. Map it onto
-// the two axes so the existing records keep their meaning:
-//   draft          → drafted, not yet submitted
-//   pending_review → drafted and submitted, awaiting its first approval
-//   active         → live and signed off
-//   inactive       → retired and signed off
+// The seed carries a legacy `status` string. Map it onto the lifecycle.
 const LEGACY = {
-  draft:          { lifecycle: "draft",    approval: "unapproved" },
-  pending_review: { lifecycle: "draft",    approval: "pending_approval" },
-  active:         { lifecycle: "active",   approval: "approved" },
-  inactive:       { lifecycle: "inactive", approval: "approved" },
+  draft:    "draft",
+  active:   "active",
+  inactive: "inactive",
 };
 
-export function axesFromLegacy(status) {
-  return LEGACY[status] || LEGACY.active;
-}
-
-// Approval overrides — live, already-approved items currently sitting in Pending
-// approval because a governed change is in review. These are the demo proof that
-// the two axes move independently: both stay Active and both stay usable on new
-// bills while their change request waits.
-export const ITEM_APPROVAL_SEED = {
-  INV003: "pending_approval", // Cotton Yarn 30s — sales price rise, submitted by AP
-  INV006: "pending_approval", // Folding Table — name fix, submitted by the FM herself
-};
-
-// The change requests behind those overrides. A request holds the PROPOSED
-// values; the item itself keeps serving its approved ones until an approver
-// applies them. `submittedBy` is what makes approver ≠ submitter enforceable.
-export const ITEM_CHANGE_REQUEST_SEED = {
-  INV003: {
-    patch: { sales_price: 58000 },
-    submittedBy: "Budi Santoso",
-    submittedAt: "2025-04-21",
-    reason: "Supplier raised yarn pricing in April.",
-  },
-  INV006: {
-    patch: { name: "Multifunction Folding Table 120cm" },
-    // Submitted by the default persona on purpose: opening this item shows the
-    // approver ≠ submitter refusal, which is otherwise invisible in a demo.
-    submittedBy: "Sari Dewanti",
-    submittedAt: "2025-04-22",
-    reason: "Name never carried the size; two variants are being confused.",
-  },
-};
-
-export function seedApprovalFor(itemId, fallback) {
-  return ITEM_APPROVAL_SEED[itemId] || fallback;
-}
-export function seedChangeRequestFor(itemId) {
-  return ITEM_CHANGE_REQUEST_SEED[itemId] || null;
+export function lifecycleFromLegacy(status) {
+  return LEGACY[status] || "active";
 }

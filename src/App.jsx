@@ -19,9 +19,9 @@ import VendorDetailPage from "./pages/VendorDetailPage";
 import CustomersPage from "./pages/CustomersPage";
 import CustomerCreatePage from "./pages/CustomerCreatePage";
 import CustomerDetailPage from "./pages/CustomerDetailPage";
-import InventoryPage from "./pages/InventoryPage";
-import InventoryCreatePage from "./pages/InventoryCreatePage";
-import InventoryDetailPage from "./pages/InventoryDetailPage";
+import ItemsPage from "./pages/ItemsPage";
+import ItemCreatePage from "./pages/ItemCreatePage";
+import ItemDetailPage from "./pages/ItemDetailPage";
 import GeneralLedgerPage from "./pages/GeneralLedgerPage";
 import TrialBalancePage from "./pages/TrialBalancePage";
 import ApCloseCommandCenterPage from "./pages/ApCloseCommandCenterPage";
@@ -37,7 +37,8 @@ import { BillsProvider } from "./state/BillsContext";
 import { PaymentsProvider } from "./state/PaymentsContext";
 import { VendorsProvider } from "./state/VendorsContext";
 import { CustomersProvider } from "./state/CustomersContext";
-import { InventoryProvider } from "./state/InventoryContext";
+import { ItemsProvider } from "./state/ItemsContext";
+import { InventorySubledgerProvider } from "./state/InventorySubledgerContext";
 import { AccountingSettingsProvider } from "./state/AccountingSettingsContext";
 import { JournalEntriesProvider } from "./state/JournalEntriesContext";
 import { ClosePeriodProvider } from "./state/ClosePeriodContext";
@@ -100,7 +101,10 @@ export default function App() {
       <BillsProvider>
         <VendorsProvider>
           <CustomersProvider>
-          <InventoryProvider>
+          {/* The sub-ledger wraps Item Master, not the other way round: the
+              catalogue reads stock, and stock never reads the catalogue. */}
+          <InventorySubledgerProvider>
+          <ItemsProvider>
             <AccountingSettingsProvider>
             <JournalEntriesProvider>
             <ClosePeriodProvider>
@@ -131,9 +135,17 @@ export default function App() {
                 <Route path="/customers" element={<CustomersPage />} />
                 <Route path="/customers/new" element={<RequireLevel module="ar" level="transact" action="add customers"><CustomerCreatePage /></RequireLevel>} />
                 <Route path="/customers/:id" element={<CustomerDetailPage />} />
-                <Route path="/inventory" element={<InventoryPage />} />
-                <Route path="/inventory/new" element={<InventoryCreatePage />} />
-                <Route path="/inventory/:id" element={<InventoryDetailPage />} />
+                <Route path="/items" element={<ItemsPage />} />
+                <Route path="/items/new" element={<ItemCreatePage />} />
+                <Route path="/items/:id" element={<ItemDetailPage />} />
+                {/* The combined Inventory module is gone. Its catalogue half is
+                    Item Master; its stock half is the Inventory Sub-Ledger, which
+                    is a data layer with no screens yet — so /inventory resolves to
+                    the catalogue rather than 404ing. Record ids changed with the
+                    split, so a deep link lands on the list, not a wrong item. */}
+                <Route path="/inventory" element={<Navigate to="/items" replace />} />
+                <Route path="/inventory/new" element={<Navigate to="/items/new" replace />} />
+                <Route path="/inventory/:id" element={<Navigate to="/items" replace />} />
                 <Route path="/reports" element={<ReportsPage />} />
                 <Route path="/reports/cashflow" element={<CashflowReportPage />} />
                 <Route path="/trial-balance" element={<TrialBalancePage />} />
@@ -152,7 +164,8 @@ export default function App() {
             </ClosePeriodProvider>
             </JournalEntriesProvider>
             </AccountingSettingsProvider>
-          </InventoryProvider>
+          </ItemsProvider>
+          </InventorySubledgerProvider>
           </CustomersProvider>
         </VendorsProvider>
       </BillsProvider>
