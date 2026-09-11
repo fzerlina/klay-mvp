@@ -53,9 +53,16 @@ export const COA = [
   { id: '1-6400', code: '1-6400', name: 'Vehicles',                      type: 'asset',         normal_balance: 'debit',  fs: 'BS', section: 'Non-Current Asset', parent: 'g-ppe', level: 3, is_active: true },
   { id: '1-6410', code: '1-6410', name: 'Accumulated Depreciation — Vehicles',      type: 'contra_asset', normal_balance: 'credit', fs: 'BS', section: 'Non-Current Asset', parent: 'g-ppe', level: 3, is_active: true },
   { id: '1-6500', code: '1-6500', name: 'Machinery',                     type: 'asset',         normal_balance: 'debit',  fs: 'BS', section: 'Non-Current Asset', parent: 'g-ppe', level: 3, is_active: true },
+  { id: '1-6510', code: '1-6510', name: 'Accumulated Depreciation — Machinery',    type: 'contra_asset', normal_balance: 'credit', fs: 'BS', section: 'Non-Current Asset', parent: 'g-ppe', level: 3, is_active: true },
+  // Fixed Asset Clearing — a suspense account for costs received but not yet
+  // capitalised. Nothing posts to it today: capitalise-from-bill via a clearing
+  // account is out of scope for the Fixed Asset register (PRD §10). Kept because
+  // a real chart carries one, and because that flow is a candidate to come back.
+  { id: '1-6900', code: '1-6900', name: 'Fixed Asset Clearing',          type: 'asset',         normal_balance: 'debit',  fs: 'BS', section: 'Non-Current Asset', parent: 'g-ppe', level: 3, is_active: true },
 
   { id: 'g-intangible',     type: 'group', level: 2, parent: 'g-non-current-asset', label: 'Intangible Assets' },
   { id: '1-7100', code: '1-7100', name: 'Software & Licenses',           type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Non-Current Asset', parent: 'g-intangible', level: 3, is_active: true },
+  { id: '1-7110', code: '1-7110', name: 'Accumulated Amortisation — Software', type: 'contra_asset', normal_balance: 'credit', fs: 'BS', section: 'Non-Current Asset', parent: 'g-intangible', level: 3, is_active: true },
 
   { id: 'g-other-nc',       type: 'group', level: 2, parent: 'g-non-current-asset', label: 'Other Non-Current Assets' },
   { id: '1-8100', code: '1-8100', name: 'Security Deposits',             type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Non-Current Asset', parent: 'g-other-nc', level: 3, is_active: true },
@@ -109,6 +116,7 @@ export const COA = [
   { id: '4-2100', code: '4-2100', name: 'Interest Income',               type: 'revenue', normal_balance: 'credit', fs: 'PL', section: 'Other Revenue', parent: 'g-other-rev', level: 2, is_active: true },
   { id: '4-2200', code: '4-2200', name: 'Foreign Exchange Gain',         type: 'revenue', normal_balance: 'credit', fs: 'PL', section: 'Other Revenue', parent: 'g-other-rev', level: 2, is_active: true },
   { id: '4-2300', code: '4-2300', name: 'Miscellaneous Income',          type: 'revenue', normal_balance: 'credit', fs: 'PL', section: 'Other Revenue', parent: 'g-other-rev', level: 2, is_active: true },
+  { id: '4-2400', code: '4-2400', name: 'Gain on Asset Disposal',        type: 'revenue', normal_balance: 'credit', fs: 'PL', section: 'Other Revenue', parent: 'g-other-rev', level: 2, is_active: true },
 
   { id: 'g-contra-rev',     type: 'group', level: 1, parent: 'g-revenue',         label: 'Contra Revenue' },
   { id: '4-3100', code: '4-3100', name: 'Sales Returns and Allowances',  type: 'contra_revenue', normal_balance: 'debit', fs: 'PL', section: 'Revenue', parent: 'g-contra-rev', level: 2, is_active: true },
