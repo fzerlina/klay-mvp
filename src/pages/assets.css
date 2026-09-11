@@ -1,0 +1,67 @@
+/* ── Fixed Assets — register list, create form, detail chrome ────────────────
+   Builds on the shared vd-, lg- and ap- prefixed shells (vendor-detail.css,
+   modules.css/invoices-ledger.css, invoice-create.css) the same way
+   items.css/item-detail.css do for Item Master — only what is genuinely new
+   to this module lives here. */
+
+.fa-lede { margin-top: 6px; font-size: 13px; color: var(--color-text-secondary); max-width: 640px; }
+
+.fa-type-select {
+  font-size: 12.5px; padding: 7px 10px; border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-default); background: var(--color-surface-raised);
+  color: var(--color-text-secondary);
+}
+
+/* ── Register list grid ──────────────────────────────────────────────────── */
+.fa-scroll { overflow-x: auto; }
+.fa-inner { min-width: 1120px; }
+/* Asset ID · Name · Type · Category · Acquisition Date · Original Value · Method · Book Value · Status */
+.fa-col-header, .fa-row {
+  display: grid;
+  grid-template-columns: 96px minmax(190px, 1fr) 108px 130px 118px 140px 190px 140px 108px;
+  gap: 10px;
+  align-items: center;
+  padding: 11px 18px;
+}
+.fa-col-header {
+  background: var(--color-surface-sunken);
+  font-size: 9.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--color-text-tertiary);
+  padding: 9px 18px;
+  border-bottom: .5px solid var(--color-border-default);
+}
+.fa-row { border-bottom: 1px solid var(--color-border-subtle); cursor: pointer; font-size: 12.5px; }
+.fa-row:hover { background: var(--color-surface-hover, #F7F4EE); }
+.fa-num { text-align: right; font-family: var(--font-mono); white-space: nowrap; }
+.fa-col-header .fa-num { font-family: inherit; }
+.fa-tag { font-family: var(--font-mono); font-size: 11.5px; color: var(--color-text-secondary); white-space: nowrap; }
+.fa-name { font-weight: 600; color: var(--color-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fa-value { font-weight: 700; color: var(--color-text-primary); }
+.fa-dash { color: var(--color-text-tertiary); }
+.fa-class { font-size: 11.5px; color: var(--color-text-secondary); white-space: nowrap; }
+
+/* A figure the schedule can't compute — never a bare zero. */
+.fa-none { color: var(--color-text-tertiary); font-size: 11.5px; font-style: italic; }
+
+/* Status pill — extends vd-status with the two lifecycle tones Item Master
+   never needed (Paused; Disposed/Cancelled both read as Closed). */
+.vd-status.paused { background: var(--warning-surface); color: var(--warning-text); border-color: var(--warning-border); }
+.vd-status.closed { background: var(--color-surface-sunken); color: var(--color-text-tertiary); border-color: var(--color-border-default); }
+
+/* Locked-field marker (scheduleLocked) */
+.fa-lock { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 600; letter-spacing: .02em; color: var(--color-text-tertiary); }
+.fa-lock svg { width: 10px; height: 10px; stroke: currentColor; fill: none; stroke-width: 2.2; }
+.fa-fld-tag { margin-left: 6px; padding: 1px 6px; border-radius: 9999px; font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; background: var(--color-surface-sunken); color: var(--color-text-tertiary); }
+.fac-note { padding: 10px 12px; border: 1px solid var(--color-border-default); border-left: 3px solid var(--color-border-strong, #C9BFB0); border-radius: 6px; background: var(--color-surface-sunken); font-size: 12px; line-height: 1.55; color: var(--color-text-secondary); }
+
+/* Schedule table (reuses vd-tx-table conventions) */
+.fa-sched-row.suspended { color: var(--color-text-tertiary); font-style: italic; }
+.fa-sched-row.revised td { border-top: 2px solid var(--color-action); }
+.fa-journal-row { background: var(--color-surface-sunken); font-size: 11.5px; }
+.fa-journal-row td { padding-top: 5px; padding-bottom: 5px; border-bottom: 1px solid var(--color-border-subtle); }
+.fa-sched-tag { font-size: 9px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 1px 6px; border-radius: 9999px; margin-left: 6px; }
+.fa-sched-tag.paused { background: var(--warning-surface); color: var(--warning-text); }
+.fa-sched-tag.revised { background: var(--color-action-wash, #E8EDFB); color: var(--color-action); }
+
+/* Stranded book value callout (cancelled assets) */
+.fa-stranded { background: var(--color-danger-surface); border: 1px solid var(--color-danger-border); color: var(--color-danger-text); border-radius: var(--radius-md); padding: 12px 14px; font-size: 12.5px; line-height: 1.5; margin-bottom: 14px; }
