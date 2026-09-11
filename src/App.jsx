@@ -22,6 +22,9 @@ import CustomerDetailPage from "./pages/CustomerDetailPage";
 import ItemsPage from "./pages/ItemsPage";
 import ItemCreatePage from "./pages/ItemCreatePage";
 import ItemDetailPage from "./pages/ItemDetailPage";
+import AssetsPage from "./pages/AssetsPage";
+import AssetCreatePage from "./pages/AssetCreatePage";
+import AssetDetailPage from "./pages/AssetDetailPage";
 import GeneralLedgerPage from "./pages/GeneralLedgerPage";
 import TrialBalancePage from "./pages/TrialBalancePage";
 import ApCloseCommandCenterPage from "./pages/ApCloseCommandCenterPage";
@@ -39,6 +42,7 @@ import { VendorsProvider } from "./state/VendorsContext";
 import { CustomersProvider } from "./state/CustomersContext";
 import { ItemsProvider } from "./state/ItemsContext";
 import { InventorySubledgerProvider } from "./state/InventorySubledgerContext";
+import { AssetsProvider } from "./state/AssetsContext";
 import { AccountingSettingsProvider } from "./state/AccountingSettingsContext";
 import { JournalEntriesProvider } from "./state/JournalEntriesContext";
 import { ClosePeriodProvider } from "./state/ClosePeriodContext";
@@ -108,6 +112,10 @@ export default function App() {
             <AccountingSettingsProvider>
             <JournalEntriesProvider>
             <ClosePeriodProvider>
+            {/* Fixed Assets is one module — the register and its schedule
+                engine (lib/fixedAssets.js) live in a single AssetsContext,
+                unlike Item Master / Inventory Sub-Ledger above. */}
+            <AssetsProvider>
             <PaymentsProvider>
             <Routes>
               <Route element={<Layout />}>
@@ -138,6 +146,9 @@ export default function App() {
                 <Route path="/items" element={<ItemsPage />} />
                 <Route path="/items/new" element={<ItemCreatePage />} />
                 <Route path="/items/:id" element={<ItemDetailPage />} />
+                <Route path="/assets" element={<AssetsPage />} />
+                <Route path="/assets/new" element={<AssetCreatePage />} />
+                <Route path="/assets/:id" element={<AssetDetailPage />} />
                 {/* The combined Inventory module is gone. Its catalogue half is
                     Item Master; its stock half is the Inventory Sub-Ledger, which
                     is a data layer with no screens yet — so /inventory resolves to
@@ -161,6 +172,7 @@ export default function App() {
               </Route>
             </Routes>
             </PaymentsProvider>
+            </AssetsProvider>
             </ClosePeriodProvider>
             </JournalEntriesProvider>
             </AccountingSettingsProvider>
