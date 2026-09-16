@@ -3,27 +3,7 @@ import "./modules.css";
 import "./invoices-ledger.css";
 import "./settings-pages.css";
 import "./bank-accounts-settings.css";
-
-// ── Mock data ──────────────────────────────────────────────────────────
-// Mirrors the BankReconciliationPage accounts so the IA tells one story.
-const INITIAL_ACCOUNTS = [
-  { id: "bca-op",          bank: "BCA",     bankColor: "#0050A8", name: "BCA Operating",     number: "0123456789", currency: "IDR", group: "operating", glAccount: "1101-100", glAccountName: "Cash - BCA Operating",       openingBalance: 1245680000, active: true },
-  { id: "bni-op",          bank: "BNI",     bankColor: "#F37021", name: "BNI Operating",     number: "5678901234", currency: "IDR", group: "operating", glAccount: "1101-110", glAccountName: "Cash - BNI Operating",       openingBalance:  380400000, active: true },
-  { id: "mandiri-op",      bank: "MDR",     bankColor: "#003D7A", name: "Mandiri Operating", number: "1300456789", currency: "IDR", group: "operating", glAccount: "1101-115", glAccountName: "Cash - Mandiri Operating",   openingBalance:  528200000, active: true },
-  { id: "cimb-op",         bank: "CIMB",    bankColor: "#7B2D8E", name: "CIMB Operating",    number: "8765432109", currency: "IDR", group: "operating", glAccount: "1101-120", glAccountName: "Cash - CIMB Operating",      openingBalance:  215800000, active: true },
-  { id: "bri-op",          bank: "BRI",     bankColor: "#003D7A", name: "BRI Operating",     number: "0205017012", currency: "IDR", group: "operating", glAccount: "1101-130", glAccountName: "Cash - BRI Operating",       openingBalance:  167900000, active: true },
-  { id: "permata-op",      bank: "PERMATA", bankColor: "#1A8C53", name: "Permata Operating", number: "4012345678", currency: "IDR", group: "operating", glAccount: "1101-140", glAccountName: "Cash - Permata Operating",   openingBalance:   94250000, active: true },
-  { id: "bni-tax",         bank: "BNI",     bankColor: "#F37021", name: "BNI Tax Account",   number: "9876543210", currency: "IDR", group: "tax",       glAccount: "1101-200", glAccountName: "Cash - Tax Holding",         openingBalance:   88000000, active: true },
-  { id: "mandiri-payroll", bank: "MDR",     bankColor: "#003D7A", name: "Mandiri Payroll",   number: "1234567890", currency: "IDR", group: "payroll",   glAccount: "1101-300", glAccountName: "Cash - Payroll",             openingBalance:   12500000, active: true },
-  { id: "bca-petty",       bank: "BCA",     bankColor: "#0050A8", name: "BCA Petty Cash",    number: "1111222233", currency: "IDR", group: "petty",     glAccount: null,       glAccountName: null,                         openingBalance:    8500000, active: true },
-  { id: "mandiri-petty",   bank: "MDR",     bankColor: "#003D7A", name: "Mandiri Petty Cash",number: "1290011122", currency: "IDR", group: "petty",     glAccount: "1101-410", glAccountName: "Cash - Petty Mandiri",       openingBalance:    4200000, active: true },
-  { id: "bca-usd",         bank: "BCA",     bankColor: "#0050A8", name: "BCA USD",           number: "2222333344", currency: "USD", group: "fx",        glAccount: "1102-100", glAccountName: "Cash - BCA USD",             openingBalance:  142300000, active: true },
-  { id: "bca-sgd",         bank: "BCA",     bankColor: "#0050A8", name: "BCA SGD",           number: "3333444455", currency: "SGD", group: "fx",        glAccount: "1102-200", glAccountName: "Cash - BCA SGD",             openingBalance:   47650000, active: true },
-  { id: "bca-eur",         bank: "BCA",     bankColor: "#0050A8", name: "BCA EUR",           number: "5555666677", currency: "EUR", group: "fx",        glAccount: "1102-300", glAccountName: "Cash - BCA EUR",             openingBalance:   38900000, active: true },
-  { id: "bca-deposit",     bank: "BCA",     bankColor: "#0050A8", name: "BCA Time Deposit",  number: "4444555566", currency: "IDR", group: "deposit",   glAccount: "1103-100", glAccountName: "Time Deposits - BCA",         openingBalance:  500000000, active: true },
-  { id: "mandiri-deposit", bank: "MDR",     bankColor: "#003D7A", name: "Mandiri Deposit",   number: "1377889900", currency: "IDR", group: "deposit",   glAccount: "1103-110", glAccountName: "Time Deposits - Mandiri",     openingBalance:  250000000, active: true },
-  { id: "bca-restricted",  bank: "BCA",     bankColor: "#0050A8", name: "BCA Restricted",    number: "6666777788", currency: "IDR", group: "deposit",   glAccount: null,       glAccountName: null,                         openingBalance:  120000000, active: true },
-];
+import { COMPANY_BANK_ACCOUNTS } from "../data/seed/bankAccounts";
 
 const BANK_OPTIONS = [
   { v: "BCA",     lbl: "Bank Central Asia (BCA)", color: "#0050A8" },
@@ -227,7 +207,7 @@ function BankAccountDrawer({ open, account, onClose, onSave, onArchive }) {
 
 // ── Page ─────────────────────────────────────────────────────────────────
 export default function BankAccountsSettingsPage() {
-  const [accounts, setAccounts] = useState(INITIAL_ACCOUNTS);
+  const [accounts, setAccounts] = useState(COMPANY_BANK_ACCOUNTS);
   const [groupFilter, setGroupFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [drawer, setDrawer] = useState(null); // null | { account } | { account: null }  for new
