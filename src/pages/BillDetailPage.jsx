@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useMemo, useState, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { VENDORS } from "../data/seed/vendors";
 import { useBills } from "../state/BillsContext";
@@ -25,6 +25,12 @@ import {
 } from "../lib/billConfidence";
 import { previewJournalLines, buildJournalEntry } from "../lib/billJournalPreview";
 import { billFlags, canPost, SEVERITY } from "../lib/reviewWorkflow";
+import RecordPaymentModal from "../components/RecordPaymentModal";
+import { buildAgingLines } from "../lib/apAging";
+import { makeFlagger, releaseState, FLAG_TIERS } from "../lib/paymentFlags";
+import { REQ_META, gatesRelease, payModeFor, paymentActionFor, paymentStatusOf } from "../lib/paymentStage";
+import { breakdownTotal, cashOut, DEDUCTION_TYPES } from "../lib/paymentBreakdown";
+import { TODAY } from "../lib/clock";
 import "./modules.css";
 import "./invoice-create.css";
 import "./bill-detail.css";
@@ -35,24 +41,13 @@ const GRN_LABEL      = { matched: "Matched", pending: "Pending", mismatch: "Mism
 const PAY_LABEL      = { paid: "Paid", unpaid: "Unpaid", overdue: "Overdue" };
 
 // Payment request status — the workflow axis (posted bills only). Distinct from
-// Payment status (settlement: Unpaid / Partial / Paid).
-const REQ_LABEL = { notyet: "Not yet requested", requested: "Requested", approved: "Approved", returned: "Returned", settled: "Settled" };
-const REQ_TONE  = { notyet: "muted", requested: "review", approved: "action", returned: "danger", settled: "success" };
+// Payment status: Unpaid / Partial / Paid.
+// Labels for PAYMENT HISTORY EVENTS, not statuses — "returned" and "paid"
+// are things that happened, and belong on a timeline. The status axes
+// themselves are REQ_META (request) and PAYMENT_STATUS_META (payment).
+const EVENT_LABEL = { requested: "Requested", approved: "Approved", returned: "Returned", paid: "Paid" };
+const EVENT_TONE  = { requested: "review", approved: "action", returned: "danger", paid: "success" };
 
-// Settlement of a bill from its ledger balance + payment stage.
-function settlementOf(bill, stage) {
-  if (bill.pay === "paid") return "paid";
-  if (stage === "partial" || (bill.sisa != null && bill.sisa > 0 && bill.sisa < bill.total)) return "partial";
-  return "unpaid";
-}
-// Request stage (posted only): unpaid→notyet, else the lifecycle stage.
-function requestKeyOf(bill, stage) {
-  if (bill.pay === "paid") return "settled";
-  if (stage === "requested") return "requested";
-  if (stage === "approved") return "approved";
-  if (stage === "returned") return "returned";
-  return "notyet"; // unpaid or partial-remainder
-}
 
 // ─── Payment tab — payment history ──────────────────────────────────────────
 // The payment lifecycle for a posted bill: request → approve → (return) → pay,
@@ -69,9 +64,9 @@ function PaymentTab({ bill, detail }) {
   const events = [];
   if (detail?.requestedAt) events.push({ at: detail.requestedAt, activity: "Payment requested", req: "requested", by: detail.requestedBy, amount: reqAmount });
   if (detail?.approvedAt)  events.push({ at: detail.approvedAt,  activity: "Payment approved",  req: "approved",  by: detail.approvedBy,  amount: reqAmount });
-  if (detail?.returnedAt)  events.push({ at: detail.returnedAt,  activity: detail.returnReason ? `Returned — ${detail.returnReason}` : "Returned to AP", req: "returned", by: detail.returnedBy, amount: reqAmount });
+  if (detail?.returned)    events.push({ at: detail.returned.at, activity: `Returned — ${detail.returned.reason}`, req: "returned", by: detail.returned.by, amount: reqAmount });
   for (const a of bill.audit || []) {
-    if (a.type === "paid") events.push({ at: a.date, time: a.time, activity: a.action, req: "settled", by: a.by, amount: parseRp(a.action) ?? reqAmount });
+    if (a.type === "paid") events.push({ at: a.date, time: a.time, activity: a.action, req: "paid", by: a.by, amount: parseRp(a.action) ?? reqAmount });
   }
   events.sort((x, y) => (x.at || "").localeCompare(y.at || ""));
 
@@ -97,7 +92,7 @@ function PaymentTab({ bill, detail }) {
                 <td className="bd-pay-date">{formatDateEn(e.at)}{e.time ? ` · ${e.time}` : ""}</td>
                 <td>{e.activity}</td>
                 <td className="r bd-pay-amt">{formatRupiah(e.amount)}</td>
-                <td><span className={`bp-pay-badge ${REQ_TONE[e.req]}`}>{REQ_LABEL[e.req]}</span></td>
+                <td><span className={`bp-pay-badge ${EVENT_TONE[e.req]}`}>{EVENT_LABEL[e.req]}</span></td>
                 <td className="bd-pay-by">{e.by || "—"}</td>
               </tr>
             ))
@@ -117,7 +112,6 @@ function PaymentTab({ bill, detail }) {
 const AP_ACTION_LEVEL = {
   "Approve":           "approve+post",
   "Post":              "post",
-  "Record payment":    "approve+post",
   "Put on hold":       "approve+post",
   "Return to AP":      "approve+post",
   "Release hold":      "approve+post",
@@ -128,6 +122,12 @@ const AP_ACTION_LEVEL = {
   "Delete":            "transact",
   "Cancel bill":       "transact",
 };
+
+// Payment actions are governed by the payment.* capabilities, not by the AP
+// read/transact/approve ladder — Finance Staff executes payments while holding
+// only view on AP. paymentActionFor() has already checked the capability, so
+// these must not be re-checked against an AP level that would hide them.
+const PAYMENT_ACTION_LABELS = new Set(["Request payment", "Approve payment", "Record payment", "Return"]);
 
 // ─── Review Brief ───────────────────────────────────────────────────────────
 // PRD: a plain-language summary of what requires attention appears at the top
@@ -415,7 +415,7 @@ function VendorContextPanel({ vendor }) {
 // "What needs your attention" list. Returned (REVIEW) and Period-locked
 // (BLOCKING) are exceptions in that list, not lifecycle steps.
 
-function StatusStepper({ bill, paymentStage = "unpaid" }) {
+function StatusStepper({ bill, paymentStage = "unpaid", requestStage = "notyet" }) {
   const ws = workflowStatus(bill);
 
   // ON_HOLD is the one non-lifecycle status the stepper handles: it maps to the
@@ -431,22 +431,18 @@ function StatusStepper({ bill, paymentStage = "unpaid" }) {
   let activeKey;
 
   if (isPostApproval) {
-    // Payment lifecycle: Unpaid → Requested → Approved → Partial → Paid. The
-    // active node is driven by the payment stage (PaymentsContext) plus the
-    // ledger balance. PARTIAL only fires when sisa is strictly between 0 and
-    // total (partial payments aren't wired yet, so it renders idle for now).
+    // The REQUEST cycle, not a single march to Paid. Recording a payment ends
+    // a cycle and returns the bill to "Not yet requested", so the first three
+    // nodes repeat for as long as a balance is open — a partly paid bill sits
+    // back at the start with a Partial badge beside the stepper. Paid is the
+    // only terminal node, and it belongs to the other axis.
     steps = [
-      { key: "UNPAID",    label: "Unpaid" },
-      { key: "REQUESTED", label: "Requested" },
-      { key: "APPROVED",  label: "Approved" },
-      { key: "PARTIAL",   label: "Partial" },
-      { key: "PAID",      label: "Paid" },
+      { key: "notyet",    label: "Not yet requested" },
+      { key: "requested", label: "Requested" },
+      { key: "approved",  label: "Approved" },
+      { key: "paid",      label: "Paid" },
     ];
-    if (bill.pay === "paid" || paymentStage === "paid")   activeKey = "PAID";
-    else if (bill.sisa > 0 && bill.sisa < bill.total)     activeKey = "PARTIAL";
-    else if (paymentStage === "approved")                 activeKey = "APPROVED";
-    else if (paymentStage === "requested")                activeKey = "REQUESTED";
-    else                                                  activeKey = "UNPAID";
+    activeKey = paymentStage === "paid" ? "paid" : (requestStage || "notyet");
   } else {
     // Review lifecycle — the happy path only. Returned / Period-locked are
     // exceptions surfaced in the attention list, not steps here.
@@ -735,7 +731,7 @@ function SourcePO({ bill, vendor }) {
 // it on period-lock status. SoD enforcement is deferred — see the
 // "demo: SoD not enforced" note on the left of the bar.
 
-function ActionBar({ bill, onAction, onSecondary, gateReason, periodLocked, lockedPeriodLabel, onReassign, perm, note, paymentPrimaryLabel }) {
+function ActionBar({ bill, onAction, onSecondary, gateReason, periodLocked, lockedPeriodLabel, onReassign, perm, note, paymentAction, paymentBlocked }) {
   if (!bill) return null;
   const ws = workflowStatus(bill);
   // Gate the workflow-progressing primary action (Submit / Approve / Edit &
@@ -767,7 +763,10 @@ function ActionBar({ bill, onAction, onSecondary, gateReason, periodLocked, lock
     case "PENDING_REVIEW": primary = "Approve";            secondaries = ["Put on hold", "Edit"]; break;
     case "ON_HOLD":        primary = "Release hold";       secondaries = ["Edit", "Cancel bill"]; break;
     case "APPROVED":       primary = "Post";               secondaries = ["Revert to review", "Edit"]; break;
-    case "POSTED":         primary = paymentPrimaryLabel;   secondaries = ["View GL entry"]; break;
+    // Posted bills hand over to the payment pipeline: the same primary and
+    // secondary the Payment list offers this persona at this stage.
+    case "POSTED":         primary = paymentAction?.label || null;
+                           secondaries = [paymentAction?.secondary, "View GL entry"].filter(Boolean); break;
     case "PAID":           primary = null;                 secondaries = ["View receipt", "Revert to unpaid"]; break;
     default:               primary = "Edit";               secondaries = [];
   }
@@ -784,7 +783,7 @@ function ActionBar({ bill, onAction, onSecondary, gateReason, periodLocked, lock
   const visibleSecondaries = secondaries.filter((label) => permCheck(label).allowed);
   const primaryPerm = primary ? permCheck(primary) : { allowed: true };
   const showPrimary = !!primary && primaryPerm.allowed;
-  const anyDisabled = gated || periodActionGated;
+  const anyDisabled = gated || periodActionGated || !!paymentBlocked;
 
   return (
     <>
@@ -821,12 +820,15 @@ function ActionBar({ bill, onAction, onSecondary, gateReason, periodLocked, lock
               type="button"
               className={`drawer-btn primary${anyDisabled ? " disabled" : ""}`}
               disabled={anyDisabled}
-              title={periodActionGated ? periodGateReason : (gated ? gateReason : undefined)}
+              title={paymentBlocked
+                ? "A release check is blocking this payment — see Payment checks below"
+                : periodActionGated ? periodGateReason : (gated ? gateReason : undefined)}
               onClick={() => !anyDisabled && onAction(primary)}
             >
               {primary}
-              {periodActionGated && <span className="bd-actionbar-gate"> · period closed</span>}
-              {!periodActionGated && gated && <span className="bd-actionbar-gate"> · resolve flags first</span>}
+              {paymentBlocked && <span className="bd-actionbar-gate"> · blocked by a release check</span>}
+              {!paymentBlocked && periodActionGated && <span className="bd-actionbar-gate"> · period closed</span>}
+              {!paymentBlocked && !periodActionGated && gated && <span className="bd-actionbar-gate"> · resolve flags first</span>}
             </button>
           )}
         </div>
@@ -1061,14 +1063,15 @@ export default function BillDetailPage() {
   const navigate = useNavigate();
   const { id } = useParams();
   const { bills, updateBill } = useBills();
-  const { statusOf: paymentStatusOf, detailOf: paymentDetailOf, requestPayment, approvePayment, markPaid } = usePayments();
+  const { requestStatusOf, returnedOf, detailOf: paymentDetailOf, acksOf: paymentAcksOf, requestPayment, approvePayment, recordPayment, acknowledgeFlag, returnRequest } = usePayments();
   const { addJournalEntry, peekNextJeNumber } = useJournalEntries();
   const { closedThrough, autoAssignLateBills, nextOpenPeriod } = useClosePeriod();
   const { hasLevel, hasCapability, level, user } = useCurrentUser();
-  const { vendorById } = useVendors();
+  const { vendorById, versionsOf } = useVendors();
   const [tab, setTab] = useState("detail");
   const [docView, setDocView] = useState("invoice");
   const [toast, setToast] = useState("");
+  const [paying, setPaying] = useState(false);
   const toastTmr = useRef(null);
 
   function showToast(msg) {
@@ -1114,6 +1117,7 @@ export default function BillDetailPage() {
   const canEditAp = hasLevel("ap", "transact");
   const apLevelLabel = LEVELS[level("ap")]?.label || "None";
   const apActionPerm = (label) => {
+    if (PAYMENT_ACTION_LABELS.has(label)) return { allowed: true };
     const req = AP_ACTION_LEVEL[label] || "view";
     const allowed = hasLevel("ap", req);
     return {
@@ -1127,14 +1131,55 @@ export default function BillDetailPage() {
   const canReviewFlags = hasLevel("ap", "transact"); // AP Staff owns the fix/ack
   const canOverrideFlags = hasCapability("ap.approve"); // FM override authority
 
-  // ── Payment CTA (posted bills) — mirrors AP Aging: role + payment-stage
-  // aware. Only the actor whose stage is current sees an action.
-  const paymentStage = paymentStatusOf(bill.id);
-  let paymentPrimaryLabel = null;
-  if (workflowStatus(bill) === "POSTED") {
-    if (hasCapability("payment.request") && paymentStage === "unpaid") paymentPrimaryLabel = "Request payment";
-    else if (hasCapability("payment.approve") && paymentStage === "requested") paymentPrimaryLabel = "Approve payment";
-    else if (hasCapability("payment.execute") && paymentStage === "approved") paymentPrimaryLabel = "Mark as paid";
+  // ── Payment CTA (posted bills) ──────────────────────────────────────────
+  // Same action set as the Payment list (paymentStage.js) so a bill offers the
+  // same CTA wherever it is opened — an approved bill says "Record payment" in
+  // both places, and means the same thing. The "full" variant is used because a
+  // bare "Approve" on a bill page would read as approving the bill itself.
+  const payMode = payModeFor(hasCapability);
+  const paymentStage = paymentStatusOf(bill);
+  const requestStage = requestStatusOf(bill.id);
+  const paymentAction = workflowStatus(bill) === "POSTED"
+    ? paymentActionFor(payMode, requestStage, "full")
+    : null;
+
+  // The release checks that gate the Payment list gate this page too — a
+  // control the Bill Detail page could walk around would not be a control.
+  const paymentFlags = useMemo(() => {
+    if (!paymentAction) return [];
+    const lines = buildAgingLines(TODAY, bills).filter((l) => !l.is_accrual && l.raw.je_number);
+    const line = lines.find((l) => l.id === bill.id);
+    return line ? makeFlagger({ lines, versionsOf, returnedOf })(line) : [];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bill.id, bills, paymentAction?.label, versionsOf]);
+  const paymentRelease = releaseState(paymentFlags, paymentAcksOf(bill.id));
+  const paymentBlocked = !!paymentAction && gatesRelease(payMode) && paymentRelease.blocked;
+  const paymentOpenBalance = bill.sisa != null ? bill.sisa : bill.total;
+
+  // Same write the Payment list performs, so a payment recorded from either
+  // surface lands in the ledger and the trail identically.
+  function confirmPayment(id, breakdown) {
+    const by = user?.name || "Finance Staff";
+    const total = breakdownTotal(breakdown);
+    const full = total >= paymentOpenBalance;
+    const parts = DEDUCTION_TYPES
+      .filter((t) => (breakdown[t.key] || 0) > 0)
+      .map((t) => `${t.short.toLowerCase()} ${formatRupiah(breakdown[t.key])}`);
+    const head = `${full ? "Payment executed" : "Partial payment"} — ${formatRupiah(total)}`;
+    recordPayment([{ id, breakdown, paysInFull: full }], by);
+    updateBill(
+      id,
+      full ? { pay: "paid", sisa: 0 } : { sisa: paymentOpenBalance - total },
+      {
+        type: "paid",
+        by,
+        action: parts.length ? `${head} (to vendor ${formatRupiah(cashOut(breakdown))}, ${parts.join(", ")})` : head,
+        date: TODAY.toISOString().slice(0, 10),
+        time: "",
+      },
+    );
+    setPaying(false);
+    showToast(full ? `${bill.id} paid in full` : `Partial payment recorded for ${bill.id}`);
   }
 
   // ── Unified "what needs your attention" list ────────────────────────────
@@ -1321,15 +1366,10 @@ export default function BillDetailPage() {
         approvePayment([bill.id], user?.name || FM_USER);
         showToast(`Payment approved for ${bill.id}`);
         break;
-      case "Mark as paid":
-        markPaid([bill.id], user?.name || "Finance Staff");
-        updateBill(bill.id, { pay: "paid", sisa: 0 }, {
-          type:   "paid",
-          action: "Payment executed & marked paid",
-          by:     user?.name || "Finance Staff",
-          ...stamp,
-        });
-        showToast(`${bill.id} marked paid`);
+      // Recording a payment opens the same typed-breakdown modal the Payment
+      // list uses — the CTA and the act behind it match in both places.
+      case "Record payment":
+        setPaying(true);
         break;
       default:
         // DEMO_OVERRIDES-driven actions (Release hold, Edit & resubmit, etc.)
@@ -1350,6 +1390,12 @@ export default function BillDetailPage() {
           ...stamp,
         });
         showToast(`${bill.id} returned to AP`);
+        break;
+      // The approval stage's secondary on the Payment list — bounces the
+      // payment request back to AP rather than silently clearing it.
+      case "Return":
+        returnRequest([bill.id], user?.name || FM_USER);
+        showToast(`Payment request for ${bill.id} returned to AP`);
         break;
       default:
         showToast(`${label} — ${bill.id} (demo)`);
@@ -1418,13 +1464,13 @@ export default function BillDetailPage() {
   const pphRate = bill.pphRate != null ? bill.pphRate : (bill.dpp > 0 && bill.pph23 ? bill.pph23 / bill.dpp : 0);
   const netPayable = bill.total - (bill.pph23 || 0);
 
-  // Payment axes: settlement (Unpaid / Partial / Paid) + remaining balance, and
+  // Payment axes: payment status (Unpaid / Partial / Paid) + remaining balance, and
   // the request status (posted-only). Both surface on the header, Bill
   // Information, and the Payment tab.
   const payDetail = paymentDetailOf(bill.id);
   const remaining = bill.pay === "paid" ? 0 : (bill.sisa != null ? bill.sisa : bill.total);
-  const settleKey = settlementOf(bill, paymentStage);
-  const reqKey = requestKeyOf(bill, paymentStage);
+  const payKey = paymentStage;
+  const reqKey = requestStage;
   const billPosted = !!bill.je_number || workflowStatus(bill) === "POSTED" || workflowStatus(bill) === "PAID";
 
   // Compliance / status label maps for the new Detail rows.
@@ -1464,7 +1510,7 @@ export default function BillDetailPage() {
            dropped here. ─────────────────────────────────────────────────── */}
       {!billPosted && (
         <div className="bd-status-band">
-          <StatusStepper bill={bill} paymentStage={paymentStage} />
+          <StatusStepper bill={bill} paymentStage={paymentStage} requestStage={requestStage} />
         </div>
       )}
 
@@ -1567,12 +1613,12 @@ export default function BillDetailPage() {
                   <PlainRow label="GRN Status" value={GRN_LABEL[bill.grn] || "—"} />
                   <PlainRow
                     label="Payment Status"
-                    value={<span className={`bp-pay-badge ${PAYMENT_STATUS_META[settleKey].tone}`}>{PAYMENT_STATUS_META[settleKey].label}</span>}
+                    value={<span className={`bp-pay-badge ${PAYMENT_STATUS_META[payKey].tone}`}>{PAYMENT_STATUS_META[payKey].label}</span>}
                   />
                   {billPosted && (
                     <PlainRow
                       label="Payment Request Status"
-                      value={<span className={`bp-pay-badge ${REQ_TONE[reqKey]}`}>{REQ_LABEL[reqKey]}</span>}
+                      value={<span className={`bp-pay-badge ${REQ_META[reqKey]?.tone || "muted"}`}>{REQ_META[reqKey]?.label || "—"}</span>}
                     />
                   )}
                   <SubRow
@@ -1678,6 +1724,38 @@ export default function BillDetailPage() {
         </div>
       </div>
 
+      {/* ── Payment release checks ─────────────────────────────────── */}
+      {/* The same checks the Payment list runs. Without them on this page the
+          disabled CTA would have no explanation next to it. */}
+      {paymentAction && paymentFlags.length > 0 && (
+        <div className="bd-payment-checks">
+          <div className="bd-payment-checks-head">
+            Payment checks
+            {paymentRelease.blocked && <span className="bd-payment-checks-warn">release blocked</span>}
+          </div>
+          {paymentFlags.map((f) => {
+            const acked = f.tier === "review" && !paymentRelease.unacked.some((r) => r.key === f.key);
+            return (
+              <div key={f.key} className={`pm-flag-item tier-${f.tier}`}>
+                <span className={`pm-flag-tier tone-${FLAG_TIERS[f.tier].tone}`}>{FLAG_TIERS[f.tier].label}</span>
+                <div className="pm-flag-body">
+                  <div className="pm-flag-label">{f.label}</div>
+                  <div className="pm-flag-detail">{f.detail}</div>
+                </div>
+                <div className="pm-flag-act">
+                  {f.tier === "review" && (acked
+                    ? <span className="pm-flag-acked">Acknowledged</span>
+                    : payMode === "approve"
+                      ? <button type="button" className="apa-row-action ghost" onClick={() => acknowledgeFlag(bill.id, f.key, user?.name || FM_USER)}>Acknowledge</button>
+                      : null)}
+                  {f.tier === "blocking" && <span className="pm-flag-fix">Fix the record before releasing</span>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* ── Action bar ─────────────────────────────────────────────── */}
       <ActionBar
         bill={bill}
@@ -1688,9 +1766,24 @@ export default function BillDetailPage() {
         onAction={onPrimary}
         onSecondary={onSecondary}
         perm={apActionPerm}
-        paymentPrimaryLabel={paymentPrimaryLabel}
+        paymentAction={paymentAction}
+        paymentBlocked={paymentBlocked}
         note={`Viewing as ${user.name} · ${apLevelLabel} on AP`}
       />
+
+      {paying && (
+        <RecordPaymentModal
+          bill={{
+            id: bill.id,
+            vendorName: bill.vendorName,
+            invNo: bill.invNo,
+            remaining: paymentOpenBalance,
+            pph23: bill.pph23 || 0,
+          }}
+          onConfirm={confirmPayment}
+          onClose={() => setPaying(false)}
+        />
+      )}
 
       {toast && <div className="toast show">{toast}</div>}
     </div>

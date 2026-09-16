@@ -1007,3 +1007,23 @@
   background: transparent;
   border-color: var(--color-border);
 }
+
+/* ── Payment release checks ───────────────────────────────────────────────
+   The checks from the Payment list, shown above the action bar so a disabled
+   payment CTA has its reason next to it. Row styling is shared (pm-flag-*). */
+.bd-payment-checks {
+  margin: 0 24px 10px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--color-surface-sunken, #F4F1EA);
+  border: 1px solid var(--color-border-subtle);
+}
+.bd-payment-checks-head {
+  display: flex; align-items: center; gap: 8px; padding-bottom: 9px;
+  font-size: 9.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--color-text-tertiary);
+}
+.bd-payment-checks-warn {
+  padding: 2px 8px; border-radius: 9999px; letter-spacing: .03em;
+  background: #FBEAE7; color: #C0392B; border: 1px solid #F1CFC9;
+}
