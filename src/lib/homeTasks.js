@@ -95,7 +95,7 @@ function billsTasks(ctx) {
 // AP · Payments — the payment stage this role owns (request → approve → pay),
 // off the AP Aging decision queue (POSTED-only). Mirrors ApAgingPage payMode.
 function paymentTasks(ctx) {
-  const { agingLines, paymentStatusOf, hasCapability } = ctx;
+  const { agingLines, requestStatusOf, hasCapability } = ctx;
   const payMode = hasCapability("payment.approve") ? "approve"
     : hasCapability("payment.request") ? "request"
     : hasCapability("payment.execute") ? "execute"
@@ -105,8 +105,9 @@ function paymentTasks(ctx) {
   const out = [];
 
   const queue = agingLines.filter(isDecisionQueueRow);
-  const stage = payMode === "approve" ? "requested" : payMode === "execute" ? "approved" : "unpaid";
-  const stageRows = queue.filter((l) => paymentStatusOf(l.id) === stage);
+  // The REQUEST axis — which stage of the request cycle this role owns.
+  const stage = payMode === "approve" ? "requested" : payMode === "execute" ? "approved" : "notyet";
+  const stageRows = queue.filter((l) => requestStatusOf(l.id) === stage);
   const STAGE_META = {
     request: { label: "Request payment", sub: "Posted bills ready to pay", cta: "Request" },
     approve: { label: "Payments to approve", sub: "Requested by AP Staff", cta: "Approve" },
@@ -120,7 +121,7 @@ function paymentTasks(ctx) {
 
   // Finance Staff — settle the overdue first.
   if (payMode === "execute") {
-    const overdue = queue.filter((l) => l.daysOverdue > 0 && paymentStatusOf(l.id) === "approved");
+    const overdue = queue.filter((l) => l.daysOverdue > 0 && requestStatusOf(l.id) === "approved");
     if (overdue.length) {
       out.push({ ...g, id: "pay:overdue", label: "Settle overdue", count: overdue.length,
         amount: sum(overdue, (l) => l.remaining), sub: "Past due — pay these first",

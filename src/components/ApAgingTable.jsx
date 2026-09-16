@@ -218,7 +218,7 @@ export default function ApAgingTable() {
                 tableSearch.trim() ? (
                   <EmptyState title="No bills match" sub={`Nothing matches "${tableSearch.trim()}". Try a different vendor name or invoice number.`} />
                 ) : (
-                  <EmptyState title="No outstanding balances" sub="All bills are settled." />
+                  <EmptyState title="No outstanding balances" sub="All bills are paid." />
                 )
               ) : (
                 <>

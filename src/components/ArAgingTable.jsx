@@ -192,7 +192,7 @@ export default function ArAgingTable() {
                 tableSearch.trim() ? (
                   <EmptyState title="No invoices match" sub={`Nothing matches "${tableSearch.trim()}". Try a different customer name or invoice number.`} />
                 ) : (
-                  <EmptyState title="No outstanding receivables" sub="Every invoice is settled." />
+                  <EmptyState title="No outstanding receivables" sub="Every invoice is paid." />
                 )
               ) : (
                 <>

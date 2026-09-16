@@ -3,7 +3,8 @@ import { useParams, useNavigate } from "react-router-dom";
 import { BILLS } from "../data/seed/bills";
 import { useVendors } from "../state/VendorsContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
-import { usePayments, PAYMENT_STATUS_META } from "../state/PaymentsContext";
+import { PAYMENT_STATUS_META } from "../state/PaymentsContext";
+import { paymentStatusOf } from "../lib/paymentStage";
 import { workflowStatus, STATUS_LABEL } from "../lib/billStatus";
 import { withholdingLabel, ACCT_LABELS } from "../data/labels";
 import { formatRupiah, formatDate, termLabel } from "../lib/format";
@@ -50,7 +51,7 @@ export default function VendorDetailPage() {
   const navigate = useNavigate();
   const { vendorById, setVendorStatus, submitVendor, rejectVendor, setVendorApproval, setVendorBank, setCompanyBank, changeLog, versionsOf } = useVendors();
   const { user, hasCapability, hasLevel } = useCurrentUser();
-  const { statusOf } = usePayments();
+
 
   const vendor = vendorById(id);
 
@@ -352,7 +353,7 @@ export default function VendorDetailPage() {
                       {txns.map((b) => {
                         const ws = workflowStatus(b);
                         const journalLabel = ws === "PAID" ? "Posted" : STATUS_LABEL[ws];
-                        const ps = b.pay === "paid" ? "paid" : statusOf(b.id);
+                        const ps = paymentStatusOf(b);
                         const pm = PAYMENT_STATUS_META[ps] || PAYMENT_STATUS_META.unpaid;
                         return (
                           <tr key={b.id} className="vd-tx-row" onClick={() => navigate(`/bills/${b.id}`)}>

@@ -19,7 +19,8 @@ import { useBills } from "../state/BillsContext";
 import { useVendors } from "../state/VendorsContext";
 import { useClosePeriod } from "../state/ClosePeriodContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
-import { usePayments, PAYMENT_STATUS_META } from "../state/PaymentsContext";
+import { PAYMENT_STATUS_META } from "../state/PaymentsContext";
+import { paymentStatusOf } from "../lib/paymentStage";
 import AiChatDrawer, { SparkleIcon as DrawerSparkle } from "./AiChatDrawer";
 import { computeBillsInsights, makeBillsAiContext } from "./ai-bills-context";
 import "./modules.css";
@@ -165,7 +166,7 @@ function BillFlagChips({ summary }) {
   );
 }
 
-function LedgerRow({ r, bucket, flags, isChecked, onCheck, onClick, onKebab, isSelected, isAlt, onIdHover, onIdLeave, onVendorHover, onVendorLeave, showAgingBar, showKebab = true, periodLocked = false, statusOf }) {
+function LedgerRow({ r, bucket, flags, isChecked, onCheck, onClick, onKebab, isSelected, isAlt, onIdHover, onIdLeave, onVendorHover, onVendorLeave, showAgingBar, showKebab = true, periodLocked = false }) {
   const isOverdue = r.pay === "overdue" && r.daysOverdue > 0;
   const isPaid = r.pay === "paid";
   const ws = workflowStatus(r.raw);
@@ -175,7 +176,7 @@ function LedgerRow({ r, bucket, flags, isChecked, onCheck, onClick, onKebab, isS
   const statusLabel = ws === "PAID" ? "Posted" : (STATUS_LABEL[ws] || ws);
   // Payment status — the app-wide request lifecycle (PaymentsContext), same as
   // Vendors & AP Aging: unpaid → requested → approved → paid.
-  const payKey = r.pay === "paid" ? "paid" : (statusOf ? statusOf(r.id) : "unpaid");
+  const payKey = paymentStatusOf(r);
   const payMeta = PAYMENT_STATUS_META[payKey] || PAYMENT_STATUS_META.unpaid;
   const pct = isOverdue && bucket
     ? Math.min(100, Math.max(8, ((r.daysOverdue - bucket.minDays) / ((bucket.maxDaysCap - bucket.minDays) || 30)) * 100))
@@ -518,7 +519,7 @@ export default function BillsPage() {
   const canPostBills = hasCapability("ap.post");         // Accounting Manager + FM
   const { bills } = useBills();
   const { closedThrough, autoAssignLateBills } = useClosePeriod();
-  const { statusOf } = usePayments();
+
 
   // Review-flag engine — per-bill severity summary (reviewWorkflow.js). Keyed by
   // bill id. A bill has an "exception" when it carries an open blocking or review
@@ -1192,7 +1193,6 @@ export default function BillsPage() {
                               onVendorLeave={onVendorLeave}
                               showAgingBar={onJatuhTempo}
                               showKebab={canCreate}
-                              statusOf={statusOf}
                               periodLocked={!autoAssignLateBills && isApPeriodLocked(billPeriod(r.raw), closedThrough) && ["PENDING_REVIEW", "RETURNED", "APPROVED"].includes(workflowStatus(r.raw))}
                             />
                             {menuOpenFor === r.id && (
@@ -1233,7 +1233,6 @@ export default function BillsPage() {
                           onVendorLeave={onVendorLeave}
                           showAgingBar={onJatuhTempo}
                           showKebab={canCreate}
-                          statusOf={statusOf}
                           periodLocked={!autoAssignLateBills && isApPeriodLocked(billPeriod(r.raw), closedThrough) && ["PENDING_REVIEW", "RETURNED", "APPROVED"].includes(workflowStatus(r.raw))}
                         />
                         {menuOpenFor === r.id && (

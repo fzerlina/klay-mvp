@@ -169,7 +169,7 @@ export default function CommandCenterPage() {
   const { bills } = useBills();
   const { invoices } = useInvoices();
   const { entries } = useJournalEntries();
-  const { statusOf } = usePayments();
+  const { requestStatusOf } = usePayments();
   const { closedThrough, autoAssignLateBills } = useClosePeriod();
 
   const agingLines = useMemo(() => buildAgingLines(TODAY, bills), [bills]);
@@ -177,11 +177,11 @@ export default function CommandCenterPage() {
   const taskHub = useMemo(
     () => computeHomeTasks({
       bills, invoices, entries, agingLines,
-      paymentStatusOf: statusOf,
+      requestStatusOf,
       closedThrough, autoAssignLateBills,
       hasCapability,
     }),
-    [bills, invoices, entries, agingLines, statusOf, closedThrough, autoAssignLateBills, hasCapability],
+    [bills, invoices, entries, agingLines, requestStatusOf, closedThrough, autoAssignLateBills, hasCapability],
   );
   const insightHub = useMemo(
     () => computeHomeInsights({ agingLines, invoices, can }),
