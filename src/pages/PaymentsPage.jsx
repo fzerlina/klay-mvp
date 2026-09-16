@@ -6,14 +6,15 @@ import { useVendors } from "../state/VendorsContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
 import RelationshipTierControl from "../components/RelationshipTier";
 import RecordPaymentModal from "../components/RecordPaymentModal";
-import { buildAgingLines, AGE_BUCKETS } from "../lib/apAging";
-import { DEDUCTION_TYPES, breakdownTotal, cashOut, defaultBreakdown } from "../lib/paymentBreakdown";
+import { buildAgingLines } from "../lib/apAging";
+import { auditTextFor, breakdownTotal, defaultBreakdown } from "../lib/paymentBreakdown";
+import { accountsForMethod, bankAccountById } from "../data/seed/bankAccounts";
 import { FLAG_TIERS, makeFlagger, releaseState, tierCounts } from "../lib/paymentFlags";
 import {
-  PAYMENT_ROLES, REQ_META, bucketOf, gatesRelease as gatesReleaseFor, payModeFor, paymentStatusOf,
+  PAYMENT_ROLES, REQ_META, gatesRelease as gatesReleaseFor, payModeFor, paymentStatusOf,
 } from "../lib/paymentStage";
-import { TODAY, daysSince } from "../lib/clock";
-import { formatRupiah, formatRupiahExact, formatDateEn } from "../lib/format";
+import { TODAY } from "../lib/clock";
+import { formatRupiah, formatDateEn } from "../lib/format";
 import "./modules.css";
 import "./invoices-ledger.css";
 import "./ap-aging.css";
@@ -30,45 +31,26 @@ function dueMeta(l) {
   return { text: `in ${-d}d`, cls: "" };
 }
 
-// Audit-trail wording for an executed payment. The total paid leads so the
-// Bill Detail payment history can still read the amount off the line; the
-// components follow so the trail says what the money actually was.
-function auditText(bd, full) {
-  const parts = DEDUCTION_TYPES
-    .filter((t) => (bd[t.key] || 0) > 0)
-    .map((t) => `${t.short.toLowerCase()} ${formatRupiah(bd[t.key])}`);
-  const head = `${full ? "Payment executed" : "Partial payment"} — ${formatRupiah(breakdownTotal(bd))}`;
-  return parts.length
-    ? `${head} (to vendor ${formatRupiah(cashOut(bd))}, ${parts.join(", ")})`
-    : head;
-}
+// The audit wording lives in paymentBreakdown.js so the list and Bill Detail
+// describe the same payment identically; this just resolves the source account
+// name for it.
+const auditText = (bd, full) =>
+  auditTextFor(bd, full, { sourceName: bankAccountById(bd.sourceAccountId)?.name });
 
 // ── Filter popover ─────────────────────────────────────────────────────────
-// The filters live behind one Filter button rather than a row of chips, per the
-// list-page pattern: a chip rail grows every time a filter is added and gives
-// no room to say what a filter means. Grouped by what you are filtering ON, so
-// the two status axes stay visibly separate here too.
-const BLANK_FILTER = { checks: "any", due: "any", payment: "any", ages: [] };
+// The two axes are split across the two controls: the tabs slice by payment
+// status, so the filter is the OTHER axis — where the current request sits.
+// One axis per control means neither can be read off the other by accident.
+const BLANK_FILTER = { request: "any" };
 
-const FILTER_GROUPS = (counts) => [
+const FILTER_GROUPS = [
   {
-    key: "checks",
-    label: "Release checks",
+    key: "request",
+    label: "Payment request status",
     options: [
       ["any", "Any"],
-      ["blocked", `Blocked${counts.blocked ? ` (${counts.blocked})` : ""}`],
-      ["toreview", `Needs review${counts.needsAck ? ` (${counts.needsAck})` : ""}`],
+      ...Object.entries(REQ_META).map(([k, m]) => [k, m.label]),
     ],
-  },
-  {
-    key: "due",
-    label: "Due",
-    options: [["any", "Any"], ["overdue", "Overdue"], ["due7", "Due in 7 days"]],
-  },
-  {
-    key: "payment",
-    label: "Payment status",
-    options: [["any", "Any"], ["unpaid", "Unpaid"], ["partial", "Partial"]],
   },
 ];
 
@@ -80,20 +62,16 @@ function useClickOutside(ref, onClose) {
   }, [ref, onClose]);
 }
 
-function FilterPopover({ values, flagStats, onChange, onClose }) {
+function FilterPopover({ values, onChange, onClose }) {
   const ref = useRef(null);
   useClickOutside(ref, onClose);
   const [draft, setDraft] = useState(values);
   const update = (patch) => setDraft((d) => ({ ...d, ...patch }));
-  const toggleAge = (key) => setDraft((d) => ({
-    ...d,
-    ages: d.ages.includes(key) ? d.ages.filter((a) => a !== key) : [...d.ages, key],
-  }));
 
   return (
     <div className="lg-popover lg-filter-pop" ref={ref}>
       <div className="lg-filter-body">
-        {FILTER_GROUPS(flagStats).map((g) => (
+        {FILTER_GROUPS.map((g) => (
           <div className="lg-filter-fld" key={g.key}>
             <div className="lg-filter-fld-lbl">{g.label}</div>
             <div className="lg-toggle-row">
@@ -109,23 +87,6 @@ function FilterPopover({ values, flagStats, onChange, onClose }) {
             </div>
           </div>
         ))}
-
-        <div className="lg-filter-fld">
-          <div className="lg-filter-fld-lbl">
-            Age {draft.ages.length > 0 ? `(${draft.ages.length} selected)` : "(all)"}
-          </div>
-          <div className="lg-toggle-row">
-            {AGE_BUCKETS.filter((b) => b.key !== "current").map((b) => (
-              <button
-                key={b.key}
-                className={`lg-toggle${draft.ages.includes(b.key) ? " on" : ""}`}
-                onClick={() => toggleAge(b.key)}
-              >
-                {b.lbl}
-              </button>
-            ))}
-          </div>
-        </div>
       </div>
 
       <div className="lg-filter-foot">
@@ -136,17 +97,18 @@ function FilterPopover({ values, flagStats, onChange, onClose }) {
   );
 }
 
-const countActiveFilters = (f) =>
-  (f.checks !== "any" ? 1 : 0) + (f.due !== "any" ? 1 : 0) + (f.payment !== "any" ? 1 : 0) + (f.ages.length > 0 ? 1 : 0);
+const countActiveFilters = (f) => (f.request !== "any" ? 1 : 0);
 
 // ── Table row ──────────────────────────────────────────────────────────────
-// One column per thing you need to decide with: which invoice, who is being
-// paid, when it is due, both status axes, what the bill was, and what is still
-// payable on it. The destination bank account is deliberately NOT here — it is
-// verified at release, on the flag panel and in the record-payment step, not
-// scanned across a list.
+// One column per thing you need to decide with: which bill, which invoice, who
+// is being paid, when it is due, both status axes, what the bill was, and what
+// is still payable on it. Bill ID and Invoice no. are separate columns because
+// they are separate keys — the bill is ours, the invoice number is the vendor's
+// and is what they quote back when they chase the payment. The destination bank
+// account is deliberately NOT here — it is verified at release, on the flag
+// panel and in the record-payment step, not scanned across a list.
 function PaymentRow({
-  line, reqStatus, payKey, roleCfg, selectable, selected, onToggleSelect,
+  line, reqStatus, payKey, roleCfg, selectable, canAct, selected, onToggleSelect,
   onAction, onSecondary, onOpen, flags, release, gated, expanded, onToggleExpand, onAcknowledge,
 }) {
   const req = REQ_META[reqStatus] || REQ_META.notyet;
@@ -156,7 +118,6 @@ function PaymentRow({
   // request too would mean the flag is only ever seen by the person who raised
   // the payment — the release gate exists precisely so a second person sees it.
   const blocked = gated && release.blocked;
-  const canAct = roleCfg && roleCfg.actsOn(reqStatus) && !blocked;
   const withheld = Math.min(line.pph23 || 0, line.remaining || 0);
   const isPaid = payKey === "paid";
   const counts = tierCounts(flags);
@@ -171,8 +132,8 @@ function PaymentRow({
         ) : <span aria-hidden />}
       </div>
 
-      <div className="pm-cell-inv">
-        <span className="pm-id">{line.invNo}</span>
+      <div className="pm-cell-bill">
+        <span className="pm-id">{line.id}</span>
         {flags.length > 0 && (
           <button
             type="button"
@@ -186,6 +147,10 @@ function PaymentRow({
                 : `${flags.length}`}
           </button>
         )}
+      </div>
+
+      <div className="pm-cell-inv">
+        <span className="pm-inv-no">{line.invNo}</span>
       </div>
 
       <div className="pm-cell-payee">
@@ -242,7 +207,7 @@ function PaymentRow({
     {expanded && flags.length > 0 && (
       <div className="pm-flag-panel">
         <div className="pm-flag-panel-head">
-          Checks that fired when this payment was assembled — {line.invNo}
+          Checks that fired when this payment was assembled — {line.id}
         </div>
         {flags.map((f) => {
           const acked = release.review.some((r) => r.key === f.key) && !release.unacked.some((r) => r.key === f.key);
@@ -283,9 +248,10 @@ export default function PaymentsPage() {
   const roleCfg = PAYMENT_ROLES[payMode];
   const gatesRelease = gatesReleaseFor(payMode);
 
-  // Primary axis = Payment request status; the role's own stage is the default
-  // landing tab. Paid is the terminal tab on the payment axis.
-  const [tab, setTab] = useState(payMode === "approve" ? "requested" : payMode === "execute" ? "approved" : "notyet");
+  // Primary axis = Payment status. Every role lands on Unpaid: that is where
+  // the work is for all three stages, and a role-specific landing tab on this
+  // axis would only hide the part-paid bills that need the same decision.
+  const [tab, setTab] = useState("unpaid");
   const [selected, setSelected] = useState(() => new Set());
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState(() => ({ ...BLANK_FILTER }));
@@ -317,11 +283,15 @@ export default function PaymentsPage() {
   const payStatusOf = (l) => paymentStatusOf(l.raw);
   const reqOf = (l) => requestStatusOf(l.id);
 
-  // Which tab a bill belongs to: fully paid bills leave the request pipeline
-  // and land in Paid; everything else is slotted by where its current request
-  // sits. A partly paid bill whose remainder has not been asked for yet shows
-  // under "Not yet requested" carrying a Partial badge.
-  const tabOf = (l) => bucketOf(payStatusOf(l), reqOf(l));
+  // The tabs slice on the payment axis, so a tab is just the payment status.
+  // Where the request sits is the filter, and it stays visible per row — a
+  // Partial bill can be sitting at any of the three request stages.
+  const tabOf = payStatusOf;
+
+  // One rule for "this row is mine to act on", shared by the row's checkbox,
+  // its action button and the header's select-all. Three places that have to
+  // agree, or select-all quietly picks up rows the bulk action then drops.
+  const canActOn = (l) => !!roleCfg && roleCfg.actsOn(reqOf(l)) && !(gatesRelease && releaseOf(l).blocked);
 
   // Search-filtered universe — the base the tab counts reflect.
   const searchBase = useMemo(() => {
@@ -332,33 +302,38 @@ export default function PaymentsPage() {
   }, [postedLines, search]);
 
   const counts = useMemo(() => {
-    const c = { notyet: 0, requested: 0, approved: 0, paid: 0 };
+    const c = { unpaid: 0, partial: 0, paid: 0 };
     for (const l of searchBase) c[tabOf(l)] += 1;
     return c;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchBase, requestStatusOf]);
+  }, [searchBase]);
 
-  // Filter groups compose with AND — picking "Blocked" and "Overdue" means
-  // both, which the old single-select chip rail could not express.
   const rows = useMemo(() => {
     let list = searchBase.filter((l) => tabOf(l) === tab);
-    if (filter.checks === "blocked") list = list.filter((l) => releaseOf(l).blocked);
-    else if (filter.checks === "toreview") list = list.filter((l) => releaseOf(l).needsAck);
-    if (filter.due === "overdue") list = list.filter((l) => l.daysOverdue > 0);
-    else if (filter.due === "due7") list = list.filter((l) => { const dd = -daysSince(l.dueDate); return dd >= 0 && dd <= 7; });
-    if (filter.payment !== "any") list = list.filter((l) => payStatusOf(l) === filter.payment);
-    if (filter.ages.length > 0) list = list.filter((l) => filter.ages.includes(l.ageBucket));
+    if (filter.request !== "any") list = list.filter((l) => reqOf(l) === filter.request);
     // Most overdue first.
     return [...list].sort((a, b) => (b.daysOverdue || 0) - (a.daysOverdue || 0) || b.remaining - a.remaining);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchBase, tab, filter]);
+  }, [searchBase, tab, filter, requestStatusOf]);
 
   const tabs = [
-    { k: "notyet", lbl: "Not yet requested", count: counts.notyet },
-    { k: "requested", lbl: "Requested", count: counts.requested },
-    { k: "approved", lbl: "Approved", count: counts.approved },
+    { k: "unpaid", lbl: "Unpaid", count: counts.unpaid },
+    { k: "partial", lbl: "Partial", count: counts.partial },
     { k: "paid", lbl: "Paid", count: counts.paid },
   ];
+
+  // Select-all covers the rows on screen that this persona can actually act
+  // on — not every row in the tab. A tab is a payment-status slice now, so it
+  // mixes request stages, and ticking the header must never imply an action on
+  // a bill whose request has not reached this stage.
+  const actionable = useMemo(
+    () => rows.filter(canActOn),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rows, roleCfg, flagsOf, requestStatusOf],
+  );
+  const allSelected = actionable.length > 0 && actionable.every((l) => selected.has(l.id));
+  const someSelected = !allSelected && actionable.some((l) => selected.has(l.id));
+  const toggleSelectAll = () => setSelected(allSelected ? new Set() : new Set(actionable.map((l) => l.id)));
 
   const totalOpen = useMemo(
     () => postedLines.filter((l) => payStatusOf(l) !== "paid").reduce((s, l) => s + (l.remaining || 0), 0),
@@ -400,9 +375,14 @@ export default function PaymentsPage() {
         const l = rows.find((r) => r.id === id);
         if (l) linesById[id] = { remaining: l.remaining, pph23: l.pph23 };
       }
-      markPaid(ids, by, linesById);
+      // Bulk has no room to pick a method and a source per bill, so it takes
+      // the obvious one: a transfer out of the primary operating account. The
+      // audit line names it, so a bulk release that drew on the wrong account
+      // is visible on the bill rather than having to be inferred.
+      const defaults = { method: "bank", sourceAccountId: accountsForMethod("bank")[0]?.id || null };
+      markPaid(ids, by, linesById, defaults);
       for (const id of ids) {
-        const bd = defaultBreakdown(linesById[id] || {});
+        const bd = defaultBreakdown(linesById[id] || {}, defaults);
         updateBill(id, { pay: "paid", sisa: 0 }, { type: "paid", action: auditText(bd, true), by, date: dateISO, time: "" });
       }
     }
@@ -455,19 +435,6 @@ export default function PaymentsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, selected, flagsOf]);
 
-  // How much of the tab the checks are holding up. Shown on the filter chips so
-  // the releaser can jump straight to the problems.
-  const flagStats = useMemo(() => {
-    let blocked = 0; let needsAck = 0;
-    for (const l of rows) {
-      const st = releaseOf(l);
-      if (st.blocked) blocked += 1;
-      else if (st.needsAck) needsAck += 1;
-    }
-    return { blocked, needsAck };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, flagsOf]);
-
   const activeFilterCount = countActiveFilters(filter);
 
   return (
@@ -479,7 +446,7 @@ export default function PaymentsPage() {
             <div style={{ flex: 1, minWidth: 0 }}>
               <h1 className="lg-title">Payment</h1>
               <p className="pm-lede">
-                Posted bills by <strong>payment request status</strong> — <strong>{formatRupiah(totalOpen)}</strong> still open.
+                Posted bills by <strong>payment status</strong> — <strong>{formatRupiah(totalOpen)}</strong> still open.
                 {roleCfg && <> You're working the <strong>{roleCfg.stage}</strong> stage.</>}
                 {withholding.count > 0 && (
                   <> Of that, <strong>{formatRupiah(withholding.sum)}</strong> is withheld for the tax office across{" "}
@@ -527,7 +494,6 @@ export default function PaymentsPage() {
                   {filterOpen && (
                     <FilterPopover
                       values={filter}
-                      flagStats={flagStats}
                       onChange={setFilter}
                       onClose={() => setFilterOpen(false)}
                     />
@@ -542,7 +508,25 @@ export default function PaymentsPage() {
                 scrollbar. */}
             <div className="pm-table-scroll">
             <div className="pm-table2-head">
-              <div />
+              <div>
+                {payMode !== "view" && (
+                  <span
+                    className={`apa-checkbox${allSelected ? " checked" : ""}${someSelected ? " mixed" : ""}${actionable.length === 0 ? " disabled" : ""}`}
+                    role="checkbox"
+                    aria-checked={allSelected ? "true" : someSelected ? "mixed" : "false"}
+                    aria-label={allSelected
+                      ? "Clear selection"
+                      : `Select all ${actionable.length} row${actionable.length === 1 ? "" : "s"} you can act on`}
+                    title={actionable.length === 0
+                      ? "Nothing here is at your stage"
+                      : allSelected ? "Clear selection" : `Select all ${actionable.length} you can act on`}
+                    onClick={() => actionable.length > 0 && toggleSelectAll()}
+                  >
+                    {allSelected && CHECK}
+                  </span>
+                )}
+              </div>
+              <div>Bill ID</div>
               <div>Invoice no.</div>
               <div>Payment to</div>
               <div>Due date</div>
@@ -564,6 +548,7 @@ export default function PaymentsPage() {
                   payKey={payStatusOf(line)}
                   roleCfg={roleCfg}
                   selectable={payMode !== "view"}
+                  canAct={canActOn(line)}
                   selected={selected.has(line.id)}
                   onToggleSelect={toggleSelect}
                   onAction={runRow}

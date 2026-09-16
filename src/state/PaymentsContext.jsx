@@ -163,10 +163,12 @@ export function PaymentsProvider({ children }) {
   }, []);
 
   // Convenience for callers that just want "pay the whole open balance" — it
-  // still produces a typed breakdown rather than an untyped amount.
-  const markPaid = useCallback((ids, by, linesById = {}) => {
+  // still produces a typed breakdown rather than an untyped amount. `defaults`
+  // carries the method and source account the caller is paying from, so a bulk
+  // release records where the money actually came out of.
+  const markPaid = useCallback((ids, by, linesById = {}, defaults = {}) => {
     recordPayment(
-      ids.map((id) => ({ id, breakdown: defaultBreakdown(linesById[id] || {}), paysInFull: true })),
+      ids.map((id) => ({ id, breakdown: defaultBreakdown(linesById[id] || {}, defaults), paysInFull: true })),
       by,
     );
   }, [recordPayment]);

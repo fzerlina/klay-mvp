@@ -45,15 +45,15 @@
 .pm-req-pill.tone-success { background: var(--color-success-surface, #E7F3EC); color: var(--color-success-text, #1B7A46); border-color: #C5E4D1; }
 
 /* ── Table (grid rows) ───────────────────────────────────────────────── */
-/* Eight meaningful columns need room. Below that, the table scrolls sideways
+/* Nine meaningful columns need room. Below that, the table scrolls sideways
    inside the card rather than silently clipping the action column; the tabs and
    filter row above it stay put. */
 .pm-table-scroll { overflow-x: auto; }
-.pm-table-scroll > * { min-width: 1020px; }
+.pm-table-scroll > * { min-width: 1180px; }
 
 .pm-table2-head, .pm-row2 {
   display: grid;
-  grid-template-columns: 26px minmax(148px, 1.1fr) minmax(132px, 1fr) 84px 86px 118px 116px 124px 132px;
+  grid-template-columns: 26px minmax(124px, .8fr) minmax(140px, 1.05fr) minmax(128px, 1fr) 84px 86px 118px 116px 124px 132px;
   gap: 10px; align-items: center; padding: 11px 18px;
   border-bottom: 1px solid var(--color-border-subtle);
 }
@@ -67,7 +67,15 @@
 .pm-row2.selected { background: var(--color-action-wash, #EEF2FC); }
 .pm-num { text-align: right; font-family: var(--font-mono); white-space: nowrap; }
 
-.pm-cell-inv { min-width: 0; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+/* Bill ID leads and carries the flag chip; the vendor's own invoice number
+   follows in its own column, set quieter so the two keys never compete. */
+.pm-cell-bill { min-width: 0; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.pm-cell-inv { min-width: 0; }
+.pm-inv-no {
+  display: block; font-family: var(--font-mono); font-size: 11.5px;
+  color: var(--color-text-secondary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .pm-cell-payee { min-width: 0; display: flex; align-items: center; gap: 6px; }
 .pm-cell-total { color: var(--color-text-secondary); }
 .pm-id { font-family: var(--font-mono); font-weight: 700; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -156,6 +164,16 @@
 .pm-cell-action { display: flex; justify-content: flex-end; }
 .pm-actions { display: flex; gap: 6px; }
 
+/* Select-all. "Mixed" is a dash rather than a tick because only some of the
+   rows you can act on are picked — a tick there would claim the whole tab.
+   Disabled when this persona's stage has nothing in the tab. */
+.pm-table2-head .apa-checkbox.mixed { background: var(--color-action); border-color: var(--color-action); }
+.pm-table2-head .apa-checkbox.mixed::after {
+  content: ""; width: 8px; height: 2px; border-radius: 1px; background: #fff;
+}
+.pm-table2-head .apa-checkbox.disabled { opacity: .35; cursor: not-allowed; }
+.pm-table2-head .apa-checkbox.disabled:hover { border-color: var(--color-border-strong); }
+
 .pm-empty { text-align: center; padding: 48px 16px; color: var(--color-text-tertiary); font-size: 13px; }
 
 @media (max-width: 1180px) {
@@ -166,8 +184,65 @@
 .pm-actions .apa-row-action { padding: 4px 9px; font-size: 11px; white-space: nowrap; }
 
 /* ── Typed payment breakdown (record-payment modal) ───────────────────── */
-.pm-pay-modal { max-width: 520px; }
-.pm-pay-modal .apa-modal-body { max-height: 68vh; overflow-y: auto; }
+/* Wider than a plain confirm dialog: the payment now answers four questions
+   (method, our account, their account, the split) and a 520px column turned
+   the account lines into three-line wraps. */
+.pm-pay-modal { max-width: 580px; }
+.pm-pay-modal .apa-modal-body { max-height: 70vh; overflow-y: auto; }
+
+/* ── Method / account sections ─────────────────────────────────────────── */
+.pm-sec { margin-top: 14px; }
+.pm-sec-lbl {
+  font-size: 9.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--color-text-tertiary); margin-bottom: 6px;
+}
+.pm-sec-hint { font-size: 10.5px; line-height: 1.4; color: var(--color-text-tertiary); margin-top: 5px; }
+
+.pm-method-row { display: flex; gap: 6px; }
+.pm-method {
+  flex: 1; padding: 8px 10px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--color-border-default); background: var(--color-surface-base);
+  font-size: 12px; font-weight: 600; color: var(--color-text-secondary);
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+.pm-method:hover { border-color: var(--color-text-tertiary); }
+.pm-method.on {
+  background: var(--color-action); border-color: var(--color-action); color: #fff;
+}
+
+.pm-select, .pm-text-input {
+  width: 100%; padding: 8px 10px; border-radius: 8px;
+  border: 1px solid var(--color-border-default); background: var(--color-surface-base);
+  font-size: 12.5px; color: var(--color-text-primary); font-family: inherit;
+}
+.pm-select:focus, .pm-text-input:focus {
+  outline: none; border-color: var(--color-action); box-shadow: 0 0 0 3px rgba(26, 70, 200, .08);
+}
+
+/* An account, shown as a settled fact rather than another input. */
+.pm-acct-card {
+  margin-top: 7px; padding: 9px 11px; border-radius: 9px;
+  border: 1px solid var(--color-border-default); background: var(--color-surface-sunken);
+}
+.pm-acct-card.readonly { background: var(--color-surface-raised, #fff); }
+.pm-acct-card.muted { opacity: .6; }
+.pm-acct-main { display: flex; align-items: center; gap: 7px; }
+.pm-acct-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.pm-acct-name { font-size: 12.5px; font-weight: 600; color: var(--color-text-primary); }
+.pm-acct-cur {
+  font-size: 9.5px; font-weight: 700; letter-spacing: .06em; color: var(--color-text-tertiary);
+  border: 1px solid var(--color-border-default); border-radius: 4px; padding: 1px 5px;
+}
+.pm-acct-lock {
+  margin-left: auto; font-size: 9.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--color-text-tertiary);
+}
+.pm-acct-sub { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-secondary); margin-top: 3px; }
+.pm-acct-note { font-size: 10.5px; line-height: 1.4; color: var(--color-text-tertiary); margin-top: 5px; }
+.pm-acct-empty {
+  padding: 10px 11px; border-radius: 9px; font-size: 11.5px; line-height: 1.45;
+  border: 1px dashed var(--color-border-default); color: var(--color-text-tertiary);
+}
 
 .pm-bd-list {
   display: flex; flex-direction: column; margin-top: 6px;
@@ -182,9 +257,13 @@
 /* The one component that is actual cash leaving the bank reads as the anchor. */
 .pm-bd-row.cash { background: var(--color-action-wash, #EEF2FC); }
 
-.pm-bd-lbl { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pm-bd-lbl { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .pm-bd-name { font-size: 12.5px; font-weight: 600; color: var(--color-text-primary); }
 .pm-bd-hint { font-size: 10.5px; line-height: 1.35; color: var(--color-text-tertiary); }
+
+/* A deduction's label position is a picker: the account IS the classification,
+   so choosing it is the same act as naming the row. */
+.pm-bd-acct { font-size: 12px; padding: 6px 8px; }
 
 .pm-bd-input {
   display: flex; align-items: center; gap: 6px;
@@ -204,27 +283,12 @@
 .pm-bd-x:hover { color: var(--color-danger-text, #C0392B); }
 .pm-bd-x-spacer { display: block; width: 22px; }
 
-.pm-bd-add { position: relative; }
 .pm-bd-add-btn {
-  font-size: 11.5px; font-weight: 600; padding: 5px 11px; border-radius: 9999px;
+  margin-top: 7px; font-size: 11.5px; font-weight: 600; padding: 5px 11px; border-radius: 9999px;
   border: 1px dashed var(--color-border-default); background: transparent;
   color: var(--color-text-secondary); cursor: pointer;
 }
 .pm-bd-add-btn:hover { border-color: var(--color-action); color: var(--color-action); }
-.pm-bd-menu {
-  margin-top: 7px; display: flex; flex-direction: column;
-  border: 1px solid var(--color-border-default); border-radius: 10px; overflow: hidden;
-  background: var(--color-surface-raised, #fff);
-}
-.pm-bd-menu button {
-  display: flex; flex-direction: column; gap: 2px; align-items: flex-start; text-align: left;
-  padding: 9px 12px; border: none; border-bottom: 1px solid var(--color-border-subtle);
-  background: transparent; cursor: pointer;
-}
-.pm-bd-menu button:last-child { border-bottom: none; }
-.pm-bd-menu button:hover { background: var(--color-surface-hover, #F7F4EE); }
-.pm-bd-menu-lbl { font-size: 12.5px; font-weight: 600; color: var(--color-text-primary); }
-.pm-bd-menu-hint { font-size: 10.5px; line-height: 1.35; color: var(--color-text-tertiary); }
 
 .pm-bd-tally {
   display: flex; flex-direction: column; gap: 5px; margin-top: 4px;

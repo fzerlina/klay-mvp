@@ -18,9 +18,9 @@
 // moment Bank Reconciliation confirms the money actually moved. We have paid;
 // we do not yet have settled.
 export const REQ_META = {
-  notyet:    { label: "Not yet requested", tone: "muted" },
-  requested: { label: "Requested",         tone: "review" },
-  approved:  { label: "Approved",          tone: "action" },
+  notyet:    { label: "No request", tone: "muted"  },
+  requested: { label: "Requested",  tone: "review" },
+  approved:  { label: "Approved",   tone: "action" },
 };
 
 // Role → the stage that persona works. Capabilities come from roles.js:
@@ -70,13 +70,6 @@ export function paymentStatusOf(bill) {
   if (bill.pay === "paid" || bill.sisa === 0) return "paid";
   if (bill.sisa != null && bill.sisa < bill.total) return "partial";
   return "unpaid";
-}
-
-// Which list bucket a posted bill belongs to. Fully paid bills leave the
-// request pipeline entirely — their request status is "notyet" like any other
-// bill with nothing outstanding, so the payment axis has to decide first.
-export function bucketOf(paymentStatus, requestStatus) {
-  return paymentStatus === "paid" ? "paid" : requestStatus || "notyet";
 }
 
 // The action this persona can take on this stage, or null. `variant` picks the
