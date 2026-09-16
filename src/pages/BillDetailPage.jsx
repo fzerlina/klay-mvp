@@ -1,11 +1,11 @@
-import { useMemo, useState, useRef } from "react";
+import { Fragment, useMemo, useState, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { VENDORS } from "../data/seed/vendors";
 import { useBills } from "../state/BillsContext";
 import { useVendors } from "../state/VendorsContext";
 import { usePayments, PAYMENT_STATUS_META } from "../state/PaymentsContext";
 import { useJournalEntries } from "../state/JournalEntriesContext";
-import { formatRupiah, formatDateEn, initials } from "../lib/format";
+import { formatRupiah, formatRupiahExact, formatDateEn, initials } from "../lib/format";
 import {
   workflowStatus,
   statusCause,
@@ -29,7 +29,9 @@ import RecordPaymentModal from "../components/RecordPaymentModal";
 import { buildAgingLines } from "../lib/apAging";
 import { makeFlagger, releaseState, FLAG_TIERS } from "../lib/paymentFlags";
 import { REQ_META, gatesRelease, payModeFor, paymentActionFor, paymentStatusOf } from "../lib/paymentStage";
-import { breakdownTotal, cashOut, DEDUCTION_TYPES } from "../lib/paymentBreakdown";
+import { PAYMENT_METHOD_BY_KEY, auditTextFor, breakdownTotal, describeBreakdown } from "../lib/paymentBreakdown";
+import { bankAccountById } from "../data/seed/bankAccounts";
+import { paymentJournalLines } from "../lib/paymentJournal";
 import { TODAY } from "../lib/clock";
 import "./modules.css";
 import "./invoice-create.css";
@@ -42,62 +44,196 @@ const PAY_LABEL      = { paid: "Paid", unpaid: "Unpaid", overdue: "Overdue" };
 
 // Payment request status — the workflow axis (posted bills only). Distinct from
 // Payment status: Unpaid / Partial / Paid.
-// Labels for PAYMENT HISTORY EVENTS, not statuses — "returned" and "paid"
-// are things that happened, and belong on a timeline. The status axes
-// themselves are REQ_META (request) and PAYMENT_STATUS_META (payment).
-const EVENT_LABEL = { requested: "Requested", approved: "Approved", returned: "Returned", paid: "Paid" };
-const EVENT_TONE  = { requested: "review", approved: "action", returned: "danger", paid: "success" };
-
-
-// ─── Payment tab — payment history ──────────────────────────────────────────
-// The payment lifecycle for a posted bill: request → approve → (return) → pay,
-// each event a row (partial payments included), with how much each covers.
-// Useful for reading how a partially-paid bill got where it is.
+// ─── Payment tab — recorded payments ────────────────────────────────────────
+// Money that actually moved, and nothing else. Requests, approvals and returns
+// used to share this table, which made a bill look like it had been paid four
+// times when it had been paid once: three of those rows were somebody pressing
+// a button, and they each carried the full outstanding balance as their
+// "amount", so the column did not add up to anything. Those events are workflow
+// state — the request axis shows where a bill sits, and the audit trail records
+// who moved it — so this tab answers only "what has been paid off, and what is
+// left".
 function PaymentTab({ bill, detail }) {
   const isPosted = !!bill.je_number || workflowStatus(bill) === "POSTED" || workflowStatus(bill) === "PAID";
-  // Amount a request/approval/return covers = the outstanding balance at the
-  // time (the whole remaining is requested). Executed payments carry their own
-  // amount in the audit action text (e.g. "Partial payment — Rp X").
-  const reqAmount = bill.sisa != null ? bill.sisa : bill.total;
-  const parseRp = (s) => { const m = /Rp\s*([\d.]+)/.exec(s || ""); return m ? Number(m[1].replace(/\./g, "")) : null; };
+  const total = bill.total || 0;
+  const remaining = bill.sisa != null ? bill.sisa : total;
+  const paid = Math.max(0, total - remaining);
 
-  const events = [];
-  if (detail?.requestedAt) events.push({ at: detail.requestedAt, activity: "Payment requested", req: "requested", by: detail.requestedBy, amount: reqAmount });
-  if (detail?.approvedAt)  events.push({ at: detail.approvedAt,  activity: "Payment approved",  req: "approved",  by: detail.approvedBy,  amount: reqAmount });
-  if (detail?.returned)    events.push({ at: detail.returned.at, activity: `Returned — ${detail.returned.reason}`, req: "returned", by: detail.returned.by, amount: reqAmount });
-  for (const a of bill.audit || []) {
-    if (a.type === "paid") events.push({ at: a.date, time: a.time, activity: a.action, req: "paid", by: a.by, amount: parseRp(a.action) ?? reqAmount });
+  // Recorded payments, newest work last so the running balance reads downward.
+  // `detail.history` is the structured record and is preferred wherever it
+  // exists; the audit trail is the fallback for bills that arrived already paid
+  // in the seed. Never both — recording a payment writes to each, so merging
+  // them would count every in-session payment twice.
+  const payments = useMemo(() => {
+    const history = detail?.history || [];
+    if (history.length > 0) {
+      return history.map((h, i) => ({
+        key: `h${i}`,
+        at: h.at,
+        amount: h.cleared,
+        by: h.by,
+        detail: describeBreakdown(h.breakdown),
+        method: PAYMENT_METHOD_BY_KEY[h.breakdown?.method]?.label || null,
+        source: bankAccountById(h.breakdown?.sourceAccountId)?.name || null,
+        ref: h.breakdown?.giroNumber || null,
+        journal: paymentJournalLines(h.breakdown, { vendorName: bill.vendorName }),
+      }));
+    }
+    // Seeded payments carry prose, not a breakdown, so there is nothing to
+    // derive an entry from — those rows do not expand rather than showing a
+    // journal that was reverse-engineered from a sentence.
+    return (bill.audit || [])
+      .filter((a) => a.type === "paid")
+      .map((a, i) => ({ key: `a${i}`, at: a.date, time: a.time, amount: null, by: a.by, detail: a.action, journal: null }));
+  }, [detail, bill.audit, bill.vendorName]);
+
+  const [openRow, setOpenRow] = useState(null);
+
+  // The ledger balance is the authority on how much is paid off, not this
+  // table. A bill can arrive part-paid with no rows behind it — the seed does
+  // exactly that — so rather than let the rows quietly disagree with the
+  // balance, the unexplained difference gets a line of its own.
+  const rowsTotal = payments.reduce((s, p) => s + (p.amount || 0), 0);
+  const opening = payments.every((p) => p.amount != null) ? Math.max(0, paid - rowsTotal) : 0;
+
+  // Balance after each payment, worked backwards from the live remaining so the
+  // last row always lands on the number in the header.
+  const after = [];
+  let running = remaining;
+  for (let i = payments.length - 1; i >= 0; i -= 1) {
+    after[i] = running;
+    running += payments[i].amount || 0;
   }
-  events.sort((x, y) => (x.at || "").localeCompare(y.at || ""));
 
   return (
     <div className="drawer-section">
-      <div className="drawer-section-title">Payment history</div>
+      <div className="drawer-section-title">Payments</div>
+
+      <div className="bd-pay-summary">
+        <div className="bd-pay-stat">
+          <span className="bd-pay-stat-lbl">Bill total</span>
+          <strong className="bd-pay-stat-val">{formatRupiah(total)}</strong>
+        </div>
+        <div className="bd-pay-stat">
+          <span className="bd-pay-stat-lbl">Paid</span>
+          <strong className="bd-pay-stat-val paid">{formatRupiahExact(paid)}</strong>
+        </div>
+        <div className="bd-pay-stat">
+          <span className="bd-pay-stat-lbl">Remaining</span>
+          <strong className={`bd-pay-stat-val${remaining > 0 ? " open" : ""}`}>{formatRupiahExact(remaining)}</strong>
+        </div>
+      </div>
+
       <table className="bd-pay-table">
         <thead>
           <tr>
             <th>Date</th>
-            <th>Activity</th>
+            <th>Payment</th>
             <th className="r">Amount</th>
-            <th>Payment request status</th>
+            <th className="r">Remaining after</th>
             <th>By</th>
           </tr>
         </thead>
         <tbody>
-          {events.length === 0 ? (
-            <tr><td colSpan={5} className="bd-pay-empty">No payment activity yet.{!isPosted && " Payment starts once the bill is posted to the GL."}</td></tr>
+          {opening > 0 && (
+            <tr className="bd-pay-opening">
+              <td className="bd-pay-date">—</td>
+              <td>
+                <div className="bd-pay-what">Opening position</div>
+                <div className="bd-pay-sub">Already part-paid when this bill entered Klay — no payment record behind it.</div>
+              </td>
+              <td className="r bd-pay-amt">{formatRupiah(opening)}</td>
+              <td className="r bd-pay-amt">{formatRupiah(total - opening)}</td>
+              <td className="bd-pay-by">—</td>
+            </tr>
+          )}
+          {payments.length === 0 && opening === 0 ? (
+            <tr>
+              <td colSpan={5} className="bd-pay-empty">
+                No payments recorded yet.{!isPosted && " Payment starts once the bill is posted to the GL."}
+              </td>
+            </tr>
           ) : (
-            events.map((e, i) => (
-              <tr key={i}>
-                <td className="bd-pay-date">{formatDateEn(e.at)}{e.time ? ` · ${e.time}` : ""}</td>
-                <td>{e.activity}</td>
-                <td className="r bd-pay-amt">{formatRupiah(e.amount)}</td>
-                <td><span className={`bp-pay-badge ${EVENT_TONE[e.req]}`}>{EVENT_LABEL[e.req]}</span></td>
-                <td className="bd-pay-by">{e.by || "—"}</td>
-              </tr>
-            ))
+            payments.map((p, i) => {
+              const expandable = !!p.journal?.lines.length;
+              const open = openRow === p.key;
+              return (
+                <Fragment key={p.key}>
+                  <tr
+                    className={`${expandable ? "bd-pay-rowx" : ""}${open ? " open" : ""}`}
+                    onClick={expandable ? () => setOpenRow(open ? null : p.key) : undefined}
+                  >
+                    <td className="bd-pay-date">{formatDateEn(p.at)}{p.time ? ` · ${p.time}` : ""}</td>
+                    <td>
+                      <div className="bd-pay-what">
+                        {expandable && <span className={`bd-pay-caret${open ? " open" : ""}`} aria-hidden>▸</span>}
+                        {p.method
+                          ? `${p.method}${p.source ? ` · ${p.source}` : ""}${p.ref ? ` · ${p.ref}` : ""}`
+                          : "Payment recorded"}
+                      </div>
+                      {p.detail && <div className="bd-pay-sub">{p.detail}</div>}
+                    </td>
+                    <td className="r bd-pay-amt">{p.amount != null ? formatRupiah(p.amount) : "—"}</td>
+                    <td className="r bd-pay-amt">{p.amount != null ? formatRupiahExact(after[i]) : "—"}</td>
+                    <td className="bd-pay-by">{p.by || "—"}</td>
+                  </tr>
+                  {open && (
+                    <tr className="bd-pay-je-row">
+                      <td colSpan={5}><PaymentJournal journal={p.journal} /></td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })
           )}
         </tbody>
+      </table>
+    </div>
+  );
+}
+
+// The GL entry behind one payment. Debits and credits in one column each, the
+// way a journal is read, with the account code carried so it can be checked
+// against the chart rather than taken on trust. A line the derivation is not
+// sure about says why on the line itself — a warning in a summary somewhere
+// else is a warning nobody connects to the number it is about.
+function PaymentJournal({ journal }) {
+  const { lines, totalDr, totalCr, balanced } = journal;
+  return (
+    <div className="bd-je">
+      <div className="bd-je-title">Journal entry</div>
+      <table className="bd-je-table">
+        <thead>
+          <tr>
+            <th>Account</th>
+            <th>Description</th>
+            <th className="r">Debit</th>
+            <th className="r">Credit</th>
+          </tr>
+        </thead>
+        <tbody>
+          {lines.map((l, i) => (
+            <tr key={i} className={l.flag ? "flagged" : ""}>
+              <td>
+                <span className="bd-je-code">{l.account_code}</span>
+                <span className="bd-je-name">{l.account_name}</span>
+              </td>
+              <td>
+                <div className="bd-je-desc">{l.description}</div>
+                {l.flag && <div className="bd-je-flag">{l.flag}</div>}
+              </td>
+              <td className="r bd-je-amt">{l.side === "DR" ? formatRupiahExact(l.amount) : ""}</td>
+              <td className="r bd-je-amt">{l.side === "CR" ? formatRupiahExact(l.amount) : ""}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr className={balanced ? "" : "unbalanced"}>
+            <td colSpan={2}>{balanced ? "Balanced" : "Does not balance — this entry would be rejected"}</td>
+            <td className="r bd-je-amt">{formatRupiahExact(totalDr)}</td>
+            <td className="r bd-je-amt">{formatRupiahExact(totalCr)}</td>
+          </tr>
+        </tfoot>
       </table>
     </div>
   );
@@ -432,15 +568,17 @@ function StatusStepper({ bill, paymentStage = "unpaid", requestStage = "notyet" 
 
   if (isPostApproval) {
     // The REQUEST cycle, not a single march to Paid. Recording a payment ends
-    // a cycle and returns the bill to "Not yet requested", so the first three
-    // nodes repeat for as long as a balance is open — a partly paid bill sits
-    // back at the start with a Partial badge beside the stepper. Paid is the
-    // only terminal node, and it belongs to the other axis.
+    // a cycle and returns the bill to "No request", so the first three nodes
+    // repeat for as long as a balance is open — a partly paid bill sits back at
+    // the start with a Partial badge beside the stepper. Paid is the only
+    // terminal node, and it belongs to the other axis.
+    //
+    // The three request labels come from REQ_META rather than being spelled out
+    // again here: this stepper and the Payment list name the same three stages,
+    // and when each held its own copy they drifted.
     steps = [
-      { key: "notyet",    label: "Not yet requested" },
-      { key: "requested", label: "Requested" },
-      { key: "approved",  label: "Approved" },
-      { key: "paid",      label: "Paid" },
+      ...Object.entries(REQ_META).map(([key, m]) => ({ key, label: m.label })),
+      { key: "paid", label: "Paid" },
     ];
     activeKey = paymentStage === "paid" ? "paid" : (requestStage || "notyet");
   } else {
@@ -1162,10 +1300,6 @@ export default function BillDetailPage() {
     const by = user?.name || "Finance Staff";
     const total = breakdownTotal(breakdown);
     const full = total >= paymentOpenBalance;
-    const parts = DEDUCTION_TYPES
-      .filter((t) => (breakdown[t.key] || 0) > 0)
-      .map((t) => `${t.short.toLowerCase()} ${formatRupiah(breakdown[t.key])}`);
-    const head = `${full ? "Payment executed" : "Partial payment"} — ${formatRupiah(total)}`;
     recordPayment([{ id, breakdown, paysInFull: full }], by);
     updateBill(
       id,
@@ -1173,7 +1307,7 @@ export default function BillDetailPage() {
       {
         type: "paid",
         by,
-        action: parts.length ? `${head} (to vendor ${formatRupiah(cashOut(breakdown))}, ${parts.join(", ")})` : head,
+        action: auditTextFor(breakdown, full, { sourceName: bankAccountById(breakdown.sourceAccountId)?.name }),
         date: TODAY.toISOString().slice(0, 10),
         time: "",
       },
@@ -1775,6 +1909,7 @@ export default function BillDetailPage() {
         <RecordPaymentModal
           bill={{
             id: bill.id,
+            vendorId: bill.vendor,
             vendorName: bill.vendorName,
             invNo: bill.invNo,
             remaining: paymentOpenBalance,
