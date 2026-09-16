@@ -1,5 +1,6 @@
 import { createContext, useContext, useMemo, useState, useCallback } from "react";
 import { BILLS as SEED_BILLS } from "../data/seed/bills";
+import { PARTIAL_SEED } from "../data/seed/partialPayments";
 
 const BillsContext = createContext(null);
 
@@ -19,8 +20,20 @@ function nextId(list) {
   return "BILL" + String(max + 1).padStart(3, "0");
 }
 
+// A few posted bills carry a part-paid balance out of the box, so the payment
+// axis has something real to show. Payment status is derived from the balance
+// (lib/paymentStage.js), so reducing `sisa` here IS what makes these bills read
+// as Partial — there is no separate status to keep in step, which is the point.
+function seedBills() {
+  return SEED_BILLS.map((b) => {
+    const seed = PARTIAL_SEED[b.id];
+    if (!seed || !b.je_number || b.pay === "paid") return b;
+    return { ...b, sisa: Math.round(b.total * seed.remainingShare) };
+  });
+}
+
 export function BillsProvider({ children }) {
-  const [bills, setBills] = useState(() => SEED_BILLS);
+  const [bills, setBills] = useState(seedBills);
 
   const addBill = useCallback((draft) => {
     const id = nextId(bills);
