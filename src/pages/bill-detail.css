@@ -193,9 +193,9 @@
   border-bottom: 1px solid var(--color-border-default);
   white-space: nowrap;
 }
-.bd-pay-table td { padding: 10px; border-bottom: 1px solid var(--color-border-subtle); color: var(--color-text-secondary); vertical-align: middle; }
+.bd-pay-table td { padding: 10px 8px; border-bottom: 1px solid var(--color-border-subtle); color: var(--color-text-secondary); vertical-align: middle; }
 .bd-pay-date { font-family: var(--font-mono); font-size: 11.5px; white-space: nowrap; color: var(--color-text-tertiary); }
-.bd-pay-by { color: var(--color-text-secondary); white-space: nowrap; }
+.bd-pay-by { color: var(--color-text-secondary); }
 .bd-pay-empty { text-align: center; padding: 32px 10px; color: var(--color-text-tertiary); }
 
 /* ── Two-panel main ──────────────────────────────────────────────────────── */
@@ -1103,3 +1103,50 @@
   padding: 2px 8px; border-radius: 9999px; letter-spacing: .03em;
   background: #FBEAE7; color: #C0392B; border: 1px solid #F1CFC9;
 }
+
+/* ── Bank-reconciliation axis on a payment row ────────────────────────────
+   A third axis, so it gets its own quiet pill rather than reusing the payment
+   or request status tones — nothing here should read as a stage of either. */
+.bd-pay-recon { white-space: nowrap; }
+.bd-recon-pill {
+  display: inline-block; padding: 2px 7px; border-radius: 999px;
+  font-size: 10px; font-weight: 600; letter-spacing: .01em;
+  border: 1px solid var(--color-border-default); cursor: help;
+}
+.bd-recon-pill.success {
+  color: var(--color-success-text, #1B7A46);
+  background: var(--color-success-bg, #ECF7F0);
+  border-color: var(--color-success-border, #BFE3CD);
+}
+.bd-recon-pill.muted {
+  color: var(--color-text-tertiary);
+  background: var(--color-surface-raised, #fff);
+}
+
+/* ── Journal-entry header + per-line shortcuts ───────────────────────────── */
+.bd-je-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+.bd-je-head .bd-je-title { margin-bottom: 0; }
+.bd-je-link {
+  border: none; background: none; padding: 0; cursor: pointer;
+  font-family: var(--font-mono); font-size: 10.5px; font-weight: 700;
+  color: var(--color-action); letter-spacing: .02em;
+}
+.bd-je-link:hover { text-decoration: underline; }
+/* Why this payment reads reconciled or not, spelled out next to the entry it
+   wrote — the pill on the row only has room for the verdict. */
+.bd-je-recon { font-size: 10px; color: var(--color-text-tertiary); margin-left: auto; }
+/* The account code doubles as the shortcut into the Journal Entry page at
+   this exact line — it is the thing you would point at to name a line, and it
+   costs no column. */
+.bd-je-code.as-link {
+  border: none; background: none; padding: 0; cursor: pointer;
+  text-align: left; color: var(--color-action);
+}
+.bd-je-code.as-link:hover { text-decoration: underline; }
+
+/* This table lives in half a drawer, so nothing in it is allowed to claim a
+   width it does not need. Only the mono amounts and the recon pill hold one
+   line — they read as single tokens and look broken split. */
+.bd-pay-table thead th { padding-left: 8px; padding-right: 8px; }
+/* The balance this payment left behind, sitting under its amount. */
+.bd-pay-left { font-family: var(--font-mono); font-size: 10px; font-weight: 500; color: var(--color-text-tertiary); margin-top: 2px; white-space: nowrap; }

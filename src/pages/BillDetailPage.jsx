@@ -32,6 +32,7 @@ import { REQ_META, gatesRelease, payModeFor, paymentActionFor, paymentStatusOf }
 import { PAYMENT_METHOD_BY_KEY, auditTextFor, breakdownTotal, describeBreakdown } from "../lib/paymentBreakdown";
 import { bankAccountById } from "../data/seed/bankAccounts";
 import { paymentJournalLines } from "../lib/paymentJournal";
+import { reconOf } from "../lib/bankRecon";
 import { TODAY } from "../lib/clock";
 import "./modules.css";
 import "./invoice-create.css";
@@ -53,7 +54,15 @@ const PAY_LABEL      = { paid: "Paid", unpaid: "Unpaid", overdue: "Overdue" };
 // state — the request axis shows where a bill sits, and the audit trail records
 // who moved it — so this tab answers only "what has been paid off, and what is
 // left".
+//
+// Each row carries the five things asked of a payment after the fact: when it
+// was recorded, how it was paid, how much, who recorded it, and whether the
+// bank has confirmed it. That last one is a THIRD axis (lib/bankRecon.js) and
+// is kept visibly apart from the other two — "Paid" is a statement about our
+// payable, "Reconciled" is a statement about the bank, and neither implies the
+// other. It is also why neither axis is allowed to say "settled".
 function PaymentTab({ bill, detail }) {
+  const navigate = useNavigate();
   const isPosted = !!bill.je_number || workflowStatus(bill) === "POSTED" || workflowStatus(bill) === "PAID";
   const total = bill.total || 0;
   const remaining = bill.sisa != null ? bill.sisa : total;
@@ -76,15 +85,22 @@ function PaymentTab({ bill, detail }) {
         method: PAYMENT_METHOD_BY_KEY[h.breakdown?.method]?.label || null,
         source: bankAccountById(h.breakdown?.sourceAccountId)?.name || null,
         ref: h.breakdown?.giroNumber || null,
+        jeNumber: h.je_number || null,
+        recon: reconOf(h),
         journal: paymentJournalLines(h.breakdown, { vendorName: bill.vendorName }),
       }));
     }
     // Seeded payments carry prose, not a breakdown, so there is nothing to
     // derive an entry from — those rows do not expand rather than showing a
-    // journal that was reverse-engineered from a sentence.
+    // journal that was reverse-engineered from a sentence. They cannot be
+    // reconciled either, for the same reason: there is no account to check a
+    // statement against.
     return (bill.audit || [])
       .filter((a) => a.type === "paid")
-      .map((a, i) => ({ key: `a${i}`, at: a.date, time: a.time, amount: null, by: a.by, detail: a.action, journal: null }));
+      .map((a, i) => ({
+        key: `a${i}`, at: a.date, time: a.time, amount: null, by: a.by,
+        detail: a.action, method: null, jeNumber: null, recon: reconOf({ at: a.date }), journal: null,
+      }));
   }, [detail, bill.audit, bill.vendorName]);
 
   const [openRow, setOpenRow] = useState(null);
@@ -127,11 +143,11 @@ function PaymentTab({ bill, detail }) {
       <table className="bd-pay-table">
         <thead>
           <tr>
-            <th>Date</th>
-            <th>Payment</th>
+            <th>Recorded</th>
+            <th>Method</th>
             <th className="r">Amount</th>
-            <th className="r">Remaining after</th>
             <th>By</th>
+            <th>Bank recon</th>
           </tr>
         </thead>
         <tbody>
@@ -142,9 +158,12 @@ function PaymentTab({ bill, detail }) {
                 <div className="bd-pay-what">Opening position</div>
                 <div className="bd-pay-sub">Already part-paid when this bill entered Klay — no payment record behind it.</div>
               </td>
-              <td className="r bd-pay-amt">{formatRupiah(opening)}</td>
-              <td className="r bd-pay-amt">{formatRupiah(total - opening)}</td>
+              <td className="r bd-pay-amt">
+                {formatRupiah(opening)}
+                <div className="bd-pay-left">{formatRupiah(total - opening)} left</div>
+              </td>
               <td className="bd-pay-by">—</td>
+              <td className="bd-pay-recon">—</td>
             </tr>
           )}
           {payments.length === 0 && opening === 0 ? (
@@ -167,19 +186,41 @@ function PaymentTab({ bill, detail }) {
                     <td>
                       <div className="bd-pay-what">
                         {expandable && <span className={`bd-pay-caret${open ? " open" : ""}`} aria-hidden>▸</span>}
-                        {p.method
-                          ? `${p.method}${p.source ? ` · ${p.source}` : ""}${p.ref ? ` · ${p.ref}` : ""}`
-                          : "Payment recorded"}
+                        {p.method || "Payment recorded"}
                       </div>
+                      {/* The account it came out of belongs with the method rather
+                          than in a column of its own: it is read when you are
+                          already asking how this one was paid. */}
+                      {(p.source || p.ref) && (
+                        <div className="bd-pay-sub">{[p.source, p.ref].filter(Boolean).join(" · ")}</div>
+                      )}
                       {p.detail && <div className="bd-pay-sub">{p.detail}</div>}
                     </td>
-                    <td className="r bd-pay-amt">{p.amount != null ? formatRupiah(p.amount) : "—"}</td>
-                    <td className="r bd-pay-amt">{p.amount != null ? formatRupiahExact(after[i]) : "—"}</td>
+                    <td className="r bd-pay-amt">
+                      {p.amount != null ? formatRupiah(p.amount) : "—"}
+                      {/* What this payment left behind, under the amount rather
+                          than in a column of its own: six columns do not fit the
+                          drawer, and the balance is only ever read against the
+                          payment that moved it. */}
+                      {p.amount != null && <div className="bd-pay-left">{formatRupiahExact(after[i])} left</div>}
+                    </td>
                     <td className="bd-pay-by">{p.by || "—"}</td>
+                    <td className="bd-pay-recon">
+                      {/* Why, not just what: a "not yet" that names the cut-off it
+                          fell outside can be checked; a bare pill has to be trusted. */}
+                      <span className={`bd-recon-pill ${p.recon.tone}`} title={p.recon.why}>{p.recon.label}</span>
+                    </td>
                   </tr>
                   {open && (
                     <tr className="bd-pay-je-row">
-                      <td colSpan={5}><PaymentJournal journal={p.journal} /></td>
+                      <td colSpan={5}>
+                        <PaymentJournal
+                          journal={p.journal}
+                          jeNumber={p.jeNumber}
+                          recon={p.recon}
+                          onOpenLine={(idx) => navigate(`/journal-entry?je=${encodeURIComponent(p.jeNumber)}${idx == null ? "" : `&line=${idx}`}`)}
+                        />
+                      </td>
                     </tr>
                   )}
                 </Fragment>
@@ -197,11 +238,23 @@ function PaymentTab({ bill, detail }) {
 // against the chart rather than taken on trust. A line the derivation is not
 // sure about says why on the line itself — a warning in a summary somewhere
 // else is a warning nobody connects to the number it is about.
-function PaymentJournal({ journal }) {
+//
+// Every line is a shortcut into the Journal Entry page at that exact line.
+// Recording a payment writes a real entry to the ledger rather than computing
+// one for this table, so there is a numbered line to arrive at.
+function PaymentJournal({ journal, jeNumber, recon, onOpenLine }) {
   const { lines, totalDr, totalCr, balanced } = journal;
   return (
     <div className="bd-je">
-      <div className="bd-je-title">Journal entry</div>
+      <div className="bd-je-head">
+        <span className="bd-je-title">Journal entry</span>
+        {jeNumber && (
+          <button type="button" className="bd-je-link" onClick={() => onOpenLine(null)}>
+            {jeNumber} <span aria-hidden>→</span>
+          </button>
+        )}
+        {recon?.why && <span className="bd-je-recon">{recon.why}</span>}
+      </div>
       <table className="bd-je-table">
         <thead>
           <tr>
@@ -215,7 +268,16 @@ function PaymentJournal({ journal }) {
           {lines.map((l, i) => (
             <tr key={i} className={l.flag ? "flagged" : ""}>
               <td>
-                <span className="bd-je-code">{l.account_code}</span>
+                {jeNumber ? (
+                  <button
+                    type="button"
+                    className="bd-je-code as-link"
+                    title={`Open this line in ${jeNumber}`}
+                    onClick={() => onOpenLine(i)}
+                  >{l.account_code} <span aria-hidden>→</span></button>
+                ) : (
+                  <span className="bd-je-code">{l.account_code}</span>
+                )}
                 <span className="bd-je-name">{l.account_name}</span>
               </td>
               <td>
