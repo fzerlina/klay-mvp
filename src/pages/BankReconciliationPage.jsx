@@ -674,13 +674,14 @@ export default function BankReconciliationPage() {
       {/* ── Footer — bank against books ──────────────────────────────── */}
       <div className="lg-footer">
         <div className="lg-footer-left">
-          <span>
-            <span className="lg-footer-num">{run?.counts.matched || 0}</span> matched
-            <span className="lg-footer-sep">·</span>
-            <span className="lg-footer-num">{openNonTiming}</span> to decide
-            <span className="lg-footer-sep">·</span>
-            <span className="lg-footer-num">{run?.counts.timing || 0}</span> in transit
-          </span>
+          {/* Separate flex children, not one span: .lg-footer-sep gets its
+              spacing from the footer's own flex gap, so nesting the whole line
+              inside a single span collapsed it to "10 matched·11 to decide". */}
+          <span><span className="lg-footer-num">{run?.counts.matched || 0}</span> matched</span>
+          <span className="lg-footer-sep">·</span>
+          <span><span className="lg-footer-num">{openNonTiming}</span> to decide</span>
+          <span className="lg-footer-sep">·</span>
+          <span><span className="lg-footer-num">{run?.counts.timing || 0}</span> in transit</span>
         </div>
         <div className="lg-footer-right">
           <span className="lg-footer-lbl">Opening</span>
