@@ -101,120 +101,89 @@
 .recon-acct-head{padding:0 24px 8px}
 .recon-acct-title{font-size:13px;color:var(--color-text-secondary);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .recon-acct-title strong{font-family:var(--font-display);font-size:15px;color:var(--color-text-primary);letter-spacing:-.005em;font-weight:700}
+/* ── SELECTED ACCOUNT: STATE + FINISH LINE ───────────────────────────── */
+.recon-acct-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.recon-acct-right{display:flex;align-items:center;gap:10px;flex-shrink:0}
+.recon-state-pill{font-size:10.5px;font-weight:700;padding:3px 10px;border-radius:9999px;border:1px solid;white-space:nowrap}
+.recon-state-pill.success{background:var(--color-success-surface);color:var(--color-success-text);border-color:var(--color-success-border)}
+.recon-state-pill.warn{background:var(--color-warning-surface);color:var(--color-warning-text);border-color:var(--color-warning-border)}
+.recon-state-pill.danger{background:var(--color-danger-surface);color:var(--color-danger-text);border-color:var(--color-danger-border)}
+.recon-state-pill.muted{background:var(--color-surface-sunken);color:var(--color-text-tertiary);border-color:var(--color-border-default)}
 
-/* ── RECON TABLE ──────────────────────────────────────────────────────── */
-/* Lives inside .lg-card now — drop standalone border/background/radius */
+.recon-complete-btn{background:var(--color-action);color:#fff;border:1px solid var(--color-action);border-radius:var(--radius-sm);padding:7px 14px;font-family:var(--font-sans);font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;transition:background var(--transition-fast)}
+.recon-complete-btn:hover:not(:disabled){background:var(--color-action-hover);border-color:var(--color-action-hover)}
+.recon-complete-btn:disabled{background:var(--color-surface-sunken);color:var(--color-text-tertiary);border-color:var(--color-border-default);cursor:not-allowed}
+
+.recon-balance-warn{margin:0 24px 10px;padding:10px 14px;border-radius:8px;background:var(--color-warning-surface);border:1px solid var(--color-warning-border);color:var(--color-warning-text);font-size:12px;line-height:1.5}
+
+/* ── EXCEPTION WORKSPACE ─────────────────────────────────────────────── */
+/* The page is a list of groups, not a table. A group is a kind of problem;
+   a row is one problem with its explanation and the ways out of it. */
 .recon-card{display:flex;flex-direction:column}
-.recon-table{width:100%;background:transparent;border:none;overflow-x:auto;overflow-y:visible;box-sizing:border-box}
-.recon-table::-webkit-scrollbar{height:6px}
-.recon-table::-webkit-scrollbar-thumb{background:var(--color-border-strong);border-radius:3px}
+.recon-groups{display:flex;flex-direction:column}
 
-/* Single flat grid with TWO gap columns for visual group separation:
-   cb · (date desc amt) bank · GAP+divider · (date desc amt) klay · GAP · status · actions */
-.recon-row,
-.recon-group-ribbon{
-  display:grid;
-  width:100%;
-  grid-template-columns:
-    24px                  /* 1  checkbox */
-    50px                  /* 2  bank date */
-    minmax(140px,1.2fr)   /* 3  bank description */
-    100px                 /* 4  bank amount */
-    18px                  /* 5  GAP — bank↔klay (holds the divider line) */
-    50px                  /* 6  klay date */
-    minmax(180px,1.5fr)   /* 7  klay description */
-    100px                 /* 8  klay amount */
-    18px                  /* 9  GAP — klay↔status */
-    88px                  /* 10 status */
-    150px;                /* 11 actions */
-  align-items:center;
-  gap:6px;
-  box-sizing:border-box;
-}
+.recon-group{border-bottom:1px solid var(--color-border-subtle)}
+.recon-group:last-child{border-bottom:none}
+.recon-group-head{display:flex;align-items:center;gap:12px;padding:10px 18px;background:var(--color-surface-raised)}
+.recon-group.open .recon-group-head{border-bottom:1px solid var(--color-border-subtle)}
 
-.recon-row{padding:10px 14px;border-bottom:1px solid var(--color-border-subtle);transition:background var(--transition-fast)}
-.recon-row:last-child{border-bottom:none}
-.recon-row:hover{background:#FAFAF8}
+.recon-group-toggle{display:flex;align-items:center;gap:8px;background:transparent;border:none;padding:0;cursor:pointer;font-family:var(--font-sans);flex-shrink:0}
+.recon-group-caret{width:10px;height:10px;color:var(--color-text-tertiary);transition:transform var(--transition-fast)}
+.recon-group.open .recon-group-caret{transform:rotate(90deg)}
+.recon-group-name{font-size:12.5px;font-weight:700;color:var(--color-text-primary);letter-spacing:-.005em}
+.recon-group-count{font-family:var(--font-mono);font-size:10.5px;font-weight:700;padding:1px 8px;border-radius:9999px;border:1px solid var(--color-border-default);background:var(--color-surface-sunken);color:var(--color-text-tertiary)}
+.recon-group.danger .recon-group-count{background:var(--color-danger-surface);color:var(--color-danger-text);border-color:var(--color-danger-border)}
+.recon-group.warn .recon-group-count{background:var(--color-warning-surface);color:var(--color-warning-text);border-color:var(--color-warning-border)}
 
-.recon-row.recon-row-head{background:var(--color-surface-sunken);padding:6px 14px;border-bottom:1px solid var(--color-border-default)}
-.recon-row.recon-row-head:hover{background:var(--color-surface-sunken)}
+.recon-group-blurb{flex:1;min-width:0;font-size:11.5px;color:var(--color-text-tertiary);line-height:1.45}
+.recon-group-batch{background:var(--color-surface-raised);color:var(--color-action);border:1px solid var(--color-action-subtle);border-radius:var(--radius-sm);padding:5px 11px;font-family:var(--font-sans);font-size:11.5px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;transition:background var(--transition-fast)}
+.recon-group-batch:hover:not(:disabled){background:var(--color-action-wash)}
+.recon-group-body{background:var(--color-surface-sunken)}
 
-.recon-row.matched{background:rgba(22,102,56,.025)}
-.recon-row.matched:hover{background:rgba(22,102,56,.05)}
-.recon-row.auto{background:rgba(184,61,8,.03)}
-.recon-row.auto:hover{background:rgba(184,61,8,.07)}
-.recon-row.to-match{background:rgba(160,32,32,.025)}
-.recon-row.to-match:hover{background:rgba(160,32,32,.06)}
-.recon-row.excluded{opacity:.65}
+/* ── ONE EXCEPTION ───────────────────────────────────────────────────── */
+/* The explanation is the row. It gets the width and the reading size, because
+   the whole point is that nobody has to start an investigation to understand
+   what they are looking at. */
+.recon-ex{padding:12px 18px 12px 22px;border-bottom:1px solid var(--color-border-subtle);border-left:3px solid transparent;background:var(--color-surface-raised)}
+.recon-ex:last-child{border-bottom:none}
+.recon-ex.danger{border-left-color:var(--color-danger-border)}
+.recon-ex.warn{border-left-color:var(--color-warning-border)}
+.recon-ex.info{border-left-color:var(--color-brand-subtle)}
+.recon-ex.muted{border-left-color:var(--color-border-default)}
+.recon-ex.resolved{opacity:.62;background:var(--color-surface-sunken)}
 
-.recon-cb{display:flex;align-items:center;justify-content:flex-start}
+.recon-ex-head{display:flex;align-items:baseline;gap:12px;margin-bottom:4px}
+.recon-ex-title{flex:1;min-width:0;font-size:12.5px;font-weight:700;color:var(--color-text-primary);letter-spacing:-.005em}
+.recon-ex-amt{font-family:var(--font-mono);font-size:12.5px;font-weight:700;color:var(--color-text-primary);flex-shrink:0}
+.recon-ex-date{font-family:var(--font-mono);font-size:11px;color:var(--color-text-tertiary);flex-shrink:0;min-width:46px;text-align:right}
 
-/* Group ribbon — top thin row */
-.recon-group-ribbon{padding:4px 14px;font-size:9.5px;font-weight:700;color:var(--color-text-tertiary);letter-spacing:.08em;background:var(--color-surface-sunken);border-bottom:1px solid var(--color-border-default)}
-.recon-group-bank{grid-column:2 / 5;text-align:left}
-.recon-group-klay{grid-column:6 / 9;text-align:left;display:flex;align-items:center;gap:5px}
-.recon-group-status{grid-column:10 / 11;text-align:left}
-.recon-group-klay svg{width:9px;height:9px;color:var(--color-brand);fill:none;stroke:currentColor;stroke-width:1.8;stroke-linejoin:round;stroke-linecap:round;flex-shrink:0}
+.recon-ex-why{font-size:12px;line-height:1.55;color:var(--color-text-secondary);max-width:78ch}
+.recon-ex-raw{font-family:var(--font-mono);font-size:10.5px;color:var(--color-text-tertiary);margin-top:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
-/* Column header subheads (single row) */
-.recon-cell-head{font-size:10px;font-weight:700;color:var(--color-text-tertiary);letter-spacing:.04em;text-transform:uppercase}
-.recon-cell-head.r{text-align:right}
+.recon-ex-actions{display:flex;gap:7px;margin-top:9px;flex-wrap:wrap}
+.recon-ex-btn{background:var(--color-surface-raised);color:var(--color-text-secondary);border:1px solid var(--color-border-default);border-radius:var(--radius-sm);padding:5px 11px;font-family:var(--font-sans);font-size:11.5px;font-weight:600;cursor:pointer;transition:border-color var(--transition-fast),background var(--transition-fast)}
+.recon-ex-btn:hover:not(:disabled){border-color:var(--color-border-strong);background:var(--color-surface-sunken)}
+.recon-ex-btn.primary{background:var(--color-action);color:#fff;border-color:var(--color-action)}
+.recon-ex-btn.primary:hover:not(:disabled){background:var(--color-action-hover);border-color:var(--color-action-hover)}
 
-/* Data cells */
-.recon-cell{min-width:0}
-.recon-cell-date{font-family:var(--font-mono);font-size:11px;color:var(--color-text-tertiary);white-space:nowrap}
-.recon-cell-desc{font-size:12px;color:var(--color-text-secondary);min-width:0;overflow:hidden;display:flex;flex-direction:column;gap:1px}
-.recon-cell-desc,
-.recon-cell-desc > *{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.recon-cell-amt{font-family:var(--font-mono);font-size:11.5px;font-weight:700;color:var(--color-text-primary);text-align:right;white-space:nowrap}
-.recon-cell-amt.neg{color:var(--color-danger-text)}
-.recon-cell-amt.pos{color:var(--color-success-text)}
+.recon-ex-done{display:flex;align-items:center;gap:7px;margin-top:8px;font-size:11.5px;color:var(--color-success-text);font-weight:600}
+.recon-ex-done svg{width:11px;height:11px;flex-shrink:0}
 
-.recon-klay-ref{font-family:var(--font-mono);font-size:10.5px;font-weight:700;color:var(--color-action)}
-.recon-klay-desc{font-size:11.5px;color:var(--color-text-secondary)}
+/* ── MATCHED, BEHIND THE TOGGLE ──────────────────────────────────────── */
+.recon-group.matched .recon-group-count{background:var(--color-success-surface);color:var(--color-success-text);border-color:var(--color-success-border)}
+.recon-matched{display:flex;flex-direction:column}
+.recon-matched-row{display:grid;grid-template-columns:52px minmax(200px,1fr) 130px 120px;gap:12px;align-items:baseline;padding:9px 18px;border-bottom:1px solid var(--color-border-subtle);background:var(--color-surface-raised)}
+.recon-matched-row:last-child{border-bottom:none}
+.recon-matched-date{font-family:var(--font-mono);font-size:11px;color:var(--color-text-tertiary)}
+.recon-matched-desc{min-width:0;font-family:var(--font-mono);font-size:11px;color:var(--color-text-secondary)}
+.recon-matched-signal{display:block;font-family:var(--font-sans);font-size:11.5px;color:var(--color-text-tertiary);line-height:1.5;margin-top:3px;max-width:76ch}
+.recon-matched-ref{font-family:var(--font-mono);font-size:11px;color:var(--color-text-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.recon-matched-amt{font-family:var(--font-mono);font-size:11.5px;font-weight:700;color:var(--color-text-primary);text-align:right}
 
-.recon-divider{width:1px;height:26px;background:var(--color-border-default);justify-self:center}
-.recon-divider.matched{width:18px;height:18px;background:transparent;border-radius:9999px;display:flex;align-items:center;justify-content:center;color:var(--color-success-text);background:var(--color-success-surface);border:1px solid var(--color-success-border)}
-.recon-divider.matched svg{width:10px;height:10px;stroke:currentColor;fill:none}
+.recon-empty{padding:28px 18px;text-align:center;font-size:12px;color:var(--color-text-tertiary);line-height:1.6}
 
-/* To-match / excluded: klay cell spans 3 columns (date + desc + amt) */
-.recon-klay-wide{grid-column:6 / 9;display:flex;align-items:flex-start;gap:8px;min-width:0;padding:2px 0}
-.recon-suggestion-icon{width:18px;height:18px;border-radius:5px;background:var(--color-brand-wash);color:var(--color-brand);display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
-.recon-suggestion-icon svg{width:9px;height:9px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linejoin:round;stroke-linecap:round}
-.recon-suggestion-body{flex:1;min-width:0;line-height:1.4}
-.recon-suggestion-title{font-size:11.5px;color:var(--color-text-primary);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.recon-suggestion-reason{font-size:10.5px;color:var(--color-text-tertiary);font-style:italic;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-
-.recon-excluded-note{font-size:11.5px;color:var(--color-text-tertiary);font-style:italic;align-items:center}
-.recon-excluded-note svg{width:9px;height:9px;color:var(--color-text-tertiary);flex-shrink:0}
-
-/* Status pill */
-.recon-status-cell{display:flex;align-items:center;justify-content:flex-start;padding:0 8px}
-.recon-pill{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:9999px;border:1px solid;white-space:nowrap}
-.recon-pill svg{width:9px;height:9px;flex-shrink:0}
-.recon-pill.matched{background:var(--color-success-surface);color:var(--color-success-text);border-color:var(--color-success-border)}
-.recon-pill.auto{background:var(--color-brand-wash);color:var(--color-brand-deep);border-color:var(--color-brand-subtle)}
-.recon-pill.to-match{background:var(--color-danger-surface);color:var(--color-danger-text);border-color:var(--color-danger-border)}
-.recon-pill.excluded{background:var(--color-surface-sunken);color:var(--color-text-tertiary);border-color:var(--color-border-default)}
-.recon-pill-conf{font-family:var(--font-mono);font-size:9.5px;background:rgba(255,255,255,.45);color:var(--color-brand);padding:0 4px;border-radius:4px;font-weight:700;margin-left:2px}
-
-/* Actions */
-.recon-actions-cell{display:flex;align-items:center;justify-content:flex-end;gap:6px;padding:0 8px 0 4px}
-.recon-action{font-family:var(--font-sans);font-size:10.5px;font-weight:700;padding:4px 8px;border-radius:5px;cursor:pointer;border:1px solid;transition:background var(--transition-fast),border-color var(--transition-fast),color var(--transition-fast);white-space:nowrap;line-height:1.2}
-.recon-action.primary{background:var(--color-action);border-color:var(--color-action);color:#fff}
-.recon-action.primary:hover{background:var(--color-action-hover);border-color:var(--color-action-hover)}
-.recon-action.ghost{background:var(--color-surface-raised);border-color:var(--color-border-strong);color:var(--color-text-secondary)}
-.recon-action.ghost:hover{background:var(--color-surface-sunken);color:var(--color-text-primary)}
-.recon-actions-quiet{color:var(--color-text-tertiary);font-size:11px}
-
-.recon-empty{padding:24px 18px;text-align:center;font-size:12px;color:var(--color-text-tertiary);font-style:italic}
-
-/* Klay lookup flash on a matched recon row */
-[data-recon-row].lg-klay-flash{animation:lgKlayPulse 2.4s ease-out}
-
-/* Footer summation state colors (overrides .lg-footer-total for Difference) */
-.lg-footer-total.ok{color:#86D4A4}
-.lg-footer-total.warn{color:#F59A9A}
+/* ── TOAST ───────────────────────────────────────────────────────────── */
+.recon-toast{position:fixed;left:50%;bottom:74px;transform:translateX(-50%);z-index:80;max-width:min(560px,86vw);background:var(--color-text-primary);color:var(--color-surface-raised);font-size:12px;line-height:1.5;padding:10px 16px;border-radius:9px;box-shadow:0 8px 28px rgba(0,0,0,.22)}
 
 /* ── UPLOAD MODAL ─────────────────────────────────────────────────────── */
 .bank-upload-backdrop{position:fixed;inset:0;background:rgba(8,7,6,.42);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);z-index:240;display:flex;align-items:flex-start;justify-content:center;padding:14vh 24px 24px;animation:klayLauncherFade .14s ease-out}
