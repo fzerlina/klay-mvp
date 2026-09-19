@@ -32,7 +32,7 @@ import { REQ_META, gatesRelease, payModeFor, paymentActionFor, paymentStatusOf }
 import { PAYMENT_METHOD_BY_KEY, auditTextFor, breakdownTotal, describeBreakdown, withheldTax, WITHHOLDING_ACCOUNT } from "../lib/paymentBreakdown";
 import { bankAccountById } from "../data/seed/bankAccounts";
 import { paymentJournalLines } from "../lib/paymentJournal";
-import { reconOf } from "../lib/bankRecon";
+import { reconOf, billReconOf } from "../lib/bankRecon";
 import { TODAY } from "../lib/clock";
 import "./modules.css";
 import "./invoice-create.css";
@@ -87,7 +87,7 @@ function PaymentTab({ bill, detail }) {
         ref: h.breakdown?.giroNumber || null,
         withheld: withheldTax(h.breakdown),
         jeNumber: h.je_number || null,
-        recon: reconOf(h),
+        recon: reconOf({ ...h, billId: bill.id }),
         journal: paymentJournalLines(h.breakdown, { vendorName: bill.vendorName }),
       }));
     }
@@ -102,7 +102,7 @@ function PaymentTab({ bill, detail }) {
         key: `a${i}`, at: a.date, time: a.time, amount: null, by: a.by, withheld: 0,
         detail: a.action, method: null, jeNumber: null, recon: reconOf({ at: a.date }), journal: null,
       }));
-  }, [detail, bill.audit, bill.vendorName]);
+  }, [detail, bill.audit, bill.vendorName, bill.id]);
 
   const [openRow, setOpenRow] = useState(null);
 
@@ -1679,8 +1679,11 @@ export default function BillDetailPage() {
   const reqKey = requestStage;
   const billPosted = !!bill.je_number || workflowStatus(bill) === "POSTED" || workflowStatus(bill) === "PAID";
 
-  // Compliance / status label maps for the new Detail rows.
-  const RECON_LABEL = { reconciled: "Reconciled", unreconciled: "Unreconciled" };
+  // The bank-confirmation answer is DERIVED from the matching run, not read
+  // off the bill. `bill.bankReconStatus` used to be seeded on the record and
+  // written by nothing, so it sat here contradicting the payment rows on the
+  // tab next door. One axis, one source (lib/bankRecon.js).
+  const billRecon = billReconOf(bill.id, payDetail?.history || []);
 
   return (
     <div className="bd-page">
@@ -1829,7 +1832,7 @@ export default function BillDetailPage() {
                   )}
                   <SubRow
                     label="Bank Reconciliation Status"
-                    value={RECON_LABEL[bill.bankReconStatus] || "—"}
+                    value={<span title={billRecon.why}>{billRecon.label}</span>}
                   />
                   {bill.keterangan && (
                     <div className="drawer-row">
