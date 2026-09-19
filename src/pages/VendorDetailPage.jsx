@@ -1,9 +1,10 @@
 import { useState, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { BILLS } from "../data/seed/bills";
+import { useBills } from "../state/BillsContext";
 import { useVendors } from "../state/VendorsContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
-import { PAYMENT_STATUS_META } from "../state/PaymentsContext";
+import { PAYMENT_STATUS_META, usePayments } from "../state/PaymentsContext";
+import { billReconOf } from "../lib/bankRecon";
 import { paymentStatusOf } from "../lib/paymentStage";
 import { workflowStatus, STATUS_LABEL } from "../lib/billStatus";
 import { withholdingLabel, ACCT_LABELS } from "../data/labels";
@@ -63,6 +64,12 @@ export default function VendorDetailPage() {
   // provides the control (SoD: proposer ≠ approver). The company (paying)
   // account has no approval flow, so it stays manager-only.
   const canEditBank = hasCapability("vendor.edit_bank");
+  const { detailOf } = usePayments();
+  // The LIVE bills, not the static seed. Payment status is derived from the
+  // ledger balance, and the seed record never moves — so a bill paid in the
+  // demo read "Unpaid" here while Bill Detail and the new Bank column both said
+  // the money had gone. Two screens, one ledger.
+  const { bills } = useBills();
 
   const [tab, setTab] = useState("overview");
   const [openVer, setOpenVer] = useState(null); // expanded version snapshot id
@@ -77,8 +84,8 @@ export default function VendorDetailPage() {
 
   const txns = useMemo(() => {
     if (!vendor) return [];
-    return BILLS.filter((b) => b.vendor === vendor.id).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-  }, [vendor]);
+    return bills.filter((b) => b.vendor === vendor.id).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  }, [vendor, bills]);
   const outstanding = useMemo(() => txns.filter((b) => b.pay !== "paid").reduce((s, b) => s + (b.sisa || 0), 0), [txns]);
   const log = (vendor && changeLog[vendor.id]) || [];
   const vlist = vendor ? versionsOf(vendor.id) : [];
@@ -346,7 +353,7 @@ export default function VendorDetailPage() {
                     <thead>
                       <tr>
                         <th>Invoice No.</th><th>Date</th><th>Due</th>
-                        <th style={{ textAlign: "right" }}>Total</th><th>Journal Status</th><th>Payment Status</th><th></th>
+                        <th style={{ textAlign: "right" }}>Total</th><th>Journal Status</th><th>Payment Status</th><th>Bank</th><th></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -355,6 +362,10 @@ export default function VendorDetailPage() {
                         const journalLabel = ws === "PAID" ? "Posted" : STATUS_LABEL[ws];
                         const ps = paymentStatusOf(b);
                         const pm = PAYMENT_STATUS_META[ps] || PAYMENT_STATUS_META.unpaid;
+                        // The PRD case: AP Staff answering "did our payment reach you?"
+                        // without opening the bank portal. Derived per bill from the
+                        // matching run, so it cannot drift from Bill Detail.
+                        const recon = billReconOf(b.id, detailOf(b.id)?.history || []);
                         return (
                           <tr key={b.id} className="vd-tx-row" onClick={() => navigate(`/bills/${b.id}`)}>
                             <td style={{ fontFamily: "var(--font-mono)" }}>{b.invNo}</td>
@@ -363,6 +374,7 @@ export default function VendorDetailPage() {
                             <td className="num">{formatRupiah(b.total)}</td>
                             <td><span className={`vd-badge ${journalTone(ws)}`}>{journalLabel}</span></td>
                             <td><span className={`vd-badge ${pm.tone}`}>{pm.label}</span></td>
+                            <td><span className={`vd-badge ${recon.tone}`} title={recon.why}>{recon.label}</span></td>
                             <td style={{ textAlign: "right", color: "var(--color-action)" }}>→</td>
                           </tr>
                         );
