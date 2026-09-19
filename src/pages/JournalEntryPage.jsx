@@ -520,6 +520,27 @@ export default function JournalEntryPage() {
 
   const [selectedId, setSelectedId] = useState(null);
   const [drawerTab, setDrawerTab] = useState("detail");
+  // A line this page was sent to, as an index into the open entry's lines.
+  const [focusLine, setFocusLine] = useState(null);
+
+  // Deep link to one entry, and optionally to one line inside it: the Payment
+  // tab on a bill links each debit and credit it wrote straight to the line
+  // that carries it. Filters are cleared first, because a deep link that lands
+  // on a row the current tab filters out shows nothing and looks broken.
+  useEffect(() => {
+    const je = searchParams.get("je");
+    if (!je) return;
+    setFilter({ kind: "tab", value: "semua" });
+    setFilterValues(emptyFilters);
+    setKlayFilters({});
+    setSelectedId(je);
+    const line = searchParams.get("line");
+    const idx = line == null ? null : parseInt(line, 10);
+    setFocusLine(Number.isInteger(idx) ? idx : null);
+    setDrawerTab(Number.isInteger(idx) ? "lines" : "detail");
+    setHighlightedRef(je);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
   const [checked, setChecked] = useState(() => new Set());
   const [menuOpenFor, setMenuOpenFor] = useState(null);
   const [collapsedGroups, setCollapsedGroups] = useState(() => new Set());
@@ -1278,7 +1299,7 @@ export default function JournalEntryPage() {
                 <div className="drawer-section">
                   <div className="drawer-section-title">Lines Journal · {selected.lines.length} rows</div>
                   {selected.lines.map((l, i) => (
-                    <div key={i} style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-default)", borderRadius: "var(--radius-md)", padding: "10px 12px", marginBottom: 8 }}>
+                    <div key={i} className={focusLine === i ? "je-line-focus" : ""} style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-default)", borderRadius: "var(--radius-md)", padding: "10px 12px", marginBottom: 8 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                         <div style={{ minWidth: 0 }}>
                           <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-action)" }}>{l.account_code}</div>
