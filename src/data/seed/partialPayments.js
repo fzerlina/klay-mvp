@@ -14,6 +14,10 @@ export const PARTIAL_SEED = {
   BILL009: { remainingShare: 0.45, request: "notyet" },
   BILL015: { remainingShare: 0.60, request: "requested" },
   BILL022: { remainingShare: 0.30, request: "approved" },
+  // A consulting bill carrying PPh 23, so the payment history has a case where
+  // what cleared the payable and what reached the vendor are different numbers.
+  // Without one, withholding only ever appears on bills nobody has paid yet.
+  BILL068: { remainingShare: 0.35, request: "notyet" },
 };
 
 export const PARTIAL_IDS = Object.keys(PARTIAL_SEED);

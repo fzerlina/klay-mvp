@@ -1149,4 +1149,8 @@
    line — they read as single tokens and look broken split. */
 .bd-pay-table thead th { padding-left: 8px; padding-right: 8px; }
 /* The balance this payment left behind, sitting under its amount. */
-.bd-pay-left { font-family: var(--font-mono); font-size: 10px; font-weight: 500; color: var(--color-text-tertiary); margin-top: 2px; white-space: nowrap; }
+.bd-pay-left { font-family: var(--font-mono); font-size: 10px; font-weight: 500; color: var(--color-text-tertiary); margin-top: 2px; }
+/* The part of the amount that never reached the vendor. Amber rather than grey:
+   a withheld amount is an obligation to the tax office with a bukti potong
+   behind it, not a footnote about this payment. */
+.bd-pay-split { font-family: var(--font-mono); font-size: 10px; font-weight: 600; color: #BA7517; margin-top: 2px; }

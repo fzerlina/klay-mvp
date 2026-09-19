@@ -29,7 +29,7 @@ import RecordPaymentModal from "../components/RecordPaymentModal";
 import { buildAgingLines } from "../lib/apAging";
 import { makeFlagger, releaseState, FLAG_TIERS } from "../lib/paymentFlags";
 import { REQ_META, gatesRelease, payModeFor, paymentActionFor, paymentStatusOf } from "../lib/paymentStage";
-import { PAYMENT_METHOD_BY_KEY, auditTextFor, breakdownTotal, describeBreakdown } from "../lib/paymentBreakdown";
+import { PAYMENT_METHOD_BY_KEY, auditTextFor, breakdownTotal, describeBreakdown, withheldTax, WITHHOLDING_ACCOUNT } from "../lib/paymentBreakdown";
 import { bankAccountById } from "../data/seed/bankAccounts";
 import { paymentJournalLines } from "../lib/paymentJournal";
 import { reconOf } from "../lib/bankRecon";
@@ -81,10 +81,11 @@ function PaymentTab({ bill, detail }) {
         at: h.at,
         amount: h.cleared,
         by: h.by,
-        detail: describeBreakdown(h.breakdown),
+        detail: describeBreakdown(h.breakdown, { omit: [WITHHOLDING_ACCOUNT] }),
         method: PAYMENT_METHOD_BY_KEY[h.breakdown?.method]?.label || null,
         source: bankAccountById(h.breakdown?.sourceAccountId)?.name || null,
         ref: h.breakdown?.giroNumber || null,
+        withheld: withheldTax(h.breakdown),
         jeNumber: h.je_number || null,
         recon: reconOf(h),
         journal: paymentJournalLines(h.breakdown, { vendorName: bill.vendorName }),
@@ -98,7 +99,7 @@ function PaymentTab({ bill, detail }) {
     return (bill.audit || [])
       .filter((a) => a.type === "paid")
       .map((a, i) => ({
-        key: `a${i}`, at: a.date, time: a.time, amount: null, by: a.by,
+        key: `a${i}`, at: a.date, time: a.time, amount: null, by: a.by, withheld: 0,
         detail: a.action, method: null, jeNumber: null, recon: reconOf({ at: a.date }), journal: null,
       }));
   }, [detail, bill.audit, bill.vendorName]);
@@ -198,6 +199,15 @@ function PaymentTab({ bill, detail }) {
                     </td>
                     <td className="r bd-pay-amt">
                       {p.amount != null ? formatRupiah(p.amount) : "—"}
+                      {/* The amount is what this payment CLEARED, which is not
+                          what left the bank: withholding relieves the payable
+                          without reaching the vendor, and creates a bukti potong
+                          to issue. Named here rather than left to the grey
+                          deduction line, and worded as the Payment list words
+                          it. */}
+                      {p.withheld > 0 && (
+                        <div className="bd-pay-split">{formatRupiahExact(p.withheld)} withheld</div>
+                      )}
                       {/* What this payment left behind, under the amount rather
                           than in a column of its own: six columns do not fit the
                           drawer, and the balance is only ever read against the

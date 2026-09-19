@@ -12,12 +12,15 @@
 // bare amount) would render differently from a payment recorded in-session,
 // which is exactly the drift this file exists to avoid.
 //
-// The three are chosen to span the bank-reconciliation axis (lib/bankRecon.js)
-// and its three different reasons for "not yet":
+// They are chosen to span the bank-reconciliation axis (lib/bankRecon.js) and
+// its three different reasons for "not yet", plus the withholding case:
 //
 //   BILL009  transfer, 8 Apr    within the BCA Operating statement   → Reconciled
 //   BILL015  transfer, 21 Apr   past the Mandiri Operating cut-off   → Not yet
 //   BILL022  giro                reaches the statement when it clears → Not yet
+//   BILL068  transfer, 14 Apr   within the BCA Operating statement   → Reconciled,
+//                               and withholds PPh 23, so the amount it cleared
+//                               is larger than the cash that left the bank
 
 import { BILLS } from "./bills";
 import { PARTIAL_SEED } from "./partialPayments";
@@ -28,6 +31,7 @@ const PLAN = {
   BILL009: { at: "2025-04-08", by: "Dewi Anggraini", method: "bank", sourceAccountId: "bca-op",     je: "JE-2025-0301" },
   BILL015: { at: "2025-04-21", by: "Dewi Anggraini", method: "bank", sourceAccountId: "mandiri-op", je: "JE-2025-0302" },
   BILL022: { at: "2025-04-16", by: "Dewi Anggraini", method: "giro", sourceAccountId: "bni-op", giroNumber: "GR-448120", je: "JE-2025-0303" },
+  BILL068: { at: "2025-04-14", by: "Dewi Anggraini", method: "bank", sourceAccountId: "bca-op",     je: "JE-2025-0304" },
 };
 
 function build() {

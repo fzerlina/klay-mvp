@@ -156,9 +156,12 @@ export function validateBreakdown(b, remaining) {
 
 // One-line plain-English description of what the vendor and each account get,
 // used wherever a payment needs explaining rather than tabulating.
-export function describeBreakdown(b) {
+// `omit` drops deductions booked to those accounts — for callers that give one
+// of them a line of its own and would otherwise state it twice.
+export function describeBreakdown(b, { omit = [] } = {}) {
   const parts = [`To vendor ${fmtShort(cashOut(b))}`];
   for (const d of activeDeductions(b)) {
+    if (omit.includes(d.account)) continue;
     parts.push(`${accountByCode(d.account)?.name || d.account} ${fmtShort(d.amount)}`);
   }
   return parts.join(" · ");
