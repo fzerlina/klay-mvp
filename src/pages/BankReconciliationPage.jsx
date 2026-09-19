@@ -3,6 +3,7 @@ import "./modules.css";
 import "./invoices-ledger.css";
 import "./close.css";
 import "./bank-reconciliation.css";
+import { bankAccountById, statementLabelOf } from "../data/seed/bankAccounts";
 
 function SparkleIcon() {
   return (
@@ -35,28 +36,34 @@ function fmtDateShort(iso) {
 // ── Account mock — 16 accounts across 6 groups ──────────────────────────
 export const ACCOUNTS = [
   // Operating (6)
-  { id: "bca-op",          group: "operating", bank: "BCA",     color: "#0050A8", glAccount: "1101-100", name: "BCA Operating",     number: "0123456789", balance: 1245680000, matchedAmount: 960000000, statementPeriod: "Apr 1–23, 2025" },
-  { id: "bni-op",          group: "operating", bank: "BNI",     color: "#F37021", glAccount: "1101-110", name: "BNI Operating",     number: "5678901234", balance:  380400000, matchedAmount: 380400000, statementPeriod: "Apr 1–20, 2025" },
-  { id: "mandiri-op",      group: "operating", bank: "MDR",     color: "#003D7A", glAccount: "1101-115", name: "Mandiri Operating", number: "1300456789", balance:  528200000, matchedAmount: 528200000, statementPeriod: "Apr 1–22, 2025" },
-  { id: "cimb-op",         group: "operating", bank: "CIMB",    color: "#7B2D8E", glAccount: "1101-120", name: "CIMB Operating",    number: "8765432109", balance:  215800000, matchedAmount: 215800000, statementPeriod: "Apr 1–22, 2025" },
-  { id: "bri-op",          group: "operating", bank: "BRI",     color: "#003D7A", glAccount: "1101-130", name: "BRI Operating",     number: "0205017012", balance:  167900000, matchedAmount: 167900000, statementPeriod: "Apr 1–19, 2025" },
-  { id: "permata-op",      group: "operating", bank: "PERMATA", color: "#1A8C53", glAccount: "1101-140", name: "Permata Operating", number: "4012345678", balance:   94250000, matchedAmount:  94250000, statementPeriod: "Apr 1–18, 2025" },
+  { id: "bca-op",          group: "operating", bank: "BCA",     color: "#0050A8", glAccount: "1101-100", name: "BCA Operating",     number: "0123456789", balance: 1245680000, matchedAmount: 960000000 },
+  { id: "bni-op",          group: "operating", bank: "BNI",     color: "#F37021", glAccount: "1101-110", name: "BNI Operating",     number: "5678901234", balance:  380400000, matchedAmount: 380400000 },
+  { id: "mandiri-op",      group: "operating", bank: "MDR",     color: "#003D7A", glAccount: "1101-115", name: "Mandiri Operating", number: "1300456789", balance:  528200000, matchedAmount: 528200000 },
+  { id: "cimb-op",         group: "operating", bank: "CIMB",    color: "#7B2D8E", glAccount: "1101-120", name: "CIMB Operating",    number: "8765432109", balance:  215800000, matchedAmount: 215800000 },
+  { id: "bri-op",          group: "operating", bank: "BRI",     color: "#003D7A", glAccount: "1101-130", name: "BRI Operating",     number: "0205017012", balance:  167900000, matchedAmount: 167900000 },
+  { id: "permata-op",      group: "operating", bank: "PERMATA", color: "#1A8C53", glAccount: "1101-140", name: "Permata Operating", number: "4012345678", balance:   94250000, matchedAmount:  94250000 },
   // Tax (1)
-  { id: "bni-tax",         group: "tax",       bank: "BNI",     color: "#F37021", glAccount: "1101-200", name: "BNI Tax Account",   number: "9876543210", balance:   88000000, matchedAmount:  88000000, statementPeriod: "Apr 1–15, 2025" },
+  { id: "bni-tax",         group: "tax",       bank: "BNI",     color: "#F37021", glAccount: "1101-200", name: "BNI Tax Account",   number: "9876543210", balance:   88000000, matchedAmount:  88000000 },
   // Payroll (1)
-  { id: "mandiri-payroll", group: "payroll",   bank: "MDR",     color: "#003D7A", glAccount: "1101-300", name: "Mandiri Payroll",   number: "1234567890", balance:   12500000, matchedAmount:  12500000, statementPeriod: "Apr 1–17, 2025" },
+  { id: "mandiri-payroll", group: "payroll",   bank: "MDR",     color: "#003D7A", glAccount: "1101-300", name: "Mandiri Payroll",   number: "1234567890", balance:   12500000, matchedAmount:  12500000 },
   // Petty Cash (2)
-  { id: "bca-petty",       group: "petty",     bank: "BCA",     color: "#0050A8", glAccount: "1101-400", name: "BCA Petty Cash",    number: "1111222233", balance:    8500000, matchedAmount:         0, statementPeriod: "no statement yet" },
-  { id: "mandiri-petty",   group: "petty",     bank: "MDR",     color: "#003D7A", glAccount: "1101-410", name: "Mandiri Petty Cash",number: "1290011122", balance:    4200000, matchedAmount:   4200000, statementPeriod: "Apr 1–15, 2025" },
+  { id: "bca-petty",       group: "petty",     bank: "BCA",     color: "#0050A8", glAccount: "1101-400", name: "BCA Petty Cash",    number: "1111222233", balance:    8500000, matchedAmount:         0 },
+  { id: "mandiri-petty",   group: "petty",     bank: "MDR",     color: "#003D7A", glAccount: "1101-410", name: "Mandiri Petty Cash",number: "1290011122", balance:    4200000, matchedAmount:   4200000 },
   // Foreign Currency (3)
-  { id: "bca-usd",         group: "fx",        bank: "BCA",     color: "#0050A8", glAccount: "1102-100", name: "BCA USD",           number: "2222333344", balance:  142300000, matchedAmount: 142300000, currency: "USD", statementPeriod: "Apr 1–22, 2025" },
-  { id: "bca-sgd",         group: "fx",        bank: "BCA",     color: "#0050A8", glAccount: "1102-200", name: "BCA SGD",           number: "3333444455", balance:   47650000, matchedAmount:  47650000, currency: "SGD", statementPeriod: "Apr 1–20, 2025" },
-  { id: "bca-eur",         group: "fx",        bank: "BCA",     color: "#0050A8", glAccount: "1102-300", name: "BCA EUR",           number: "5555666677", balance:   38900000, matchedAmount:  38900000, currency: "EUR", statementPeriod: "Apr 1–15, 2025" },
+  { id: "bca-usd",         group: "fx",        bank: "BCA",     color: "#0050A8", glAccount: "1102-100", name: "BCA USD",           number: "2222333344", balance:  142300000, matchedAmount: 142300000, currency: "USD" },
+  { id: "bca-sgd",         group: "fx",        bank: "BCA",     color: "#0050A8", glAccount: "1102-200", name: "BCA SGD",           number: "3333444455", balance:   47650000, matchedAmount:  47650000, currency: "SGD" },
+  { id: "bca-eur",         group: "fx",        bank: "BCA",     color: "#0050A8", glAccount: "1102-300", name: "BCA EUR",           number: "5555666677", balance:   38900000, matchedAmount:  38900000, currency: "EUR" },
   // Deposit (3)
-  { id: "bca-deposit",     group: "deposit",   bank: "BCA",     color: "#0050A8", glAccount: "1103-100", name: "BCA Time Deposit",  number: "4444555566", balance:  500000000, matchedAmount: 500000000, statementPeriod: "Apr 1, 2025" },
-  { id: "mandiri-deposit", group: "deposit",   bank: "MDR",     color: "#003D7A", glAccount: "1103-110", name: "Mandiri Deposit",   number: "1377889900", balance:  250000000, matchedAmount: 250000000, statementPeriod: "Apr 1, 2025" },
-  { id: "bca-restricted",  group: "deposit",   bank: "BCA",     color: "#0050A8", glAccount: "1103-200", name: "BCA Restricted",    number: "6666777788", balance:  120000000, matchedAmount: 120000000, statementPeriod: "Apr 1, 2025" },
-];
+  { id: "bca-deposit",     group: "deposit",   bank: "BCA",     color: "#0050A8", glAccount: "1103-100", name: "BCA Time Deposit",  number: "4444555566", balance:  500000000, matchedAmount: 500000000 },
+  { id: "mandiri-deposit", group: "deposit",   bank: "MDR",     color: "#003D7A", glAccount: "1103-110", name: "Mandiri Deposit",   number: "1377889900", balance:  250000000, matchedAmount: 250000000 },
+  { id: "bca-restricted",  group: "deposit",   bank: "BCA",     color: "#0050A8", glAccount: "1103-200", name: "BCA Restricted",    number: "6666777788", balance:  120000000, matchedAmount: 120000000 },
+].map((a) => ({
+  // The statement period is not written here: it is derived from the coverage
+  // on the shared bank-account seed, which the Payment tab also reads to say
+  // whether a payment has been reconciled. One fact, one place.
+  ...a,
+  statementPeriod: statementLabelOf(bankAccountById(a.id) || a),
+}));
 
 // Mock unmatched book entries — pool that user can match a bank entry against
 const UNMATCHED_BOOK_ENTRIES = [
