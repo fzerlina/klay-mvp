@@ -26,8 +26,12 @@
 import { createContext, useContext, useMemo, useState, useCallback } from "react";
 import { BILLS } from "../data/seed/bills";
 import { PARTIAL_SEED } from "../data/seed/partialPayments";
+import { PAYMENT_HISTORY_SEED } from "../data/seed/paymentHistory";
 import { TODAY } from "../lib/clock";
 import { breakdownTotal, defaultBreakdown, sumBreakdowns } from "../lib/paymentBreakdown";
+import { paymentJournalLines } from "../lib/paymentJournal";
+import { useBills } from "./BillsContext";
+import { useJournalEntries } from "./JournalEntriesContext";
 
 const PaymentsContext = createContext(null);
 
@@ -68,7 +72,15 @@ function seedPayments() {
   // The part-paid bills are pinned across all three request states first, so
   // the independence of the two axes is visible in the demo rather than
   // implied: Partial can be not-yet-requested, requested, OR approved.
-  for (const [id, seed] of Object.entries(PARTIAL_SEED)) m[id] = stampsFor(seed.request, 3);
+  // Each carries the payment that produced its balance, so the Payment tab has
+  // activity to list rather than an unexplained opening position.
+  for (const [id, seed] of Object.entries(PARTIAL_SEED)) {
+    const history = PAYMENT_HISTORY_SEED[id] || [];
+    m[id] = {
+      ...stampsFor(seed.request, 3),
+      ...(history.length ? { history, paidSoFar: history.reduce((s, h) => s + h.cleared, 0) } : {}),
+    };
+  }
 
   payable.forEach((id, i) => {
     if (m[id]) return; // already pinned above
@@ -93,6 +105,11 @@ function seedPayments() {
 
 export function PaymentsProvider({ children }) {
   const [payments, setPayments] = useState(seedPayments);
+  // Recording a payment writes a real journal entry, so this provider sits
+  // inside both of these (see App.jsx). Reading the live bill rather than the
+  // seed keeps the entry's memo on the vendor the bill actually names today.
+  const { bills } = useBills();
+  const { addJournalEntry, peekNextJeNumber } = useJournalEntries();
 
   const patchEach = useCallback((ids, fn) => {
     setPayments((prev) => {
@@ -141,13 +158,65 @@ export function PaymentsProvider({ children }) {
   //
   //   entries: [{ id, breakdown, paysInFull }]
   const recordPayment = useCallback((entries, by) => {
+    // Nobody executes a payment that was never approved. The guard runs here,
+    // against the current state, rather than inside the updater below: the
+    // journal entries are written outside it, and they must be written for
+    // exactly the payments that land.
+    const eligible = entries.filter((e) => payments[e.id]?.request === "approved");
+    if (eligible.length === 0) return;
+
+    // One journal entry per payment, written into the ledger now rather than
+    // derived on demand when the Payment tab is opened. The tab links each row
+    // to its entry, and a link needs something that exists: a JE computed for
+    // display has no number to point at and no life outside that one table.
+    //
+    // Numbers are taken as a block. peekNextJeNumber reads provider state that
+    // has not updated yet, so asking it once per bill in a bulk release would
+    // hand every bill the same number.
+    const base = peekNextJeNumber();
+    const m = /^JE-(\d{4})-(\d+)$/.exec(base);
+    const jeNumberAt = (i) => (m ? `JE-${m[1]}-${String(parseInt(m[2], 10) + i).padStart(4, "0")}` : `${base}-${i}`);
+
+    const written = eligible.map((e, i) => {
+      const bill = bills.find((b) => b.id === e.id);
+      const je_number = jeNumberAt(i);
+      const { lines } = paymentJournalLines(e.breakdown, { vendorName: bill?.vendorName });
+      return {
+        id: e.id,
+        je_number,
+        je: {
+          je_number,
+          je_date: TODAY_ISO,
+          status: "posted",
+          memo: `Payment — ${bill?.vendorName || e.id}${bill?.invNo ? ` · ${bill.invNo}` : ""}`,
+          reference_type: "payment",
+          reference_id: e.id,
+          created_by: by,
+          created_date: TODAY_ISO,
+          posted_by: by,
+          posted_date: TODAY_ISO,
+          // paymentJournalLines speaks in sides so one renderer can draw both
+          // this and the posting preview; a stored JE speaks in debit/credit
+          // columns, which is the shape the rest of the GL already reads.
+          lines: lines.map((l) => ({
+            account_code: l.account_code,
+            account_name: l.account_name,
+            debit: l.side === "DR" ? l.amount : 0,
+            credit: l.side === "CR" ? l.amount : 0,
+            description: l.description,
+          })),
+        },
+      };
+    });
+    written.forEach((w) => addJournalEntry(w.je));
+    const jeById = Object.fromEntries(written.map((w) => [w.id, w.je_number]));
+
     setPayments((prev) => {
       const next = { ...prev };
-      for (const e of entries) {
+      for (const e of eligible) {
         const cur = next[e.id];
-        if (cur?.request !== "approved") continue;
         const cleared = breakdownTotal(e.breakdown);
-        const history = [...(cur.history || []), { at: TODAY_ISO, by, breakdown: e.breakdown, cleared }];
+        const history = [...(cur.history || []), { at: TODAY_ISO, by, breakdown: e.breakdown, cleared, je_number: jeById[e.id] }];
         next[e.id] = {
           ...cur,
           request: "notyet",
@@ -160,7 +229,7 @@ export function PaymentsProvider({ children }) {
       }
       return next;
     });
-  }, []);
+  }, [payments, bills, addJournalEntry, peekNextJeNumber]);
 
   // Convenience for callers that just want "pay the whole open balance" — it
   // still produces a typed breakdown rather than an untyped amount. `defaults`

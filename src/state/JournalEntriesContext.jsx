@@ -1,5 +1,7 @@
 import { createContext, useContext, useMemo, useState, useCallback } from "react";
 import { JOURNAL_ENTRIES as SEED_JES } from "../data/seed/journalEntries";
+import { PAYMENT_HISTORY_JES } from "../data/seed/paymentHistory";
+import { TODAY } from "../lib/clock";
 
 const JournalEntriesContext = createContext(null);
 
@@ -7,7 +9,10 @@ const JournalEntriesContext = createContext(null);
 // We pick the current year (or fall back to the highest year present) and
 // the next sequence after the highest NNNN within that year.
 function nextJeNumber(list) {
-  const year = new Date().getFullYear();
+  // The demo clock, not the wall clock: every date in this prototype is 2025,
+  // and numbering a new entry JE-2026-xxxx next to a 2025 posting date reads as
+  // a bug on screen.
+  const year = TODAY.getFullYear();
   const prefix = `JE-${year}-`;
   const matches = list
     .map((j) => {
@@ -25,7 +30,9 @@ function nextJeNumber(list) {
 }
 
 export function JournalEntriesProvider({ children }) {
-  const [entries, setEntries] = useState(() => SEED_JES);
+  // The seeded ledger plus the entries the seeded payments wrote, so a payment
+  // row on Bill Detail can link to an entry that is actually here.
+  const [entries, setEntries] = useState(() => [...SEED_JES, ...PAYMENT_HISTORY_JES]);
   // A draft staged from another page (e.g. a stock adjustment) for the Journal
   // Entry page to open pre-filled: { memo, lines: [{account_code, debit, credit, description}] }.
   const [pendingDraft, setPendingDraft] = useState(null);
