@@ -10,6 +10,8 @@
 // Period is April 2025 — the app's demo close period (lib/clock TODAY 2025-04-23,
 // universal Close page CLOSE_PERIOD "2025-04"). No working-day math.
 
+import { allReconciliations } from "../../lib/bankRecon";
+import { maskOf } from "./bankAccounts";
 import { BILLS } from "./bills";
 import { ACCRUAL_CANDIDATES } from "./accrualCandidates";
 import { USERS } from "./roles";
@@ -337,40 +339,88 @@ export function computeReconciliation(records = AP_CLOSE_RECORDS, bills = BILLS)
 // difference, still green). Only UNRECONCILED blocks. With many accounts the
 // close board shows a rollup + only the exceptions — the full list lives in the
 // bank-rec module. Flip a `state` to "UNRECONCILED" to demo a red gate.
-export const BANK_ACCOUNTS = [
-  { id: "BCA-OPS", name: "BCA Operating", mask: "••4021", book: 4250000000, statement: 4250000000, state: "FULLY_RECONCILED", outstanding: 0 },
-  { id: "BCA-COL", name: "BCA Collections", mask: "••4022", book: 2110000000, statement: 2110000000, state: "FULLY_RECONCILED", outstanding: 0 },
-  { id: "MDR-PAY", name: "Mandiri Payroll", mask: "••8830", book: 1043000000, statement: 1180000000, state: "RECONCILED_WITH_TIMING", outstanding: 2 },
-  { id: "MDR-TAX", name: "Mandiri Tax", mask: "••8831", book: 640000000, statement: 640000000, state: "FULLY_RECONCILED", outstanding: 0 },
-  { id: "BNI-OPS", name: "BNI Operating", mask: "••2205", book: 880000000, statement: 880000000, state: "FULLY_RECONCILED", outstanding: 0 },
-  { id: "BRI-OPS", name: "BRI Operating", mask: "••7714", book: 1560000000, statement: 1560000000, state: "FULLY_RECONCILED", outstanding: 0 },
-  { id: "CIMB", name: "CIMB Niaga", mask: "••3390", book: 430000000, statement: 430000000, state: "FULLY_RECONCILED", outstanding: 0 },
-  { id: "PERM", name: "Permata Savings", mask: "••1180", book: 2750000000, statement: 2750000000, state: "FULLY_RECONCILED", outstanding: 0 },
-  { id: "BCA-USD", name: "BCA USD", mask: "••9002", book: 1892000000, statement: 1892000000, state: "FULLY_RECONCILED", outstanding: 0 },
-  { id: "DBS-SGD", name: "DBS SGD", mask: "••5541", book: 970000000, statement: 970000000, state: "FULLY_RECONCILED", outstanding: 0 },
-  { id: "PETTY", name: "Petty Cash Clearing", mask: "••0001", book: 35000000, statement: 35000000, state: "FULLY_RECONCILED", outstanding: 0 },
-];
+// Gate 4 — bank reconciliation.
+//
+// This used to be a hand-written list of eleven accounts ("BCA-OPS ••4021")
+// with a `state` field somebody typed, living next to a bank-account master
+// that named different accounts with different masks. The close board and the
+// reconciliation page each believed their own copy, so the page could not close
+// the gate it exists to close, and the board could not be wrong in a way
+// anybody would notice.
+//
+// It now reads the real run. Same output shape — the card and the task hub are
+// unchanged — but every field is derived.
+export function computeBankRecon() {
+  const runs = allReconciliations();
 
-export function computeBankRecon(accounts = BANK_ACCOUNTS) {
-  const rows = accounts.map((a) => {
-    const delta = a.book - a.statement; // books vs bank
-    const gateGreen = a.state === "FULLY_RECONCILED" || a.state === "RECONCILED_WITH_TIMING";
-    const sev = a.state === "FULLY_RECONCILED" ? "green" : a.state === "RECONCILED_WITH_TIMING" ? "amber" : "red";
-    const stateLabel = a.state === "FULLY_RECONCILED"
-      ? "Reconciled"
-      : a.state === "RECONCILED_WITH_TIMING"
-        ? `${a.outstanding} payment${a.outstanding === 1 ? "" : "s"} in transit`
-        : "Unreconciled";
-    return { ...a, delta, sev, gateGreen, stateLabel };
+  const rows = runs.map((r) => {
+    const open = r.exceptions.filter((e) => !e.resolution);
+    const timingItems = open.filter((e) => e.type === "TIMING_DIFFERENCE");
+
+    // What the two sides disagree about, in rupiah. A matched pair cancels, so
+    // the gap is whatever is left on either side: bank lines nothing in the
+    // ledger claims, less ledger entries the bank has never shown. This is the
+    // number an accountant would put at the bottom of a reconciliation
+    // statement, and it falls out of the run rather than being stored.
+    const unmatchedBank = open
+      .filter((e) => !e.recordId)
+      .reduce((s, e) => s + e.amount, 0);
+    const unseenBooks = open
+      .filter((e) => e.recordId)
+      .reduce((s, e) => s + e.amount, 0);
+    const delta = unmatchedBank - unseenBooks;
+
+    const gateGreen = r.state.gateClosed;
+    const blocking = r.counts.blocking;
+    const toDecide = open.length - timingItems.length;
+
+    // Red is reserved for something that needs investigating. An account whose
+    // only open item is a Rp 2.500 fee awaiting one tap is amber: the gate is
+    // genuinely open, but calling it the same colour as an unexplained debit
+    // teaches people that red on this card does not mean much.
+    const sev = r.state.key === "FULLY_RECONCILED" || r.state.key === "OUT_OF_SCOPE"
+      ? "green"
+      : blocking > 0 || r.state.key === "UNRECONCILED" ? "red"
+      : "amber";
+
+    const stateLabel =
+      r.state.key === "FULLY_RECONCILED" ? "Reconciled"
+      : r.state.key === "OUT_OF_SCOPE" ? "Not reconciled here"
+      : r.state.key === "UNRECONCILED" ? "No statement loaded"
+      : blocking > 0 ? `${blocking} to resolve`
+      // Timing never appears alone in the label while something else is open —
+      // "1 in transit" on an account that also has an unwritten-off fee reads
+      // as nothing to do.
+      : toDecide > 0 ? `${toDecide} to decide`
+      : `${timingItems.length} in transit`;
+
+    return {
+      id: r.accountId,
+      name: r.account.name,
+      mask: maskOf(r.account),
+      state: r.state.key,
+      outstanding: timingItems.length,
+      delta,
+      sev,
+      gateGreen,
+      stateLabel,
+      hasActivity: r.counts.total > 0 || open.length > 0,
+    };
   });
-  const total = rows.length;
-  const timing = rows.filter((r) => r.state === "RECONCILED_WITH_TIMING").length;
-  const unrec = rows.filter((r) => r.state === "UNRECONCILED").length;
-  // Only accounts needing a glance surface on the close board (timing + unreconciled);
-  // fully-reconciled accounts stay invisible. Unreconciled first.
+
+  // Accounts with nothing to reconcile are not evidence of a clean close, so
+  // they are excluded from the ratio rather than padding it green.
+  const inScope = rows.filter((r) => r.state !== "OUT_OF_SCOPE");
+  const total = inScope.length;
+  const timing = inScope.filter((r) => r.outstanding > 0).length;
+  const unrec = inScope.filter((r) => !r.gateGreen).length;
+
+  // Only accounts needing a glance surface on the close board; anything fully
+  // reconciled or out of scope stays invisible. Open gates first.
   const exceptions = rows
-    .filter((r) => r.state !== "FULLY_RECONCILED")
-    .sort((a, b) => (a.state === "UNRECONCILED" ? -1 : 1) - (b.state === "UNRECONCILED" ? -1 : 1));
+    .filter((r) => r.state !== "FULLY_RECONCILED" && r.state !== "OUT_OF_SCOPE" && r.hasActivity)
+    .sort((a, b) => Number(a.gateGreen) - Number(b.gateGreen) || Math.abs(b.delta) - Math.abs(a.delta));
+
   return { rows, exceptions, total, reconciled: total - unrec, timing, unrec, green: unrec === 0 };
 }
 
