@@ -174,14 +174,20 @@ function paymentBookRecords(history = PAYMENT_HISTORY_SEED, { from, to } = {}) {
 
 // Everything the books say passed through a bank account in a window.
 //
-// `extraPayments` lets a caller fold in payments recorded during the session —
-// PaymentsContext holds those, and a reconciliation that ignored them would
-// report a payment you just made as an unexplained bank debit.
+// `livePayments` is PaymentsContext's map, and it REPLACES the seed rather than
+// adding to it. The context seeds its own history from PAYMENT_HISTORY_SEED, so
+// taking both counts the same four payments twice — which does not merely
+// inflate a total: each phantom payment generates a second statement line, and
+// the engine, correctly, reports the pair as a duplicate payment. A
+// reconciliation that invents duplicates is worse than one that misses them.
+//
+// A reconciliation still has to see session payments. One recorded five minutes
+// ago and ignored here shows up as an unexplained bank debit.
 export function bookRecords({ from, to, extraPayments = null } = {}) {
+  const payments = extraPayments || PAYMENT_HISTORY_SEED;
   return [
     ...journalBookRecords({ from, to }),
-    ...paymentBookRecords(PAYMENT_HISTORY_SEED, { from, to }),
-    ...(extraPayments ? paymentBookRecords(extraPayments, { from, to }) : []),
+    ...paymentBookRecords(payments, { from, to }),
   ].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 }
 

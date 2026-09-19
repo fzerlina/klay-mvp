@@ -50,6 +50,16 @@ const WIDE_WINDOW_DAYS = 12;  // PRD Priority 6 — a suggestion, never an auto-
 
 const rp = (n) => formatRupiahExact(Math.abs(n));
 
+// Dates inside an explanation are prose, so they read as the rest of the UI
+// reads them. An explanation is the one place a raw "2025-04-11" is jarring:
+// everything around it is a sentence.
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const d = (iso) => {
+  if (!iso) return "—";
+  const [y, m, day] = iso.split("-");
+  return `${parseInt(day, 10)} ${MONTHS[parseInt(m, 10) - 1]} ${y}`;
+};
+
 // Loose name comparison. Bank statements truncate, upper-case and drop the
 // legal form, so "PT PENYEDIA LAYANAN KON" has to be able to reach
 // "PT Penyedia Layanan Konsultasi". Comparing normalised prefixes handles that
@@ -109,9 +119,9 @@ function signalFor(line, record) {
     return `${rp(line.amount)} out = ${rp(record.cleared)} cleared on ${record.billId} less ${rp(record.withheld)} PPh 23 withheld. The withholding was booked to PPh 23 Payable when the bill was paid, so the bank is short by exactly the tax and nothing is missing.${lagText}`;
   }
   if (record.counterparty && nameAgrees(line.counterparty, record.counterparty)) {
-    return `${rp(line.amount)} ${line.amount < 0 ? "to" : "from"} ${record.counterparty}, matched to ${where} on ${record.date}.${lagText}`;
+    return `${rp(line.amount)} ${line.amount < 0 ? "to" : "from"} ${record.counterparty}, matched to ${where} on ${d(record.date)}.${lagText}`;
   }
-  return `${rp(line.amount)} on ${line.date} matched to ${where} — same amount and date, and no other ledger entry on this account could be it.${lagText}`;
+  return `${rp(line.amount)} on ${d(line.date)} matched to ${where} — same amount and date, and no other ledger entry on this account could be it.${lagText}`;
 }
 
 // ── Priority 1 ───────────────────────────────────────────────────────────────
@@ -168,14 +178,18 @@ function priorityWithholding(line, { billsById }) {
   const bill = named.length === 1 ? named[0] : hits.length === 1 ? hits[0] : null;
   if (!bill) return null;
 
-  const rate = bill.pphRate ? `${bill.pphRate}%` : `${((bill.pph23 / bill.total) * 100).toFixed(1)}%`;
+  // Derived from the two amounts already in the sentence rather than read off
+  // `bill.pphRate`, which is stored as a fraction (0.02) — printing that field
+  // directly gave "PPh 23 (0.02%)" next to a figure that was plainly 2%.
+  // A rate computed from the numbers beside it cannot contradict them.
+  const rate = `${Number(((bill.pph23 / bill.total) * 100).toFixed(2))}%`;
   void billsById;
   return {
     type: EXCEPTION_TYPES.GENUINE_MISMATCH.key,
     detector: "PPH_WITHHOLDING",
     title: `Recognised via PPh 23 — ${bill.id} was paid but never recorded`,
     explanation:
-      `${rp(line.amount)} left the bank${line.counterparty ? ` to ${bill.vendorName}` : ""} on ${line.date}. ` +
+      `${rp(line.amount)} left the bank${line.counterparty ? ` to ${bill.vendorName}` : ""} on ${d(line.date)}. ` +
       `That is ${rp(bill.total)} on ${bill.id} less ${rp(bill.pph23)} PPh 23 (${rate}) — the amount matches no bill total ` +
       `in the system, which is why it looks unexplained until the withholding is applied. The bill is still open in Klay: ` +
       `the money moved, the entry did not. Record the payment against ${bill.id} to reconcile it.`,
@@ -198,11 +212,14 @@ function priorityVirtualAccount(line) {
     detector: "VA_UNREGISTERED",
     title: `Virtual Account credit — VA ${line.vaNumber} is not in the registry`,
     explanation:
-      `${rp(line.amount)} arrived on ${line.date} tagged with Virtual Account ${line.vaNumber} and no customer name or ` +
+      `${rp(line.amount)} arrived on ${d(line.date)} tagged with Virtual Account ${line.vaNumber} and no customer name or ` +
       `invoice reference — which is how every VA credit arrives. Klay can match these automatically once the VA number is ` +
       `mapped to a customer. This one is not mapped, so there is nothing to match it to yet.`,
     vaNumber: line.vaNumber,
-    actions: ["add-to-va-registry", "manual-match", "write-off"],
+    // No "add to registry" action: the registry is not built yet, and offering
+    // a button that cannot do what it says is worse than saying so in the
+    // explanation, which this one does.
+    actions: ["manual-match", "write-off", "escalate"],
   };
 }
 
@@ -216,7 +233,7 @@ function priorityBankFee(line) {
     detector: "FEE_PATTERN",
     title: `Bank fee — ${rp(line.amount)}`,
     explanation:
-      `${rp(line.amount)} on ${line.date}, described by the bank as "${line.description}". Under the ` +
+      `${rp(line.amount)} on ${d(line.date)}, described by the bank as "${line.description}". Under the ` +
       `${rp(FEE_CEILING)} fee ceiling and the description is a fee. Write off to Bank Charges.`,
     actions: ["write-off-fee"],
   };
@@ -232,7 +249,7 @@ function priorityBankInterest(line) {
     detector: "INTEREST_CREDIT",
     title: `Bank interest — ${rp(line.amount)}`,
     explanation:
-      `${rp(line.amount)} credited on ${line.date}, described by the bank as "${line.description}". ` +
+      `${rp(line.amount)} credited on ${d(line.date)}, described by the bank as "${line.description}". ` +
       `Interest the bank paid us. There is no ledger entry because nothing in Klay raises one. Post to Interest Income.`,
     actions: ["write-off-interest"],
   };
@@ -252,7 +269,7 @@ function prioritySuggestion(line, pool) {
   const r = near[0];
   return {
     record: r,
-    note: `Same amount as ${r.ref} on ${r.date}, ${Math.abs(dayDiff(line.date, r.date))} days from this line — outside the ${DATE_WINDOW_DAYS}-day window Klay matches on its own.`,
+    note: `Same amount as ${r.ref} on ${d(r.date)}, ${Math.abs(dayDiff(line.date, r.date))} days from this line — outside the ${DATE_WINDOW_DAYS}-day window Klay matches on its own.`,
   };
 }
 
@@ -352,7 +369,7 @@ export function reconcile({ statement, books = [] }) {
         : `Unexplained ${line.amount < 0 ? "debit" : "credit"} — ${rp(line.amount)}`,
       explanation: suggestion
         ? `${suggestion.note} Confirm it and Klay will match this counterparty the same way next time.`
-        : `${rp(line.amount)} ${line.amount < 0 ? "left" : "arrived in"} the account on ${line.date}, described as ` +
+        : `${rp(line.amount)} ${line.amount < 0 ? "left" : "arrived in"} the account on ${d(line.date)}, described as ` +
           `"${line.description}". No ledger entry on this account has this amount within ${DATE_WINDOW_DAYS} days, ` +
           `and the description carries no counterparty to look up. This one needs a person.`,
       suggestion: suggestion ? { recordId: suggestion.record.id, ref: suggestion.record.ref, note: suggestion.note } : null,
@@ -404,9 +421,9 @@ export function reconcile({ statement, books = [] }) {
             detector: "BOOKED_NOT_CLEARED",
             title: `Booked but never cleared — ${rp(record.amount)}`,
             explanation:
-              `Klay booked ${rp(record.amount)} on ${record.date}${record.counterparty ? ` to ${record.counterparty}` : ""} ` +
-              `via ${rail.label}, which ${rail.note}. It should have been on a statement by ${expected}, and this one runs to ` +
-              `${statement.through}. The books say the money moved and the bank has never seen it.`,
+              `Klay booked ${rp(record.amount)} on ${d(record.date)}${record.counterparty ? ` to ${record.counterparty}` : ""} ` +
+              `via ${rail.label}, which ${rail.note}. It should have been on a statement by ${d(expected)}, and this one runs to ` +
+              `${d(statement.through)}. The books say the money moved and the bank has never seen it.`,
             recordId: record.id,
             billId: record.billId,
             actions: ["manual-match", "escalate"],
@@ -418,11 +435,11 @@ export function reconcile({ statement, books = [] }) {
               ? `Giro not yet presented — ${rp(record.amount)}`
               : `In transit — ${rp(record.amount)} via ${rail.label}`,
             explanation: isGiro
-              ? `Giro ${record.giroNumber || ""} for ${rp(record.amount)}${record.counterparty ? ` to ${record.counterparty}` : ""}, handed over ${record.date}. `.replace(/\s{2,}/g, " ") +
+              ? `Giro ${record.giroNumber || ""} for ${rp(record.amount)}${record.counterparty ? ` to ${record.counterparty}` : ""}, handed over ${d(record.date)}. `.replace(/\s{2,}/g, " ") +
                 `A giro reaches the statement when the holder presents it, not when we wrote it, so there is no date to expect ` +
                 `it on — it will match itself whenever it is banked. Nothing to do.`
-              : `Booked ${record.date}${record.counterparty ? ` to ${record.counterparty}` : ""}. ${rail.label} ${rail.note}, ` +
-                `so this is expected on the ${expected} statement. Nothing is wrong and nothing needs doing — it will match ` +
+              : `Booked ${d(record.date)}${record.counterparty ? ` to ${record.counterparty}` : ""}. ${rail.label} ${rail.note}, ` +
+                `so this is expected on the ${d(expected)} statement. Nothing is wrong and nothing needs doing — it will match ` +
                 `itself when the next statement is loaded.`,
             recordId: record.id,
             billId: record.billId,
