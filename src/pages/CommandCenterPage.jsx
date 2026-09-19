@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useNavigate, NavLink, useSearchParams } from "react-router-dom";
 import { useCurrentUser } from "../state/CurrentUserContext";
+import { useBankRecon } from "../state/BankReconContext";
 import { useBills } from "../state/BillsContext";
 import { useInvoices } from "../state/InvoicesContext";
 import { useJournalEntries } from "../state/JournalEntriesContext";
@@ -171,6 +172,9 @@ export default function CommandCenterPage() {
   const { entries } = useJournalEntries();
   const { requestStatusOf } = usePayments();
   const { closedThrough, autoAssignLateBills } = useClosePeriod();
+  // Bank-rec decisions taken this session, so a written-off fee stops being a
+  // task here the moment it stops being one on the reconciliation page.
+  const reconOverlay = useBankRecon();
 
   const agingLines = useMemo(() => buildAgingLines(TODAY, bills), [bills]);
 
@@ -180,8 +184,9 @@ export default function CommandCenterPage() {
       requestStatusOf,
       closedThrough, autoAssignLateBills,
       hasCapability,
+      reconOverlay,
     }),
-    [bills, invoices, entries, agingLines, requestStatusOf, closedThrough, autoAssignLateBills, hasCapability],
+    [bills, invoices, entries, agingLines, requestStatusOf, closedThrough, autoAssignLateBills, hasCapability, reconOverlay],
   );
   const insightHub = useMemo(
     () => computeHomeInsights({ agingLines, invoices, can }),

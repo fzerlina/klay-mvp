@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCurrentUser } from "../state/CurrentUserContext";
+import { useBankRecon } from "../state/BankReconContext";
 import {
   AP_CLOSE_RECORDS,
   AP_CLOSE_PERIOD_LABEL,
@@ -377,7 +378,10 @@ export default function ApCloseCommandCenterPage() {
   const gates = useMemo(() => computeGates(records), [records]);
   const summary = useMemo(() => computeApCloseSummary(records), [records]);
   const recon = useMemo(() => computeReconciliation(records), [records]);
-  const bank = useMemo(() => computeBankRecon(), []);
+  // The overlay is what somebody decided on the reconciliation page. Without
+  // it this card reports exceptions that were cleared a minute ago.
+  const reconOverlay = useBankRecon();
+  const bank = useMemo(() => computeBankRecon(reconOverlay), [reconOverlay]);
   const daysToClose = -daysSince(AP_CLOSE_TARGET_DATE); // + = days remaining
   const insights = useMemo(() => computeInsights(records), [records]);
   const [reconCheckedLabel, setReconCheckedLabel] = useState("Last reconciled 5 min ago");

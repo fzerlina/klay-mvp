@@ -38,6 +38,7 @@ import InventorySettingsPage from "./pages/InventorySettingsPage";
 import { InvoicesProvider } from "./state/InvoicesContext";
 import { BillsProvider } from "./state/BillsContext";
 import { PaymentsProvider } from "./state/PaymentsContext";
+import { BankReconProvider } from "./state/BankReconContext";
 import { VendorsProvider } from "./state/VendorsContext";
 import { CustomersProvider } from "./state/CustomersContext";
 import { ItemsProvider } from "./state/ItemsContext";
@@ -117,6 +118,7 @@ export default function App() {
                 unlike Item Master / Inventory Sub-Ledger above. */}
             <AssetsProvider>
             <PaymentsProvider>
+            <BankReconProvider>
             <Routes>
               <Route element={<Layout />}>
                 <Route index element={<RoleLanding />} />
@@ -171,6 +173,7 @@ export default function App() {
                 <Route path="*" element={<RoleLanding />} />
               </Route>
             </Routes>
+            </BankReconProvider>
             </PaymentsProvider>
             </AssetsProvider>
             </ClosePeriodProvider>

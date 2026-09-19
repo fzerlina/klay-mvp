@@ -10,7 +10,9 @@
 // Period is April 2025 — the app's demo close period (lib/clock TODAY 2025-04-23,
 // universal Close page CLOSE_PERIOD "2025-04"). No working-day math.
 
-import { allReconciliations } from "../../lib/bankRecon";
+import { allReconciliations, stateOf } from "../../lib/bankRecon";
+import { EXCEPTION_TYPES } from "../../lib/bankMatching";
+import { EMPTY_OVERLAY } from "../../state/BankReconContext";
 import { maskOf } from "./bankAccounts";
 import { BILLS } from "./bills";
 import { ACCRUAL_CANDIDATES } from "./accrualCandidates";
@@ -350,11 +352,18 @@ export function computeReconciliation(records = AP_CLOSE_RECORDS, bills = BILLS)
 //
 // It now reads the real run. Same output shape — the card and the task hub are
 // unchanged — but every field is derived.
-export function computeBankRecon() {
+//
+// `overlay` carries the session's decisions (state/BankReconContext). Without
+// it the board would report exceptions that somebody cleared on the
+// reconciliation page thirty seconds ago, which is the same disagreement in a
+// new costume.
+export function computeBankRecon(overlay = EMPTY_OVERLAY) {
   const runs = allReconciliations();
+  const { resolutions = {} } = overlay || EMPTY_OVERLAY;
 
   const rows = runs.map((r) => {
-    const open = r.exceptions.filter((e) => !e.resolution);
+    const exceptions = r.exceptions.map((e) => (resolutions[e.id] ? { ...e, resolution: resolutions[e.id] } : e));
+    const open = exceptions.filter((e) => !e.resolution);
     const timingItems = open.filter((e) => e.type === "TIMING_DIFFERENCE");
 
     // What the two sides disagree about, in rupiah. A matched pair cancels, so
@@ -370,23 +379,27 @@ export function computeBankRecon() {
       .reduce((s, e) => s + e.amount, 0);
     const delta = unmatchedBank - unseenBooks;
 
-    const gateGreen = r.state.gateClosed;
-    const blocking = r.counts.blocking;
+    // State is re-derived from the overlaid exceptions, not read off the run:
+    // clearing the last open fee has to move the account without anything
+    // having to remember to recompute.
+    const state = stateOf({ ...r, exceptions }, r.statement);
+    const gateGreen = state.gateClosed;
+    const blocking = open.filter((e) => EXCEPTION_TYPES[e.type]?.blocking).length;
     const toDecide = open.length - timingItems.length;
 
     // Red is reserved for something that needs investigating. An account whose
     // only open item is a Rp 2.500 fee awaiting one tap is amber: the gate is
     // genuinely open, but calling it the same colour as an unexplained debit
     // teaches people that red on this card does not mean much.
-    const sev = r.state.key === "FULLY_RECONCILED" || r.state.key === "OUT_OF_SCOPE"
+    const sev = state.key === "FULLY_RECONCILED" || state.key === "OUT_OF_SCOPE"
       ? "green"
-      : blocking > 0 || r.state.key === "UNRECONCILED" ? "red"
+      : blocking > 0 || state.key === "UNRECONCILED" ? "red"
       : "amber";
 
     const stateLabel =
-      r.state.key === "FULLY_RECONCILED" ? "Reconciled"
-      : r.state.key === "OUT_OF_SCOPE" ? "Not reconciled here"
-      : r.state.key === "UNRECONCILED" ? "No statement loaded"
+      state.key === "FULLY_RECONCILED" ? "Reconciled"
+      : state.key === "OUT_OF_SCOPE" ? "Not reconciled here"
+      : state.key === "UNRECONCILED" ? "No statement loaded"
       : blocking > 0 ? `${blocking} to resolve`
       // Timing never appears alone in the label while something else is open —
       // "1 in transit" on an account that also has an unwritten-off fee reads
@@ -398,7 +411,7 @@ export function computeBankRecon() {
       id: r.accountId,
       name: r.account.name,
       mask: maskOf(r.account),
-      state: r.state.key,
+      state: state.key,
       outstanding: timingItems.length,
       delta,
       sev,

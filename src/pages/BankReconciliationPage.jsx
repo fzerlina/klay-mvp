@@ -33,6 +33,7 @@ import { writeOffEntry, writeOffNote } from "../lib/reconJournal";
 import { useJournalEntries } from "../state/JournalEntriesContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
 import { usePayments } from "../state/PaymentsContext";
+import { useBankRecon } from "../state/BankReconContext";
 import { TODAY } from "../lib/clock";
 
 const TODAY_ISO = TODAY.toISOString().slice(0, 10);
@@ -331,12 +332,11 @@ export default function BankReconciliationPage() {
   const [toast, setToast] = useState("");
   const toastTmr = useRef(null);
 
-  // Resolutions live here, not in the engine. The engine is a pure function of
-  // the statement and the ledger; what a person decided about an exception is
-  // session state laid over the top. Keeping them apart means a re-run never
-  // discards a decision, and a decision never silently changes a match.
-  const [resolutions, setResolutions] = useState({});
-  const [completed, setCompleted] = useState({});
+  // Decisions live in a context, not here. The engine is a pure function of the
+  // statement and the ledger; what a person decided is laid over the top. They
+  // sit outside this component because the close board asks the same question —
+  // write off the last fee here and Gate 4 there has to agree.
+  const { resolutions, completed, resolve, resolveMany, markComplete } = useBankRecon();
 
   useEffect(() => {
     if (!groupPopOpen) return;
@@ -429,7 +429,7 @@ export default function BankReconciliationPage() {
   function onAction(action, ex) {
     const res = resolveOne(action, ex, peekNextJeNumber());
     if (!res) return;
-    setResolutions((prev) => ({ ...prev, [ex.id]: res }));
+    resolve(ex.id, res);
     showToast(res.note);
   }
 
@@ -445,7 +445,7 @@ export default function BankReconciliationPage() {
       if (res) next[ex.id] = res;
     });
     if (!Object.keys(next).length) return;
-    setResolutions((prev) => ({ ...prev, ...next }));
+    resolveMany(next);
     showToast(`${Object.keys(next).length} resolved.`);
   }
 
@@ -588,7 +588,7 @@ export default function BankReconciliationPage() {
                   : canComplete ? "Close Gate 4 for this account"
                     : `${openNonTiming} item${openNonTiming === 1 ? "" : "s"} still need a decision`
               }
-              onClick={() => { setCompleted((p) => ({ ...p, [selectedAccount]: TODAY_ISO })); showToast(`${account.name} marked reconciled — Gate 4 closed for this account.`); }}
+              onClick={() => { markComplete(selectedAccount, TODAY_ISO); showToast(`${account.name} marked reconciled — Gate 4 closed for this account.`); }}
             >
               {isComplete ? "Complete" : "Mark reconciliation complete"}
             </button>

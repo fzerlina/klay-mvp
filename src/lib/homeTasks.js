@@ -171,10 +171,10 @@ function journalTasks(ctx) {
 
 // Bank · Reconciliation — unmatched / in-transit items (Finance Staff).
 function bankTasks(ctx) {
-  const { hasCapability } = ctx;
+  const { hasCapability, reconOverlay } = ctx;
   if (!hasCapability("bank.reconcile")) return [];
   const g = { group: "bank", groupLabel: "Bank Reconciliation", groupTo: "/bank-reconciliation" };
-  const recon = computeBankRecon();
+  const recon = computeBankRecon(reconOverlay);
   // Items to act on = payments in transit + unreconciled accounts.
   const inTransit = sum(recon.exceptions, (r) => r.outstanding);
   if (!inTransit && !recon.unrec) return [];
