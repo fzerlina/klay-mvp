@@ -6,19 +6,13 @@
 
 .fa-lede { margin-top: 6px; font-size: 13px; color: var(--color-text-secondary); max-width: 640px; }
 
-.fa-type-select {
-  font-size: 12.5px; padding: 7px 10px; border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border-default); background: var(--color-surface-raised);
-  color: var(--color-text-secondary);
-}
-
 /* ── Register list grid ──────────────────────────────────────────────────── */
 .fa-scroll { overflow-x: auto; }
-.fa-inner { min-width: 1120px; }
-/* Asset ID · Name · Type · Category · Acquisition Date · Original Value · Method · Book Value · Status */
+.fa-inner { min-width: 1138px; }
+/* Asset ID · Name · Type · Category · In Service · Original Value · Book Value · Operational · Book Status */
 .fa-col-header, .fa-row {
   display: grid;
-  grid-template-columns: 96px minmax(190px, 1fr) 108px 130px 118px 140px 190px 140px 108px;
+  grid-template-columns: 88px minmax(128px, 1fr) 84px 108px 100px 138px 138px 146px 128px;
   gap: 10px;
   align-items: center;
   padding: 11px 18px;
@@ -63,5 +57,65 @@
 .fa-sched-tag.paused { background: var(--warning-surface); color: var(--warning-text); }
 .fa-sched-tag.revised { background: var(--color-action-wash, #E8EDFB); color: var(--color-action); }
 
-/* Stranded book value callout (cancelled assets) */
-.fa-stranded { background: var(--color-danger-surface); border: 1px solid var(--color-danger-border); color: var(--color-danger-text); border-radius: var(--radius-md); padding: 12px 14px; font-size: 12.5px; line-height: 1.5; margin-bottom: 14px; }
+
+/* ── The three status axes ───────────────────────────────────────────────────
+   Weighted by consequence: the book status keeps the full pill, the lifecycle
+   is a small badge that only appears when it isn't Active, and the operational
+   status is deliberately the quietest thing on the row — it moves no money. */
+
+/* Lifecycle badge (Draft / Void) */
+.fa-life {
+  margin-left: 8px; padding: 1px 7px; border-radius: 9999px;
+  font-size: 9px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+  background: var(--color-surface-sunken); color: var(--color-text-tertiary);
+  border: 1px solid var(--color-border-default); vertical-align: middle;
+}
+.fa-life.draft { background: var(--color-surface-sunken); }
+.fa-life.closed { background: var(--color-danger-surface); color: var(--color-danger-text); border-color: var(--color-danger-border); }
+
+/* Operational status uses the SAME pill as the book status (.vd-status plus a
+   tone), so the two axes are read the same way. On the detail page it is also
+   the control that changes it, so it carries a pointer and a hover state that
+   an ordinary pill does not. */
+/* Both axes are dropdowns on the detail page, wearing the pill they set. The
+   native arrow is suppressed and replaced with a small caret so the control
+   still reads as a status first and a menu second. */
+.fa-status-select {
+  margin-left: 8px; cursor: pointer; font-family: inherit;
+  -webkit-appearance: none; appearance: none;
+  padding-right: 22px;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 12px) 52%, calc(100% - 8px) 52%;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+}
+.fa-status-select:hover:not(:disabled) { filter: brightness(0.96); }
+.fa-status-select:disabled { cursor: default; opacity: .75; background-image: none; padding-right: 10px; }
+.fa-status-select option { text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--color-text-primary); background: var(--color-surface-raised); }
+
+/* Section divider inside the edit dialog */
+.fa-edit-sec {
+  margin: 18px 0 2px; padding-top: 14px; border-top: 1px solid var(--color-border-subtle);
+  font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--color-text-tertiary);
+}
+.fa-edit-input { width: 100%; padding: 8px 10px; border: 1px solid var(--color-border-default); border-radius: 6px; background: var(--color-surface-raised); }
+.fa-op-unset {
+  background: var(--color-surface-sunken); color: var(--color-text-tertiary);
+  border-style: dashed; border-color: var(--color-border-default);
+}
+
+
+/* Where the floor and the books disagree */
+.fa-conflict { display: inline-flex; margin-left: 6px; vertical-align: middle; }
+.fa-conflict svg { width: 12px; height: 12px; stroke: var(--warning-text); fill: none; stroke-width: 2; stroke-linejoin: round; }
+
+.fa-flag {
+  border-radius: var(--radius-md); padding: 11px 14px; font-size: 12.5px; line-height: 1.55;
+  margin-bottom: 8px; border: 1px solid;
+}
+.fa-flag.review { background: var(--warning-surface); border-color: var(--warning-border); color: var(--warning-text); }
+.fa-flag.advisory { background: var(--color-surface-sunken); border-color: var(--color-border-default); color: var(--color-text-secondary); }
+
+/* One line under each axis on the detail page saying what it does */
+.fa-axis-note { display: block; margin-top: 3px; font-size: 11px; line-height: 1.5; color: var(--color-text-tertiary); font-weight: 400; }

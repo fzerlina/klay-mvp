@@ -42,6 +42,7 @@ export const COA = [
   { id: '1-5100', code: '1-5100', name: 'VAT Input (PPN Masukan)',       type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-other-current', level: 3, is_active: true },
   { id: '1-5200', code: '1-5200', name: 'Advance to Suppliers',          type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-other-current', level: 3, is_active: true },
   { id: '1-5300', code: '1-5300', name: 'Employee Advances',             type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-other-current', level: 3, is_active: true },
+  { id: '1-5400', code: '1-5400', name: 'Assets Held for Sale',          type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-other-current', level: 3, is_active: true },
 
   { id: 'g-non-current-asset', type: 'group', level: 1, parent: 'g-asset',        label: 'Non-Current Assets' },
   { id: 'g-ppe',            type: 'group', level: 2, parent: 'g-non-current-asset', label: 'Property, Plant & Equipment' },
@@ -54,6 +55,10 @@ export const COA = [
   { id: '1-6410', code: '1-6410', name: 'Accumulated Depreciation — Vehicles',      type: 'contra_asset', normal_balance: 'credit', fs: 'BS', section: 'Non-Current Asset', parent: 'g-ppe', level: 3, is_active: true },
   { id: '1-6500', code: '1-6500', name: 'Machinery',                     type: 'asset',         normal_balance: 'debit',  fs: 'BS', section: 'Non-Current Asset', parent: 'g-ppe', level: 3, is_active: true },
   { id: '1-6510', code: '1-6510', name: 'Accumulated Depreciation — Machinery',    type: 'contra_asset', normal_balance: 'credit', fs: 'BS', section: 'Non-Current Asset', parent: 'g-ppe', level: 3, is_active: true },
+  // Construction in Progress — Aset Tetap Dalam Penyelesaian. Cost accumulates
+  // here while an asset is being built; capitalising moves it to the category's
+  // own asset account. Nothing depreciates out of this account.
+  { id: '1-6600', code: '1-6600', name: 'Construction in Progress',    type: 'asset',         normal_balance: 'debit',  fs: 'BS', section: 'Non-Current Asset', parent: 'g-ppe', level: 3, is_active: true },
   // Fixed Asset Clearing — a suspense account for costs received but not yet
   // capitalised. Nothing posts to it today: capitalise-from-bill via a clearing
   // account is out of scope for the Fixed Asset register (PRD §10). Kept because
@@ -63,6 +68,10 @@ export const COA = [
   { id: 'g-intangible',     type: 'group', level: 2, parent: 'g-non-current-asset', label: 'Intangible Assets' },
   { id: '1-7100', code: '1-7100', name: 'Software & Licenses',           type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Non-Current Asset', parent: 'g-intangible', level: 3, is_active: true },
   { id: '1-7110', code: '1-7110', name: 'Accumulated Amortisation — Software', type: 'contra_asset', normal_balance: 'credit', fs: 'BS', section: 'Non-Current Asset', parent: 'g-intangible', level: 3, is_active: true },
+  { id: '1-7190', code: '1-7190', name: 'Intangibles in Development',   type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Non-Current Asset', parent: 'g-intangible', level: 3, is_active: true },
+  // Goodwill is never amortised — it carries at cost less impairment — so it
+  // has no accumulated-amortisation contra beside it.
+  { id: '1-7300', code: '1-7300', name: 'Goodwill',                     type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Non-Current Asset', parent: 'g-intangible', level: 3, is_active: true },
 
   { id: 'g-other-nc',       type: 'group', level: 2, parent: 'g-non-current-asset', label: 'Other Non-Current Assets' },
   { id: '1-8100', code: '1-8100', name: 'Security Deposits',             type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Non-Current Asset', parent: 'g-other-nc', level: 3, is_active: true },
