@@ -35,6 +35,17 @@ const TYPES = [
 ];
 const typeOf = (m) => (m.action === "opening" ? "opening" : m.unit > 0 ? "in" : "out");
 
+// Journal status of the entry each movement drafted. Void and "No journal"
+// only show up when something is in them.
+const JE_TABS = [
+  ["all", "All"],
+  ["draft", "Draft"],
+  ["pending", "Pending review"],
+  ["posted", "Posted"],
+  ["void", "Void"],
+  ["none", "No journal"],
+];
+
 const EMPTY_FILTERS = { types: new Set(), preset: "all", from: "", to: "", item: "", loc: "" };
 
 function useClickOutside(ref, onClose) {
@@ -46,7 +57,7 @@ function useClickOutside(ref, onClose) {
 }
 
 // Every filter lives in here — movement type, date range, item, location — so
-// the table card carries one search box and one Filter button, nothing else.
+// the table card carries only the journal-status tabs, a search box and this.
 function FilterPopover({ values, onChange, onClose, items, locations }) {
   const ref = useRef(null);
   useClickOutside(ref, onClose);
@@ -149,7 +160,9 @@ export default function InventoryPage() {
   const [toast, setToast] = useState("");
   function flash(msg) { setToast(msg); setTimeout(() => setToast(""), 2800); }
 
-  const rows = useMemo(() => {
+  // Everything except the journal-status tab, so the tab counts answer "how
+  // many of each within what I'm looking at".
+  const scoped = useMemo(() => {
     const q = search.toLowerCase().trim();
     const f = filters;
     return all.filter((m) =>
@@ -160,6 +173,15 @@ export default function InventoryPage() {
       (!q || [m.item.name, m.item.sku, m.loc, m.reason, m.note, m.je, m.by].some((v) => (v || "").toLowerCase().includes(q))),
     );
   }, [all, filters, search]);
+
+  const [tab, setTab] = useState("all");
+  const tabOf = (m) => jeStatus(m) || "none";
+  const rows = useMemo(() => (tab === "all" ? scoped : scoped.filter((m) => tabOf(m) === tab)), [scoped, tab, jeStatus]);
+  const tabCounts = useMemo(() => {
+    const c = { all: scoped.length };
+    for (const m of scoped) { const k = tabOf(m); c[k] = (c[k] || 0) + 1; }
+    return c;
+  }, [scoped, jeStatus]);
 
   const filterCount = (filters.types.size ? 1 : 0) + (filters.preset !== "all" ? 1 : 0) + (filters.item ? 1 : 0) + (filters.loc ? 1 : 0);
   // The Increases / Decreases KPIs are shortcuts into the same type filter.
@@ -175,13 +197,13 @@ export default function InventoryPage() {
       else if (st.state === "unavailable") unavailable++;
     }
     let inV = 0, inN = 0, outV = 0, outN = 0, unposted = 0;
-    for (const m of rows) {
+    for (const m of scoped) {
       if (m.unit > 0) { inV += m.value; inN++; } else { outV += -m.value; outN++; }
       const s = jeStatus(m);
       if (s === "draft" || s === "pending") unposted++;
     }
     return { value, known, unavailable, inV, inN, outV, outN, unposted };
-  }, [reads, rows, jeStatus]);
+  }, [reads, scoped, jeStatus]);
 
   const net = rows.reduce((s, m) => s + m.value, 0);
   const hasFilters = filterCount > 0 || search;
@@ -255,6 +277,17 @@ export default function InventoryPage() {
         {/* ── Table card ─────────────────────────────────────────────── */}
         <div className="lg-table-wrap">
           <div className="lg-card">
+            {/* Tabs are the journal each movement wrote: stock the books have
+                caught up to (Posted) versus stock they haven't (Draft, Pending). */}
+            <div className="bp-tabs-row">
+              {JE_TABS.filter(([k]) => k === "all" || k === "draft" || k === "pending" || k === "posted" || tabCounts[k]).map(([k, lbl]) => (
+                <button key={k} className={`bp-tab${tab === k ? " active" : ""}`} onClick={() => setTab(k)}>
+                  {lbl}
+                  <span className="bp-tab-count">{tabCounts[k] || 0}</span>
+                </button>
+              ))}
+            </div>
+
             <div className="lg-filter-row">
               <div className="lg-search">
                 <svg viewBox="0 0 14 14"><circle cx="6" cy="6" r="3.5"/><path d="M9 9l3 3" strokeLinecap="round"/></svg>
