@@ -82,6 +82,15 @@ function seedPayments() {
     };
   }
 
+  // The worked tax example is pinned to "approved" so the Record payment step
+  // is one click away: it is the bill that shows what PPh withholding does to
+  // the amount actually transferred, and that is only visible in the modal.
+  m.BILL204 = {
+    request: "approved",
+    requestedBy: "Budi Santoso", requestedAt: isoDaysAgo(3),
+    approvedBy: "Sari Dewanti", approvedAt: isoDaysAgo(1),
+  };
+
   payable.forEach((id, i) => {
     if (m[id]) return; // already pinned above
     if (i < 6) {
