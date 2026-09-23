@@ -64,6 +64,18 @@ const REPORTS = [
       </svg>
     ),
   },
+  {
+    key: "inventory-subledger",
+    title: "Inventory Sub-Ledger",
+    blurb: "Every stock movement by item and location — the trail behind each on-hand figure and the journal it drafted.",
+    to: "/inventory",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+        <line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" />
+        <polyline points="3 5 4 6 6 4" /><polyline points="3 11 4 12 6 10" /><polyline points="3 17 4 18 6 16" />
+      </svg>
+    ),
+  },
 ];
 
 export default function ReportsPage() {
