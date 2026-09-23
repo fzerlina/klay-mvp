@@ -264,6 +264,7 @@ const settingsSections = [
     items: [
       { label: "Users", to: "/users" },
       { label: "Access policy", to: "/access-policy" },
+      { label: "Approval", to: "/approval" },
     ],
   },
 ];

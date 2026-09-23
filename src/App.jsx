@@ -33,6 +33,7 @@ import TaxReconciliationPage from "./pages/TaxReconciliationPage";
 import BankAccountsSettingsPage from "./pages/BankAccountsSettingsPage";
 import UsersPage from "./pages/UsersPage";
 import AccessPolicyPage from "./pages/AccessPolicyPage";
+import ApprovalSettingsPage from "./pages/ApprovalSettingsPage";
 import PostingPeriodsSettingsPage from "./pages/PostingPeriodsSettingsPage";
 import InventorySettingsPage from "./pages/InventorySettingsPage";
 import { InvoicesProvider } from "./state/InvoicesContext";
@@ -168,6 +169,7 @@ export default function App() {
                 <Route path="/bank-accounts" element={<BankAccountsSettingsPage />} />
                 <Route path="/users" element={<UsersPage />} />
                 <Route path="/access-policy" element={<AccessPolicyPage />} />
+                <Route path="/approval" element={<ApprovalSettingsPage />} />
                 <Route path="/posting-periods" element={<PostingPeriodsSettingsPage />} />
                 <Route path="/inventory-settings" element={<InventorySettingsPage />} />
                 <Route path="*" element={<RoleLanding />} />
