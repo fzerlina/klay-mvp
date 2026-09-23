@@ -834,8 +834,14 @@ function SourceInvoice({ bill, vendor }) {
       <div className="a4-total">
         <div className="a4-tb">
           <div className="a4-tr"><span className="lbl">DPP</span><span className="val">{bill.dpp.toLocaleString("id-ID")}</span></div>
-          {bill.pph23 > 0 && <div className="a4-tr"><span className="lbl">PPh 23 (potongan)</span><span className="val">− {bill.pph23.toLocaleString("id-ID")}</span></div>}
+          {bill.ppn > 0 && <div className="a4-tr"><span className="lbl">PPN {Math.round((bill.ppnRate || 0) * 100)}%</span><span className="val">{bill.ppn.toLocaleString("id-ID")}</span></div>}
           <div className="a4-tr grand"><span className="lbl">Total</span><span className="val">Rp {bill.total.toLocaleString("id-ID")}</span></div>
+          {bill.pph23 > 0 && (
+            <>
+              <div className="a4-tr"><span className="lbl">PPh 23 (potongan)</span><span className="val">− {bill.pph23.toLocaleString("id-ID")}</span></div>
+              <div className="a4-tr grand"><span className="lbl">Net payable</span><span className="val">Rp {(bill.total - bill.pph23).toLocaleString("id-ID")}</span></div>
+            </>
+          )}
         </div>
       </div>
 
@@ -1203,7 +1209,7 @@ function RefRow({ label, value, onClick, confidence, rawValue, inputType, parser
 
 // A tax-rate row: the rate is an editable chip (click → inline % input); the
 // computed amount sits beside it. Saving recomputes the downstream totals.
-function RateRow({ label, rate, amount, onSaveRate, canEdit = true, confidence }) {
+function RateRow({ label, rate, amount, onSaveRate, canEdit = true, confidence, sign }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const pct = +((rate || 0) * 100).toFixed(2);
@@ -1240,7 +1246,9 @@ function RateRow({ label, rate, amount, onSaveRate, canEdit = true, confidence }
             ) : (
               <span className="bd-rate-chip bd-rate-chip-static">{pct}%</span>
             )}
-            <span className="bd-rate-amt mono">{formatRupiah(amount)}</span>
+            <span className={`bd-rate-amt mono${sign === "-" ? " deduct" : ""}`}>
+              {sign ? `${sign === "-" ? "−" : "+"} ` : ""}{formatRupiah(amount)}
+            </span>
           </>
         )}
         <FlaggedNote confidence={confidence} />
@@ -1248,6 +1256,28 @@ function RateRow({ label, rate, amount, onSaveRate, canEdit = true, confidence }
     </div>
   );
 }
+
+// The tax charged on one invoice line. PPN and PPh 23 can both apply to the
+// same line (a service from a PKP vendor), so this is a list, not a value —
+// and a goods line quietly carries no PPh at all, which is exactly the thing
+// people get wrong when they withhold 2% off the whole invoice.
+function ItemTax({ item }) {
+  const rows = [];
+  if (item.ppn > 0) rows.push({ k: "ppn", lbl: `PPN ${pctOf(item.ppnRate, 0.11)}`, amt: item.ppn });
+  if (item.pph > 0) rows.push({ k: "pph", lbl: `PPh 23 ${pctOf(item.pphRate, 0.02)}`, amt: item.pph });
+  if (rows.length === 0) return <span className="bd-item-notax">—</span>;
+  return (
+    <span className="bd-item-tax-list">
+      {rows.map((r) => (
+        <span className="bd-item-tax-row" key={r.k}>
+          <span className="mono">{formatRupiah(r.amt)}</span>
+          <span className={`bd-item-tax-chip ${r.k}`}>{r.lbl}</span>
+        </span>
+      ))}
+    </span>
+  );
+}
+const pctOf = (rate, fallback) => `(${+(((rate != null ? rate : fallback)) * 100).toFixed(2)}%)`;
 
 // ─── Page ───────────────────────────────────────────────────────────────────
 
@@ -1652,10 +1682,27 @@ export default function BillDetailPage() {
   const parseText = (v) => String(v).trim();
 
   // ── Tax-rate edits (Item Details) — changing a rate recomputes the
-  // downstream amounts. PPh is a withholding that only affects Net Payable,
-  // not Total.
+  // downstream amounts. PPN is charged BY the vendor and lifts the Total; PPh
+  // is withheld FROM the vendor and only lowers Net Payable. Two taxes, two
+  // directions, which is why they sit on either side of the Total row.
+  function setPpnRate(r) {
+    const ppn = Math.round(bill.dpp * r);
+    const total = bill.dpp + ppn;
+    updateBill(bill.id, { ppnRate: r, ppn, total, sisa: bill.pay === "paid" ? bill.sisa : total }, {
+      type:   "edited",
+      action: `PPN rate set to ${(r * 100).toFixed(2)}% — recalculated to ${formatRupiah(ppn)}`,
+      by:     AP_USER,
+      ...nowAuditStamp(),
+    });
+    showToast(`PPN recalculated at ${(r * 100).toFixed(2)}%`);
+  }
+
+  // PPh is withheld on the SERVICE portion of a bill, not on goods, so it is
+  // computed off `pphBase` — the part of the DPP that is a service. Bills that
+  // predate the field fall back to the whole DPP, which is what they assumed.
   function setPphRate(r) {
-    const pph23 = Math.round(bill.dpp * r);
+    const base = bill.pphBase != null ? bill.pphBase : bill.dpp;
+    const pph23 = Math.round(base * r);
     updateBill(bill.id, { pphRate: r, pph23 }, {
       type:   "edited",
       action: `PPh rate set to ${(r * 100).toFixed(2)}% — recalculated to ${formatRupiah(pph23)}`,
@@ -1667,7 +1714,9 @@ export default function BillDetailPage() {
 
   // Effective rates — prefer the stored rate, fall back to deriving from the
   // amount (covers bills created before the rate fields existed).
-  const pphRate = bill.pphRate != null ? bill.pphRate : (bill.dpp > 0 && bill.pph23 ? bill.pph23 / bill.dpp : 0);
+  const pphBase = bill.pphBase != null ? bill.pphBase : bill.dpp;
+  const pphRate = bill.pphRate != null ? bill.pphRate : (pphBase > 0 && bill.pph23 ? bill.pph23 / pphBase : 0);
+  const ppnRate = bill.ppnRate != null ? bill.ppnRate : (bill.dpp > 0 && bill.ppn ? bill.ppn / bill.dpp : 0);
   const netPayable = bill.total - (bill.pph23 || 0);
 
   // Payment axes: payment status (Unpaid / Partial / Paid) + remaining balance, and
@@ -1856,7 +1905,9 @@ export default function BillDetailPage() {
                       <tr>
                         <th>Description</th>
                         <th className="r">Qty</th>
-                        <th className="r">Price</th>
+                        <th className="r">Unit price</th>
+                        <th className="r">DPP</th>
+                        <th className="r">Tax</th>
                         <th className="r">Subtotal</th>
                       </tr>
                     </thead>
@@ -1872,20 +1923,23 @@ export default function BillDetailPage() {
                           <td className="r">{item.qty.toLocaleString("id-ID")}</td>
                           <td className="r">{formatRupiah(item.price)}</td>
                           <td className="r">{formatRupiah(item.subtotal)}</td>
+                          <td className="r bd-item-tax"><ItemTax item={item} /></td>
+                          <td className="r">{formatRupiah(item.lineTotal != null ? item.lineTotal : item.subtotal)}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                   <div className="bd-amounts">
-                    <PlainRow label="DPP" value={formatRupiah(bill.dpp)} mono confidence={fields.dpp} rawValue={String(bill.dpp)} inputType="number" parser={parseInt0} onSave={(v) => editField("dpp", v)} />
-                    <RateRow label="PPh" rate={pphRate} amount={bill.pph23} onSaveRate={setPphRate} canEdit={canEditAp} confidence={fields.pph23} />
+                    <PlainRow label="Subtotal (DPP)" value={formatRupiah(bill.dpp)} mono confidence={fields.dpp} rawValue={String(bill.dpp)} inputType="number" parser={parseInt0} onSave={(v) => editField("dpp", v)} />
+                    <RateRow label="PPN" rate={ppnRate} amount={bill.ppn || 0} onSaveRate={setPpnRate} canEdit={canEditAp} confidence={fields.ppn} sign="+" />
                     <div className={`drawer-row bd-amt-strong${confidenceRowClass(fields.total)}`}>
-                      <div className="drawer-label">Total</div>
+                      <div className="drawer-label">Total (Invoice)</div>
                       <div className="drawer-value mono">
                         {formatRupiah(bill.total)}
                         <FlaggedNote confidence={fields.total} rawValue={String(bill.total)} inputType="number" parser={parseInt0} onSave={(v) => editField("total", v)} />
                       </div>
                     </div>
+                    <RateRow label="PPh 23" rate={pphRate} amount={bill.pph23 || 0} onSaveRate={setPphRate} canEdit={canEditAp} confidence={fields.pph23} sign="-" />
                     <PlainRow label="Net Payable" value={formatRupiah(netPayable)} mono />
                   </div>
                 </div>

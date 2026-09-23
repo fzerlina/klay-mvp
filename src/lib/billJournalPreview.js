@@ -5,6 +5,7 @@
 //
 // Derivation rules (Indonesian AP standard):
 //   DR  per line item     →  item.acct, item.subtotal           (cost / asset)
+//   DR  VAT Input         →  bill.ppn  (1-5100)                  (creditable PPN)
 //   CR  AP Trade          →  total − pph23  (2-1100)             (vendor payable)
 //   CR  PPh withholding   →  bill.pph23  (2-2300 or 2-2400)      (tax payable to DJP)
 //
@@ -22,6 +23,7 @@ import { ruleExplanation } from "./billConfidence";
 const ACCT_AP_TRADE    = { code: "2-1100", name: "Accounts Payable — Trade" };
 const ACCT_PPH23       = { code: "2-2300", name: "PPh 23 Payable" };
 const ACCT_PPH4_FINAL  = { code: "2-2400", name: "PPh 4(2) Payable" };
+const ACCT_VAT_INPUT   = { code: "1-5100", name: "VAT Input (PPN Masukan)" };
 
 function pphAccount(vendor) {
   if (vendor?.pph === "pph4_final") return ACCT_PPH4_FINAL;
@@ -45,7 +47,23 @@ export function previewJournalLines(bill, vendor) {
     });
   }
 
-  // 2) AP Trade CR — what's actually owed to the vendor (total − pph23).
+  // 2) VAT Input DR — PPN the vendor charges is not a cost, it is a claim
+  //    against the tax office, so it debits an asset rather than the expense
+  //    lines above. Without it the entry cannot balance: the line items sum to
+  //    DPP while the vendor is owed DPP + PPN.
+  if (bill.ppn > 0) {
+    lines.push({
+      side:         "DR",
+      account_code: ACCT_VAT_INPUT.code,
+      account_name: ACCT_VAT_INPUT.name,
+      amount:       bill.ppn,
+      description:  "Creditable input VAT",
+      rule:         "Tax rule: PPN on a PKP vendor's faktur pajak is creditable",
+      flag:         null,
+    });
+  }
+
+  // 3) AP Trade CR — what's actually owed to the vendor (total − pph23).
   //    The vendor invoices the gross; we withhold PPh and pay them the net.
   const apAmount = bill.total - (bill.pph23 || 0);
   lines.push({
@@ -58,7 +76,7 @@ export function previewJournalLines(bill, vendor) {
     flag:         null,
   });
 
-  // 3) PPh withholding CR — when applicable. Account routes by article
+  // 4) PPh withholding CR — when applicable. Account routes by article
   //    (PPh 23 → 2-2300, PPh 4(2) → 2-2400). PPh 21 is out-of-scope for MVP
   //    per the latest PRD revision.
   if (bill.pph23 > 0) {

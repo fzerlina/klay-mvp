@@ -1154,3 +1154,28 @@
    a withheld amount is an obligation to the tax office with a bukti potong
    behind it, not a footnote about this payment. */
 .bd-pay-split { font-family: var(--font-mono); font-size: 10px; font-weight: 600; color: #BA7517; margin-top: 2px; }
+
+/* Per-line tax (Item Details) — amount first, rate as a chip beside it, so a
+   column of numbers still scans as numbers and the chip only says which tax. */
+.bd-item-tax { white-space: nowrap; }
+.bd-item-tax-list { display: inline-flex; flex-direction: column; gap: 3px; align-items: flex-end; }
+.bd-item-tax-row { display: inline-flex; align-items: center; gap: 6px; }
+.bd-item-tax-chip {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+.bd-item-tax-chip.ppn {
+  color: var(--color-warning-text, #9a6b00);
+  background: var(--color-warning-subtle, rgba(154,107,0,.1));
+}
+.bd-item-tax-chip.pph {
+  color: var(--color-action, #2f57d4);
+  background: rgba(47,87,212,.1);
+}
+.bd-item-notax { color: var(--color-text-tertiary); }
+
+/* A withheld amount reads as money leaving the vendor, not as a cost. */
+.bd-rate-amt.deduct { color: var(--color-success-text, #1a7a3c); }
