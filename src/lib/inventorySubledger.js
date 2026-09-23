@@ -26,8 +26,13 @@
 // movements. They become figures nobody can type. The costing method finally
 // means something too: it decides how a movement OUT is valued, and nothing else.
 //
-// This module has no screens yet. Its published read (§8.2 of the PRD) is the
-// only way anything else may learn what stock exists:
+// Its screens are the Inventory page (/inventory — every movement, across every
+// item) and the Stock tab on Item Detail (one item's movements as a timeline).
+// Both write through the same door: RECORD A MOVEMENT. There is no "edit the
+// stock number" anywhere, because the stock number is not stored — a location's
+// on-hand is whatever its movements add up to, so every change leaves a row, a
+// date, a reason, a person and a journal behind it. Its published read (§8.2 of
+// the PRD) is the only way anything else may learn what stock exists:
 //
 //     on_hand_qty        by item and location
 //     current_unit_cost  by item
@@ -38,7 +43,8 @@
 // No consumer may write, cache as authoritative, or recompute any of it.
 
 import { INVENTORY_OPENING, OPENING_POSTED } from "../data/seed/inventoryOpening";
-import { isStocked } from "../data/seed/items";
+import { isStocked, ITEM_CATEGORY_ACCOUNTS } from "../data/seed/items";
+import { COA_BY_CODE } from "../data/seed/coa";
 
 // ── Reachability ─────────────────────────────────────────────────────────────
 // The sub-ledger is a separate module, so "it did not answer" is a state Item
@@ -138,11 +144,22 @@ export function openingMovements(it) {
   return stamp(rows, seed);
 }
 
+// Seeded history reads like the purchases and sales it stands in for.
+const SEED_REASON = { buy: "Goods received", sell: "Goods issued" };
+const SEED_ACTORS = ["Rina Kusuma", "Budi Santoso", "Sarah Wijaya"];
+
 // Date/JE/posting-status stamps, oldest first.
 function stamp(rows, seed) {
   const dates = HIST_DATES.slice(-Math.min(rows.length, HIST_DATES.length));
   return rows.map((r, i) => ({
+    id: `MV-S${seed}-${i + 1}`,
     date: dates[i] || HIST_DATES[HIST_DATES.length - 1],
+    reason: SEED_REASON[r.action] || null,
+    note: "",
+    by: SEED_ACTORS[(seed + i) % SEED_ACTORS.length],
+    // Generated history: its JE reference is illustrative, so its status is its
+    // own rather than read from whichever seeded entry shares the number.
+    seeded: true,
     action: r.action,
     loc: r.loc,
     unit: r.unit,
@@ -171,6 +188,7 @@ function replay(rows, method) {
   let qty = 0;
   let value = 0;
   let layers = []; // actual_cost only: [{qty, cost}], oldest first
+  const locQty = {}; // running on-hand per location, for the timeline
   const out = [];
 
   for (const r of rows) {
@@ -227,7 +245,12 @@ function replay(rows, method) {
         }
       }
     }
+    // What actually moved, after the cap at zero — the location balance has to
+    // follow the same figure the total does.
+    const moved = r.unit > 0 ? r.unit : -Math.min(-r.unit, locQty[r.loc] || 0);
+    locQty[r.loc] = (locQty[r.loc] || 0) + moved;
     row.balance = qty;
+    row.loc_balance = locQty[r.loc];
     out.push(row);
   }
 
@@ -254,6 +277,17 @@ function replay(rows, method) {
 // must treat unknown as "there might be stock" — never as "there is none".
 // Unit locks, deactivation, merge and category change all depend on it, and each
 // of them is destructive if it guesses wrong.
+// Oldest-first, by movement date. Stable, so same-day movements keep the order
+// they were recorded in. A backdated movement lands where it happened, not at
+// the end — the ledger is a history, not an append log.
+function chronological(item, sessionMovements) {
+  const all = [...openingMovements(item), ...[...sessionMovements].reverse()];
+  return all
+    .map((r, i) => ({ r, i }))
+    .sort((a, b) => (a.r.date < b.r.date ? -1 : a.r.date > b.r.date ? 1 : a.i - b.i))
+    .map((x) => x.r);
+}
+
 export function readStock(item, sessionMovements = [], method = "average_cost", opts = {}) {
   const stocked = isStocked(item);
   const online = opts.online ?? subledgerOnline();
@@ -267,6 +301,7 @@ export function readStock(item, sessionMovements = [], method = "average_cost", 
     has_stock: null,
     as_of: null,
     by_location: [],
+    locations: [],
     movements: [],
     method,
     opening_posted: online ? OPENING_POSTED : null,
@@ -283,13 +318,14 @@ export function readStock(item, sessionMovements = [], method = "average_cost", 
     return { ...base, state: "unavailable", as_of: opening.length ? opening[opening.length - 1].date : null };
   }
 
-  const opening = openingMovements(item);
   // Session movements arrive newest-first; the ledger runs oldest-first.
-  const all = [...opening, ...[...sessionMovements].reverse()];
-  if (!all.length) return { ...base, state: "no_record", has_stock: false };
+  const all = chronological(item, sessionMovements);
+  // Locations entered on the item (free text, at creation or while recording a
+  // movement) exist before anything has moved through them.
+  const locNames = [...new Set([...all.map((r) => r.loc), ...(opts.locations || [])].filter(Boolean))];
+  if (!all.length) return { ...base, state: "no_record", has_stock: false, locations: locNames };
 
   const total = replay(all, method);
-  const locNames = [...new Set(all.map((r) => r.loc).filter(Boolean))];
   const by_location = locNames.map((loc) => {
     const l = replay(all.filter((r) => r.loc === loc), method);
     return { loc, qty: l.qty, value: Math.round(l.value) };
@@ -309,6 +345,7 @@ export function readStock(item, sessionMovements = [], method = "average_cost", 
     has_stock: total.qty > 0,
     as_of: all[all.length - 1].date,
     by_location,
+    locations: locNames,
     movements: total.rows.slice().reverse(), // newest first for display
   };
 }
@@ -364,4 +401,64 @@ export function inProvisioningWindow(item, read) {
   );
 }
 
-export const ACTION_LABELS = { buy: "Buy", sell: "Sell", adjust: "Adjust" };
+export const ACTION_LABELS = { buy: "Receipt", sell: "Issue", adjust: "Adjustment", opening: "Opening balance" };
+
+// ── Recording a movement ─────────────────────────────────────────────────────
+// The reasons a person gives for moving stock by hand. Receipts and issues from
+// bills and invoices will write their own movements once those documents carry
+// item lines; until then they are recorded here, with the reason saying so.
+export const MOVEMENT_REASONS = {
+  in: ["Goods received", "Stock count — found more", "Returned to stock", "Transfer in", "Other"],
+  out: ["Goods issued", "Stock count — found less", "Damaged / expired", "Lost / shrinkage", "Internal use", "Transfer out", "Other"],
+};
+
+// Would this movement take its location below zero at any point in its
+// history? Checked against the whole timeline, not just today's balance: a
+// backdated issue of 50 can be fine today and still leave the location at −30
+// on the day it claims to have happened.
+export function balanceProblem(item, sessionMovements, candidate) {
+  const rows = chronological(item, [candidate, ...sessionMovements]);
+  let run = 0;
+  for (const r of rows) {
+    if (r.loc !== candidate.loc) continue;
+    run += r.unit;
+    if (run < 0) return { loc: r.loc, date: r.date, short: -run };
+  }
+  return null;
+}
+
+// Unit cost as the ledger stood on a date — what a backdated issue is valued at.
+export function costAsOf(item, sessionMovements, date, method = "average_cost") {
+  const rows = chronological(item, sessionMovements).filter((r) => r.date <= date);
+  if (!rows.length) return null;
+  const t = replay(rows, method);
+  return t.qty > 0 ? t.value / t.qty : null;
+}
+
+// ── The journal a movement writes ────────────────────────────────────────────
+// Stock moves here; the books follow as a DRAFT journal entry, reviewed and
+// posted on the Journal Entry page like any other. The movement and the entry
+// carry each other's reference, so either one leads to the other.
+//
+//   Increase   Dr Inventory              Cr Inventory Adjustments
+//   Decrease   Dr Inventory Adjustments  Cr Inventory
+//   Opening    Dr Inventory              Cr Retained Earnings
+const ADJUSTMENT_ACCOUNT = "5-1500";
+const OPENING_EQUITY_ACCOUNT = "3-1300";
+
+export function inventoryAccount(item) {
+  return (ITEM_CATEGORY_ACCOUNTS[item?.category] || {}).inventory || "1-3100";
+}
+
+export function movementJournalLines(item, { unit, value, action, loc }) {
+  const amt = Math.abs(Math.round(value || 0));
+  const inv = inventoryAccount(item);
+  const other = action === "opening" ? OPENING_EQUITY_ACCOUNT : ADJUSTMENT_ACCOUNT;
+  const [dr, cr] = unit > 0 ? [inv, other] : [other, inv];
+  const name = (c) => COA_BY_CODE[c]?.name || c;
+  const desc = `${item.name} — ${loc}`;
+  return [
+    { account_code: dr, account_name: name(dr), debit: amt, credit: 0, description: desc },
+    { account_code: cr, account_name: name(cr), debit: 0, credit: amt, description: desc },
+  ];
+}
