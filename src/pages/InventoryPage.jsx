@@ -1,14 +1,14 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useItems } from "../state/ItemsContext";
-import { useInventorySubledger } from "../state/InventorySubledgerContext";
+import { useInventorySubledger, todayIso } from "../state/InventorySubledgerContext";
 import { useAccountingSettings } from "../state/AccountingSettingsContext";
 import { isStocked } from "../data/seed/items";
 import { ACTION_LABELS } from "../lib/inventorySubledger";
 import { itemUnits } from "../lib/itemMaster";
 import { formatRupiah, formatRupiahExact, formatDateEn } from "../lib/format";
 import RecordMovementModal from "../components/RecordMovementModal";
-import { DateRangeControls, inRange, useJeStatus } from "../components/StockTimeline";
+import { RANGE_PRESETS, presetRange, inRange, useJeStatus } from "../components/StockTimeline";
 import "./modules.css";
 import "./invoices-ledger.css";
 import "./items.css";
@@ -28,14 +28,86 @@ import "./inventory.css";
 // There is no warehouse module. Locations are free-text names entered on the
 // item (at creation, or when a movement names a new one).
 
-const PILLS = [
-  ["all", "All movements"],
+const TYPES = [
   ["in", "Increases"],
   ["out", "Decreases"],
   ["opening", "Opening balances"],
 ];
-const matchPill = (m, k) =>
-  k === "all" ? true : k === "opening" ? m.action === "opening" : k === "in" ? m.unit > 0 && m.action !== "opening" : m.unit < 0;
+const typeOf = (m) => (m.action === "opening" ? "opening" : m.unit > 0 ? "in" : "out");
+
+const EMPTY_FILTERS = { types: new Set(), preset: "all", from: "", to: "", item: "", loc: "" };
+
+function useClickOutside(ref, onClose) {
+  useEffect(() => {
+    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [ref, onClose]);
+}
+
+// Every filter lives in here — movement type, date range, item, location — so
+// the table card carries one search box and one Filter button, nothing else.
+function FilterPopover({ values, onChange, onClose, items, locations }) {
+  const ref = useRef(null);
+  useClickOutside(ref, onClose);
+  const [draft, setDraft] = useState(values);
+  const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
+  const toggleType = (t) => setDraft((d) => {
+    const next = new Set(d.types);
+    next.has(t) ? next.delete(t) : next.add(t);
+    return { ...d, types: next };
+  });
+  const apply = () => { onChange(draft); onClose(); };
+
+  return (
+    <div className="lg-popover lg-filter-pop" ref={ref}>
+      <div className="lg-filter-body">
+        <div className="lg-filter-fld">
+          <div className="lg-filter-fld-lbl">Movement ({draft.types.size ? `${draft.types.size} selected` : "all"})</div>
+          <div className="lg-toggle-row">
+            {TYPES.map(([k, lbl]) => (
+              <button key={k} className={`lg-toggle${draft.types.has(k) ? " on" : ""}`} onClick={() => toggleType(k)}>{lbl}</button>
+            ))}
+          </div>
+        </div>
+        <div className="lg-filter-fld">
+          <div className="lg-filter-fld-lbl">Date</div>
+          <div className="lg-toggle-row">
+            {RANGE_PRESETS.map(([k, lbl]) => (
+              <button key={k} className={`lg-toggle${draft.preset === k ? " on" : ""}`}
+                onClick={() => setDraft((d) => ({ ...d, preset: k, ...presetRange(k) }))}>{lbl}</button>
+            ))}
+          </div>
+          <div className="inv-filter-dates">
+            <input type="date" className="lg-filter-input" value={draft.from} max={draft.to || todayIso()}
+              onChange={(e) => setDraft((d) => ({ ...d, preset: "custom", from: e.target.value }))} />
+            <span className="lg-filter-input-suffix">to</span>
+            <input type="date" className="lg-filter-input" value={draft.to} min={draft.from || undefined} max={todayIso()}
+              onChange={(e) => setDraft((d) => ({ ...d, preset: "custom", to: e.target.value }))} />
+          </div>
+        </div>
+        <div className="lg-filter-fld">
+          <div className="lg-filter-fld-lbl">Item</div>
+          <select className="lg-filter-input" value={draft.item} onChange={(e) => set("item", e.target.value)}>
+            <option value="">All items</option>
+            {items.map((i) => <option key={i.id} value={i.id}>{i.sku} — {i.name}</option>)}
+          </select>
+        </div>
+        <div className="lg-filter-fld">
+          <div className="lg-filter-fld-lbl">Location</div>
+          <select className="lg-filter-input" value={draft.loc} onChange={(e) => set("loc", e.target.value)}>
+            <option value="">All locations</option>
+            {locations.map((l) => <option key={l}>{l}</option>)}
+          </select>
+        </div>
+      </div>
+      <div className="lg-filter-foot">
+        <button className="lg-filter-reset" onClick={() => setDraft(EMPTY_FILTERS)}>Reset</button>
+        <button className="lg-filter-apply" onClick={apply}>Apply filter</button>
+      </div>
+    </div>
+  );
+}
 
 export default function InventoryPage() {
   const navigate = useNavigate();
@@ -70,29 +142,29 @@ export default function InventoryPage() {
 
   const allLocations = useMemo(() => [...new Set(all.map((m) => m.loc))].sort(), [all]);
 
-  const [pill, setPill] = useState("all");
   const [search, setSearch] = useState("");
-  const [itemFilter, setItemFilter] = useState(params.get("item") || "");
-  const [loc, setLoc] = useState("");
-  const [range, setRange] = useState({ preset: "all", from: "", to: "" });
+  const [filters, setFilters] = useState(() => ({ ...EMPTY_FILTERS, item: params.get("item") || "" }));
+  const [filterOpen, setFilterOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
   const [toast, setToast] = useState("");
   function flash(msg) { setToast(msg); setTimeout(() => setToast(""), 2800); }
 
-  // Everything except the pill, so the pill counts answer "how many of each
-  // within what I'm looking at".
-  const scoped = useMemo(() => {
+  const rows = useMemo(() => {
     const q = search.toLowerCase().trim();
+    const f = filters;
     return all.filter((m) =>
-      inRange(m.date, range) &&
-      (!itemFilter || m.item.id === itemFilter) &&
-      (!loc || m.loc === loc) &&
+      (!f.types.size || f.types.has(typeOf(m))) &&
+      inRange(m.date, f) &&
+      (!f.item || m.item.id === f.item) &&
+      (!f.loc || m.loc === f.loc) &&
       (!q || [m.item.name, m.item.sku, m.loc, m.reason, m.note, m.je, m.by].some((v) => (v || "").toLowerCase().includes(q))),
     );
-  }, [all, range, itemFilter, loc, search]);
+  }, [all, filters, search]);
 
-  const rows = useMemo(() => scoped.filter((m) => matchPill(m, pill)), [scoped, pill]);
-  const counts = useMemo(() => Object.fromEntries(PILLS.map(([k]) => [k, scoped.filter((m) => matchPill(m, k)).length])), [scoped]);
+  const filterCount = (filters.types.size ? 1 : 0) + (filters.preset !== "all" ? 1 : 0) + (filters.item ? 1 : 0) + (filters.loc ? 1 : 0);
+  // The Increases / Decreases KPIs are shortcuts into the same type filter.
+  const onlyType = (t) => filters.types.size === 1 && filters.types.has(t);
+  const toggleOnlyType = (t) => setFilters((f) => ({ ...f, types: onlyType(t) ? new Set() : new Set([t]) }));
 
   // KPIs. Stock value is the ledger's current total (not range-bound); the
   // other three describe the movements in view.
@@ -103,19 +175,19 @@ export default function InventoryPage() {
       else if (st.state === "unavailable") unavailable++;
     }
     let inV = 0, inN = 0, outV = 0, outN = 0, unposted = 0;
-    for (const m of scoped) {
+    for (const m of rows) {
       if (m.unit > 0) { inV += m.value; inN++; } else { outV += -m.value; outN++; }
       const s = jeStatus(m);
       if (s === "draft" || s === "pending") unposted++;
     }
     return { value, known, unavailable, inV, inN, outV, outN, unposted };
-  }, [reads, scoped, jeStatus]);
+  }, [reads, rows, jeStatus]);
 
   const net = rows.reduce((s, m) => s + m.value, 0);
-  const hasFilters = pill !== "all" || search || itemFilter || loc || range.preset !== "all";
+  const hasFilters = filterCount > 0 || search;
   function resetAll() {
-    setPill("all"); setSearch(""); setItemFilter(""); setLoc("");
-    setRange({ preset: "all", from: "", to: "" });
+    setSearch("");
+    setFilters(EMPTY_FILTERS);
   }
 
   const n = (v) => v.toLocaleString("id-ID");
@@ -150,12 +222,12 @@ export default function InventoryPage() {
                 {kpi.unavailable ? `partial — ${kpi.unavailable} unavailable` : `${kpi.known} stocked items · ${inventoryCostingMethod === "actual_cost" ? "actual cost" : "average cost"}`}
               </div>
             </button>
-            <button type="button" className={`lg-kpi-cell${pill === "in" ? " active" : ""}`} onClick={() => setPill(pill === "in" ? "all" : "in")}>
+            <button type="button" className={`lg-kpi-cell${onlyType("in") ? " active" : ""}`} onClick={() => toggleOnlyType("in")}>
               <div className="lg-kpi-lbl">Increases</div>
               <div className="lg-kpi-val">{formatRupiah(kpi.inV)}</div>
               <div className="lg-kpi-sub">{kpi.inN} movements in view</div>
             </button>
-            <button type="button" className={`lg-kpi-cell${pill === "out" ? " active" : ""}`} onClick={() => setPill(pill === "out" ? "all" : "out")}>
+            <button type="button" className={`lg-kpi-cell${onlyType("out") ? " active" : ""}`} onClick={() => toggleOnlyType("out")}>
               <div className="lg-kpi-lbl">Decreases</div>
               <div className="lg-kpi-val">{formatRupiah(kpi.outV)}</div>
               <div className="lg-kpi-sub">{kpi.outN} movements in view</div>
@@ -183,30 +255,29 @@ export default function InventoryPage() {
         {/* ── Table card ─────────────────────────────────────────────── */}
         <div className="lg-table-wrap">
           <div className="lg-card">
-            <div className="bp-tabs-row">
-              {PILLS.map(([k, lbl]) => (
-                <button key={k} className={`bp-tab${pill === k ? " active" : ""}`} onClick={() => setPill(k)}>
-                  {lbl}
-                  <span className="bp-tab-count">{counts[k]}</span>
-                </button>
-              ))}
-            </div>
-
-            <div className="lg-filter-row inv-filter-row">
+            <div className="lg-filter-row">
               <div className="lg-search">
                 <svg viewBox="0 0 14 14"><circle cx="6" cy="6" r="3.5"/><path d="M9 9l3 3" strokeLinecap="round"/></svg>
                 <input placeholder="Search item, location, reason, note, journal or person…" value={search} onChange={(e) => setSearch(e.target.value)} />
               </div>
-              <div className="lg-filter-meta inv-filter-meta">
-                <DateRangeControls range={range} setRange={setRange} />
-                <select className="inv-select" value={itemFilter} onChange={(e) => setItemFilter(e.target.value)}>
-                  <option value="">All items</option>
-                  {items.filter(isStocked).map((i) => <option key={i.id} value={i.id}>{i.sku} — {i.name}</option>)}
-                </select>
-                <select className="inv-select" value={loc} onChange={(e) => setLoc(e.target.value)}>
-                  <option value="">All locations</option>
-                  {allLocations.map((l) => <option key={l}>{l}</option>)}
-                </select>
+              <div className="lg-filter-meta">
+                <div className="lg-meta-static">{rows.length} {rows.length === 1 ? "movement" : "movements"}</div>
+                <div className="lg-meta-btn-wrap">
+                  <button className={`lg-meta-btn${filterCount > 0 ? " active" : ""}`} onClick={() => setFilterOpen(!filterOpen)}>
+                    <svg viewBox="0 0 12 12"><path d="M2 3h8M3 6h6M4 9h4" strokeLinecap="round"/></svg>
+                    Filter
+                    {filterCount > 0 && <span className="lg-filter-badge">{filterCount}</span>}
+                  </button>
+                  {filterOpen && (
+                    <FilterPopover
+                      values={filters}
+                      onChange={setFilters}
+                      onClose={() => setFilterOpen(false)}
+                      items={items.filter(isStocked)}
+                      locations={allLocations}
+                    />
+                  )}
+                </div>
                 {hasFilters && <button className="lg-reset-all" onClick={resetAll}>Reset all</button>}
               </div>
             </div>
@@ -274,7 +345,7 @@ export default function InventoryPage() {
       {moveOpen && (
         <RecordMovementModal
           items={stockedItems}
-          item={itemFilter ? stockedItems.find((i) => i.id === itemFilter) : undefined}
+          item={filters.item ? stockedItems.find((i) => i.id === filters.item) : undefined}
           onClose={() => setMoveOpen(false)}
           onDone={({ item, row, je }) => {
             setMoveOpen(false);

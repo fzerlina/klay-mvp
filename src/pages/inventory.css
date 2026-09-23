@@ -33,8 +33,5 @@
 .inv-bal { font-weight: 600; color: var(--color-text-primary); }
 .inv-je { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 
-.inv-filter-row { flex-wrap: wrap; row-gap: 8px; }
-.inv-filter-meta { flex-wrap: wrap; gap: 8px; }
-.inv-select { padding: 5px 8px; border: 1px solid var(--color-border-default); border-radius: var(--radius-sm); font-family: var(--font-sans); font-size: 12px; background: var(--color-surface); color: var(--color-text-primary); max-width: 220px; }
 .lg-btn-brand:disabled { opacity: .5; cursor: not-allowed; }
-.inv-filter-row .lg-search { flex: 1 1 280px; min-width: 240px; }
+.inv-filter-dates { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
