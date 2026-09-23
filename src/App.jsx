@@ -22,6 +22,7 @@ import CustomerDetailPage from "./pages/CustomerDetailPage";
 import ItemsPage from "./pages/ItemsPage";
 import ItemCreatePage from "./pages/ItemCreatePage";
 import ItemDetailPage from "./pages/ItemDetailPage";
+import InventoryPage from "./pages/InventoryPage";
 import AssetsPage from "./pages/AssetsPage";
 import AssetCreatePage from "./pages/AssetCreatePage";
 import AssetDetailPage from "./pages/AssetDetailPage";
@@ -152,12 +153,11 @@ export default function App() {
                 <Route path="/assets" element={<AssetsPage />} />
                 <Route path="/assets/new" element={<AssetCreatePage />} />
                 <Route path="/assets/:id" element={<AssetDetailPage />} />
-                {/* The combined Inventory module is gone. Its catalogue half is
-                    Item Master; its stock half is the Inventory Sub-Ledger, which
-                    is a data layer with no screens yet — so /inventory resolves to
-                    the catalogue rather than 404ing. Record ids changed with the
-                    split, so a deep link lands on the list, not a wrong item. */}
-                <Route path="/inventory" element={<Navigate to="/items" replace />} />
+                {/* The Inventory Sub-Ledger: every stock movement. The old combined
+                    Inventory module's deep links still resolve — /inventory/new to
+                    the catalogue's create form, a record id to the list (ids
+                    changed with the split, so a wrong item is worse than none). */}
+                <Route path="/inventory" element={<InventoryPage />} />
                 <Route path="/inventory/new" element={<Navigate to="/items/new" replace />} />
                 <Route path="/inventory/:id" element={<Navigate to="/items" replace />} />
                 <Route path="/reports" element={<ReportsPage />} />
