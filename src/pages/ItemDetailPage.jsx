@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams, Link } from "react-router-dom";
 import { useItems, VER_FIELD_LABEL } from "../state/ItemsContext";
 import { useInventorySubledger } from "../state/InventorySubledgerContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
@@ -13,6 +13,8 @@ import { COSTING_METHOD_LABELS } from "../data/seed/accountingSettings";
 import { DEFTAX_LABELS } from "../data/labels";
 import { itemUnits, itemAccounts, itemAudit, unitLock, isStocked } from "../lib/itemMaster";
 import { sourceBadge, stockGuard } from "../lib/inventorySubledger";
+import StockTimeline from "../components/StockTimeline";
+import RecordMovementModal from "../components/RecordMovementModal";
 import { formatRupiah, formatRupiahExact, formatDate } from "../lib/format";
 import "./vendor-detail.css";
 import "./items.css";
@@ -36,9 +38,10 @@ import "./item-detail.css";
 //     stock reports while its value stayed in the books)
 // Both fail closed when the sub-ledger cannot be reached.
 //
-// The Stock tab is the module boundary made visible: every figure read-only and
-// badged with its source, and no action on it at all. To change one you record a
-// movement in the module that owns it.
+// The Stock tab is the sub-ledger's view of this one item: its movements as a
+// timeline, filterable by date and location, with a Record Movement action. No
+// figure on it can be typed — a location's balance is the sum of its movements,
+// and each movement drafts the journal entry the books follow.
 
 // How a version snapshot came to exist. None of them involved an approver.
 const VER_ORIGIN_VERB = { created: "created", imported: "imported", changed: "changed" };
@@ -55,7 +58,9 @@ export default function ItemDetailPage() {
   const { inventoryCostingMethod } = useAccountingSettings();
   const item = itemById(id);
 
-  const [tab, setTab] = useState("information");
+  const [searchParams] = useSearchParams();
+  const [tab, setTab] = useState(() => searchParams.get("tab") || "information");
+  const [moveOpen, setMoveOpen] = useState(false);
   const [openVer, setOpenVer] = useState(null);
   const [editOpen, setEditOpen] = useState(false);
   const [form, setForm] = useState(null);
@@ -405,75 +410,67 @@ export default function ItemDetailPage() {
             <div className="vd-grid">
               <div className="vd-card span2">
                 <div className="vd-card-title">
-                  From the Inventory Sub-Ledger <span className="imd-ro-tag">Derived</span>
+                  Stock movements <span className="imd-ro-tag">From Inventory Sub-Ledger</span>
                 </div>
                 <div className="imd-ro-note" style={{ marginTop: 0, marginBottom: 12 }}>
-                  These figures are produced by the Inventory Sub-Ledger. To correct them, record a
-                  movement there — nothing on this page can change them. {badge}
+                  Stock isn’t edited — every change is a recorded movement, and each location’s
+                  balance is worked out from them. {badge}
                 </div>
 
                 {st.state === "unavailable" && (
                   <div className="vd-empty">
                     <strong>Unavailable.</strong> The Inventory Sub-Ledger did not answer.
                     {st.as_of ? ` Last seen ${formatDate(st.as_of)}.` : ""} No figure is shown, and none is
-                    guessed — a zero here would look like a checked number.
+                    guessed — a zero here would look like a checked number. Movements can’t be recorded
+                    until it answers.
                   </div>
                 )}
-                {st.state === "no_record" && (
-                  <div className="vd-empty">
-                    <strong>No stock recorded.</strong> The sub-ledger has no movements for this item.
-                    That is not the same as zero: nobody has counted it yet. An opening balance is a
-                    posted journal entry, recorded there.
-                  </div>
-                )}
-                {st.state === "known" && (
+
+                {st.state !== "unavailable" && (
                   <>
-                    <div className="vd-tx-tablewrap">
-                      <table className="vd-tx-table">
-                        <thead>
-                          <tr>
-                            <th>Location</th>
-                            <th className="num">On-hand</th>
-                            <th className="num">Stock Value</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {st.by_location.map((l, i) => (
-                            <tr key={i}>
-                              <td>{l.loc}</td>
-                              <td className="num">{l.qty.toLocaleString("id-ID")} {units.primaryLabel}</td>
-                              <td className="num">{formatRupiahExact(l.value)}</td>
-                            </tr>
-                          ))}
-                          <tr className="imd-loc-total">
-                            <td>Total</td>
-                            <td className="num">{st.on_hand_qty.toLocaleString("id-ID")} {units.primaryLabel}</td>
-                            <td className="num">{formatRupiahExact(st.stock_value)}</td>
-                          </tr>
-                        </tbody>
-                      </table>
+                    {/* Where it sits now — each card is the last balance in that
+                        location's movements, not a stored number. */}
+                    <div className="stl-locs">
+                      {st.locations.map((name) => {
+                        const l = st.by_location.find((x) => x.loc === name) || { qty: 0, value: 0 };
+                        return (
+                          <div className="stl-loc-card" key={name}>
+                            <div className="stl-loc-name">{name}</div>
+                            <div className="stl-loc-qty">{l.qty.toLocaleString("id-ID")} <span style={{ fontSize: 11, fontWeight: 500 }}>{units.primaryLabel}</span></div>
+                            <div className="stl-loc-val">{formatRupiahExact(l.value)}</div>
+                          </div>
+                        );
+                      })}
+                      {st.state === "known" && (
+                        <div className="stl-loc-card total">
+                          <div className="stl-loc-name">Total · {st.current_unit_cost == null ? "nothing on hand" : `${formatRupiah(Math.round(st.current_unit_cost))} / ${units.primaryLabel}`}</div>
+                          <div className="stl-loc-qty">{st.on_hand_qty.toLocaleString("id-ID")} <span style={{ fontSize: 11, fontWeight: 500 }}>{units.primaryLabel}</span></div>
+                          <div className="stl-loc-val">{formatRupiahExact(st.stock_value)}</div>
+                        </div>
+                      )}
                     </div>
-                    <div className="vd-row" style={{ marginTop: 12 }}>
-                      <span className="vd-row-lbl">Current unit cost</span>
-                      <span className="vd-row-val mono">
-                        {st.current_unit_cost == null ? "Nothing on hand" : formatRupiah(Math.round(st.current_unit_cost))}
-                      </span>
-                    </div>
-                    <div className="vd-row">
-                      <span className="vd-row-lbl">As of</span>
-                      <span className="vd-row-val">{formatDate(st.as_of)}</span>
-                    </div>
+
+                    {st.state === "no_record" && (
+                      <div className="vd-empty" style={{ marginBottom: 14 }}>
+                        <strong>No stock recorded.</strong> Nothing has moved yet — which is not the same
+                        as zero: nobody has counted it. Record the first movement to put stock on the books.
+                      </div>
+                    )}
+
+                    <StockTimeline
+                      movements={st.movements}
+                      unitLabel={units.primaryLabel}
+                      locations={st.locations}
+                      onRecord={() => setMoveOpen(true)}
+                    />
                   </>
                 )}
 
-                {/* The sub-ledger has no screens yet, so the link that belongs
-                    here is stated and disabled rather than pointed somewhere it
-                    isn't. */}
                 <div className="imd-ro-note" style={{ marginTop: 14 }}>
-                  <button className="vd-btn" disabled title="The Inventory Sub-Ledger has no screens yet">
+                  <button className="vd-btn" onClick={() => navigate(`/inventory?item=${item.id}`)}>
                     Open in Inventory Sub-Ledger
                   </button>
-                  <span style={{ marginLeft: 10 }}>Movements, receipts, issues and adjustments live there.</span>
+                  <span style={{ marginLeft: 10 }}>Every item’s movements, in one ledger.</span>
                 </div>
               </div>
             </div>
@@ -644,6 +641,16 @@ export default function ItemDetailPage() {
         </div>
       )}
 
+      {moveOpen && (
+        <RecordMovementModal
+          item={item}
+          onClose={() => setMoveOpen(false)}
+          onDone={({ row, je }) => {
+            setMoveOpen(false);
+            flash(`${row.unit > 0 ? "+" : "−"}${Math.abs(row.unit).toLocaleString("id-ID")} ${units.primaryLabel} at ${row.loc} recorded${je ? ` · ${je} drafted` : ""}`);
+          }}
+        />
+      )}
       {toast && <div className="toast show">{toast}</div>}
     </div>
   );
