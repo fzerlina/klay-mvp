@@ -156,3 +156,15 @@
   color: var(--color-text-tertiary);
 }
 .im-lock svg { width: 10px; height: 10px; stroke: currentColor; fill: none; stroke-width: 2.2; }
+
+/* Add New Item — locations & opening stock rows */
+.imc-open-head, .imc-open-row { display: grid; grid-template-columns: minmax(0, 1fr) 150px 150px 28px; gap: 8px; align-items: center; }
+.imc-open-head { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--color-text-tertiary); margin-bottom: 6px; }
+.imc-open-head .num { text-align: right; }
+.imc-open-row { margin-bottom: 6px; }
+.imc-open-row input { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--color-border-default); border-radius: var(--radius-sm); font-size: 13px; background: var(--color-surface); color: var(--color-text-primary); }
+.imc-open-x { width: 28px; height: 28px; border: 0; background: none; font-size: 18px; color: var(--color-text-tertiary); cursor: pointer; border-radius: 6px; }
+.imc-open-x:hover:not(:disabled) { background: var(--color-surface-sunken); color: var(--color-text-primary); }
+.imc-open-x:disabled { opacity: .3; cursor: default; }
+.imc-open-add { margin-top: 2px; padding: 4px 0; border: 0; background: none; font-family: var(--font-sans); font-size: 12.5px; font-weight: 600; color: var(--color-action); cursor: pointer; }
+@media (max-width: 640px) { .imc-open-head, .imc-open-row { grid-template-columns: minmax(0, 1fr) 80px 90px 28px; } }

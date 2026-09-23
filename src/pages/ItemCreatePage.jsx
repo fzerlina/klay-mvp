@@ -2,6 +2,9 @@ import { useState, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useItems } from "../state/ItemsContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
+import { useInventorySubledger } from "../state/InventorySubledgerContext";
+import { useStockJournal } from "../components/RecordMovementModal";
+import { formatRupiahExact } from "../lib/format";
 import {
   ITEM_CAT_LABELS, ITEM_TYPES, ITEM_TYPE_ORDER, ITEM_UOM_LABELS,
   PRIMARY_UNITS, UNIT_DEFAULTS, UNIT_KIND_LABELS,
@@ -15,14 +18,13 @@ import "./items.css";
 // Master-data create form on the shared create-page shell. It captures identity,
 // units, commercial terms and nothing else.
 //
-// THERE IS NO OPENING STOCK AND NO COST ON THIS FORM. Putting stock into the
-// system is a financial event that needs a posted journal entry, so it is
-// recorded as a movement in the Inventory Sub-Ledger. Typing an opening quantity
-// here alongside a cost is precisely the "quantity × a typed cost" the split
-// exists to remove — and it would arrive with no journal behind it.
-//
-// Warehouses aren't captured here either, for the same reason: where stock sits
-// is a fact about stock, and this item has none yet.
+// OPENING STOCK IS NOT A FIELD ON THE ITEM. The locations and opening
+// quantities entered at the bottom are handed to the Inventory Sub-Ledger as
+// opening-balance MOVEMENTS, each at the cost given, frozen on the movement —
+// and one draft journal entry (Dr Inventory / Cr Retained Earnings) follows for
+// the books. After that, the only way the number changes is another movement.
+// Locations are free text; one with no quantity is still registered, so it can
+// be picked when the first movement is recorded.
 
 const SKU_TYPE_PREFIX = { service: "SVC", non_stocked: "NST" };
 const SKU_CAT_PREFIX = { raw_material: "RAW", finished_goods: "FIN", supplies: "SUP", packaging: "PKG", service: "SVC" };
@@ -41,6 +43,10 @@ export default function ItemCreatePage() {
   const [salesPrice, setSalesPrice] = useState("");
   const [purchasePrice, setPurchasePrice] = useState("");
   const [taxCode, setTaxCode] = useState("ppn_masukan");
+  const [openLines, setOpenLines] = useState([{ loc: "", qty: "", unit_cost: "" }]);
+  const { recordOpening } = useInventorySubledger();
+  const draftJournal = useStockJournal();
+  const setLine = (i, k, v) => setOpenLines((ls) => ls.map((l, j) => (j === i ? { ...l, [k]: v } : l)));
 
   const [toast, setToast] = useState("");
   const toastTmr = useRef(null);
@@ -63,7 +69,16 @@ export default function ItemCreatePage() {
 
   const accountPreview = useMemo(() => (category ? itemAccounts({ category }) : []), [category]);
 
-  const canSubmit = Boolean(name.trim() && category && (isService || primaryUnit));
+  const isStockedType = itemType === "stocked";
+  // A quantity with nowhere to sit, or with no cost to carry it at, is refused
+  // rather than guessed. Cost defaults to the purchase price when left blank.
+  const lineCost = (l) => (l.unit_cost !== "" ? Number(l.unit_cost) : (purchasePrice !== "" ? Number(purchasePrice) : null));
+  const openingIssue = isStockedType && openLines.some((l) => Number(l.qty) > 0 && (!l.loc.trim() || !lineCost(l)))
+    ? "Each opening quantity needs a location and a unit cost (or a purchase price to default to)."
+    : null;
+  const openingTotal = openLines.reduce((s, l) => s + (Number(l.qty) > 0 ? Number(l.qty) * (lineCost(l) || 0) : 0), 0);
+
+  const canSubmit = Boolean(name.trim() && category && (isService || primaryUnit) && !openingIssue);
 
   function onSave() {
     if (!name.trim()) { showToast("Item name is required"); return; }
@@ -83,7 +98,15 @@ export default function ItemCreatePage() {
       // item in the catalogue, precisely because nobody signed it off.
       actor: user.name,
     });
-    showToast(`${item.name} added — Active and ready to use ✓`);
+    let je = null;
+    if (isStockedType) {
+      const lines = openLines.map((l) => ({ loc: l.loc, qty: l.qty, unit_cost: lineCost(l) }));
+      const rows = lines.filter((l) => l.loc.trim() && Number(l.qty) > 0)
+        .map((l) => ({ unit: Number(l.qty), value: Number(l.qty) * Math.round(l.unit_cost), action: "opening", loc: l.loc.trim() }));
+      if (rows.length) je = draftJournal(item, rows, `Opening stock — ${item.name}`);
+      recordOpening(item, lines, { je_number: je, by: user.name });
+    }
+    showToast(`${item.name} added — Active and ready to use${je ? ` · opening stock drafted as ${je}` : ""} ✓`);
     setTimeout(() => navigate(`/items/${item.id}`), 700);
   }
 
@@ -243,16 +266,38 @@ export default function ItemCreatePage() {
             <span className="vc-hint" style={{ marginTop: 10, display: "block" }}>Set per category in Item Category Settings, never per item.</span>
           </div>
 
-          {/* 5 — What this form deliberately does not ask for */}
-          <div className="form-sec card">
-            <div className="form-sec-title">Opening Stock</div>
-            <div className="imc-note">
-              <strong>Not captured here.</strong> An opening balance is a financial event: it needs a
-              posted journal entry, and it is recorded as a movement in the <em>Inventory Sub-Ledger</em>.
-              Until one exists this item will read <em>“No stock recorded”</em> — which is a true
-              statement, and deliberately not the same as zero.
+          {/* 5 — Locations and opening stock (stocked items only) */}
+          {isStockedType && (
+            <div className="form-sec card">
+              <div className="form-sec-title">Locations &amp; Opening Stock</div>
+              <div className="imc-open-head">
+                <span>Location / warehouse</span>
+                <span className="num">Opening qty ({primaryLabel})</span>
+                <span className="num">Unit cost (Rp)</span>
+                <span />
+              </div>
+              {openLines.map((l, i) => (
+                <div className="imc-open-row" key={i}>
+                  <input type="text" value={l.loc} onChange={(e) => setLine(i, "loc", e.target.value)} placeholder="e.g. Jakarta Warehouse" />
+                  <input type="number" min="0" value={l.qty} onChange={(e) => setLine(i, "qty", e.target.value)} placeholder="0" style={{ fontFamily: "var(--font-mono)", textAlign: "right" }} />
+                  <input type="number" min="0" value={l.unit_cost} onChange={(e) => setLine(i, "unit_cost", e.target.value)} placeholder={purchasePrice || "Required"} style={{ fontFamily: "var(--font-mono)", textAlign: "right" }} />
+                  <button type="button" className="imc-open-x" aria-label="Remove location" disabled={openLines.length === 1}
+                    onClick={() => setOpenLines((ls) => ls.filter((_, j) => j !== i))}>×</button>
+                </div>
+              ))}
+              <button type="button" className="imc-open-add" onClick={() => setOpenLines((ls) => [...ls, { loc: "", qty: "", unit_cost: "" }])}>
+                + Add location
+              </button>
+              {openingIssue && <div className="rm-error">{openingIssue}</div>}
+              <div className="imc-note" style={{ marginTop: 12 }}>
+                Each quantity is recorded as an <strong>opening-balance movement</strong> in the Inventory
+                Sub-Ledger{openingTotal > 0 ? <> — <span style={{ fontFamily: "var(--font-mono)" }}>{formatRupiahExact(openingTotal)}</span>, drafted as one journal entry (Dr Inventory / Cr Retained Earnings)</> : ""}.
+                After this, stock changes only through recorded movements on the item’s Stock tab — never
+                by editing the number. Leave it blank and the item reads <em>“No stock recorded”</em>,
+                which is deliberately not the same as zero.
+              </div>
             </div>
-          </div>
+          )}
 
         </div>
       </div>
