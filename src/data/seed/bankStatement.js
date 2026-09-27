@@ -154,7 +154,7 @@ const BANK_ONLY = {
     { day: 17, amount:    -2500, description: "BIAYA TRANSFER BI-FAST" },
     { day: 11, amount:  1850000, description: "BUNGA GIRO" },
     { day: 16, amount: 47500000, description: "SWITCHING CR VA 3812000178432" },
-    { day: 18, amount: -8250000, description: "TRSF E-BANKING DB 1804 BF20250418-9921" },
+    { day: 18, amount: -8250000, description: "TRSF E-BANKING DB 1804 BF20250418-9921 CV PERCETAKAN MAJU" },
   ],
   "mandiri-op": [
     { day: 6,  amount:    -2500, description: "BIAYA TRANSFER BI-FAST" },
@@ -183,6 +183,10 @@ const PAID_OUTSIDE_KLAY = {
 // name was confirmed last month and matches on its own, the other is read fresh
 // and only suggested.
 const ALWAYS_PRINTED = new Set(["JE-2025-0305:1-1300", "JE-2025-0306:1-1300"]);
+
+// The two Percetakan Maju payments were sent together, so the bank never prints
+// them one by one — only the combined Rp 8.25M line in BANK_ONLY above.
+const PAID_TOGETHER = new Set(["JE-2025-0307:1-1300", "JE-2025-0308:1-1300"]);
 
 // A payment that went out twice. The books hold one; the bank holds both.
 const DUPLICATED = { "bca-op": ["BILL009:0"] };
@@ -229,6 +233,7 @@ export function statementFor(accountId, { extraPayments = null, period = CURRENT
     const rail = record.rail || railFor(record, hash(`${record.id}:rail`));
     const fate = record.date > through ? "intransit"
       : ALWAYS_PRINTED.has(record.id) ? "clean"
+      : PAID_TOGETHER.has(record.id) ? "intransit"
       : current ? fateOf(record, roll)
       : record.method === "giro" ? "clean" // presented within the month
       : pastFateOf(record, roll);
