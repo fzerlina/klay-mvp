@@ -18,6 +18,7 @@
 //     method: "bank" | "cash" | "giro",
 //     sourceAccountId: string | null,   // OUR account the money comes out of
 //     giroNumber: string,               // giro only
+//     rail: "BI_FAST" | "RTGS" | "SKNBI" | "",  // bank transfer only — see lib/paymentRails.js
 //     to_vendor: number,
 //     deductions: [{ id, amount, account }],   // account = COA code
 //   }
@@ -76,7 +77,7 @@ let seq = 0;
 export const newDeduction = (patch = {}) => ({ id: `d${++seq}`, amount: 0, account: "", ...patch });
 
 export function emptyBreakdown() {
-  return { method: "bank", sourceAccountId: null, giroNumber: "", to_vendor: 0, deductions: [] };
+  return { method: "bank", sourceAccountId: null, giroNumber: "", rail: "", to_vendor: 0, deductions: [] };
 }
 
 // The split a payment starts from: clear the whole open balance, withholding

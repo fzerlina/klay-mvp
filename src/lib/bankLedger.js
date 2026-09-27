@@ -129,6 +129,7 @@ function journalBookRecords({ from, to } = {}) {
         billId: null,
         cleared: Math.abs(amount),
         withheld: 0,
+        rail: null,
       });
     }
   }
@@ -165,6 +166,8 @@ function paymentBookRecords(history = PAYMENT_HISTORY_SEED, { from, to } = {}) {
         cleared: breakdownTotal(p.breakdown),
         withheld: withheldTax(p.breakdown),
         method: p.breakdown?.method || "bank",
+        // Recorded by whoever sent it — the statement never says how money travelled.
+        rail: p.breakdown?.rail || null,
         giroNumber: p.breakdown?.giroNumber || "",
       });
     });

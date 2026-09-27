@@ -16,6 +16,7 @@ import {
   validateBreakdown, withheldTax,
 } from "../lib/paymentBreakdown";
 import { accountsForMethod, maskOf } from "../data/seed/bankAccounts";
+import { RAIL_OPTIONS } from "../lib/paymentRails";
 import { useVendors } from "../state/VendorsContext";
 import { formatRupiah, formatRupiahExact } from "../lib/format";
 import "../pages/ap-aging.css";
@@ -146,6 +147,27 @@ export default function RecordPaymentModal({ bill, onConfirm, onClose }) {
               </>
             )}
           </div>
+
+          {bd.method === "bank" && (
+            <div className="pm-sec">
+              <div className="pm-sec-lbl">Sent via</div>
+              <div className="pm-method-row">
+                {RAIL_OPTIONS.map((r) => (
+                  <button
+                    key={r.key || "unknown"}
+                    type="button"
+                    className={`pm-method${(bd.rail || "") === r.key ? " on" : ""}`}
+                    onClick={() => patch({ rail: r.key })}
+                  >
+                    {r.label}
+                  </button>
+                ))}
+              </div>
+              <div className="pm-sec-hint">
+                The bank statement won't say how the money travelled. Reconciliation uses this to know when to expect it on the statement.
+              </div>
+            </div>
+          )}
 
           {bd.method === "giro" && (
             <div className="pm-sec">

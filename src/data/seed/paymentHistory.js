@@ -28,10 +28,10 @@ import { defaultBreakdown } from "../../lib/paymentBreakdown";
 import { paymentJournalLines } from "../../lib/paymentJournal";
 
 const PLAN = {
-  BILL009: { at: "2025-04-08", by: "Dewi Anggraini", method: "bank", sourceAccountId: "bca-op",     je: "JE-2025-0301" },
-  BILL015: { at: "2025-04-21", by: "Dewi Anggraini", method: "bank", sourceAccountId: "mandiri-op", je: "JE-2025-0302" },
+  BILL009: { at: "2025-04-08", by: "Dewi Anggraini", method: "bank", sourceAccountId: "bca-op",     rail: "BI_FAST", je: "JE-2025-0301" },
+  BILL015: { at: "2025-04-21", by: "Dewi Anggraini", method: "bank", sourceAccountId: "mandiri-op", rail: "SKNBI",   je: "JE-2025-0302" },
   BILL022: { at: "2025-04-16", by: "Dewi Anggraini", method: "giro", sourceAccountId: "bni-op", giroNumber: "GR-448120", je: "JE-2025-0303" },
-  BILL068: { at: "2025-04-14", by: "Dewi Anggraini", method: "bank", sourceAccountId: "bca-op",     je: "JE-2025-0304" },
+  BILL068: { at: "2025-04-14", by: "Dewi Anggraini", method: "bank", sourceAccountId: "bca-op",     rail: "RTGS",    je: "JE-2025-0304" },
 };
 
 function build() {
@@ -52,7 +52,7 @@ function build() {
 
     const breakdown = defaultBreakdown(
       { remaining: cleared, pph23: bill.pph23 },
-      { method: plan.method, sourceAccountId: plan.sourceAccountId, giroNumber: plan.giroNumber || "" },
+      { method: plan.method, sourceAccountId: plan.sourceAccountId, giroNumber: plan.giroNumber || "", rail: plan.rail || "" },
     );
 
     history[id] = [{ at: plan.at, by: plan.by, breakdown, cleared, je_number: plan.je }];
