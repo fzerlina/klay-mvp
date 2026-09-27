@@ -33,7 +33,10 @@ function bankLineFor(accountId) {
   return { account_code: code, account_name: nameOf(code) };
 }
 
-export function writeOffEntry({ exception, account, jeNumber, by, today }) {
+// `postDate` overrides the line's own date when the month it fell in is
+// already closed: the entry goes into the first open month instead, the same
+// rule late bills follow (Settings → Posting periods).
+export function writeOffEntry({ exception, account, jeNumber, by, today, postDate = null }) {
   const bank = bankLineFor(account.id);
   if (!bank) {
     return { error: `${account.name} has no GL account mapped in Settings → Bank Accounts, so there is nowhere to post this write-off.` };
@@ -61,7 +64,7 @@ export function writeOffEntry({ exception, account, jeNumber, by, today }) {
   return {
     je: {
       je_number: jeNumber,
-      je_date: exception.date,
+      je_date: postDate || exception.date,
       status: "posted",
       memo: isInterest
         ? `Bank interest — ${account.name} statement`

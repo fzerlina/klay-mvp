@@ -37,7 +37,41 @@
 import { COMPANY_BANK_ACCOUNTS, bankAccountById } from "./bankAccounts";
 import { BILLS } from "./bills";
 import { bookRecordsFor } from "../../lib/bankLedger";
-import { addDays, nextBusinessDay } from "../../lib/clock";
+import { addDays, nextBusinessDay, TODAY } from "../../lib/clock";
+
+// ── Periods ──────────────────────────────────────────────────────────────────
+//
+// A statement belongs to a calendar month. The current month is the one the
+// demo clock sits in, and its statement is already on file (cut off at each
+// account's statementThrough). Earlier months can be uploaded at any time — a
+// customer catching up on the months before they joined, a statement the bank
+// sent late, a re-upload after a missing page. Later months cannot: there is
+// nothing for the bank to have printed yet.
+
+export const CURRENT_PERIOD = TODAY.toISOString().slice(0, 7);
+
+export const monthEnd = (period) => {
+  const [y, m] = period.split("-").map((n) => parseInt(n, 10));
+  return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+};
+
+export const shiftPeriod = (period, n) => {
+  const [y, m] = period.split("-").map((x) => parseInt(x, 10));
+  const d = new Date(Date.UTC(y, m - 1 + n, 1));
+  return d.toISOString().slice(0, 7);
+};
+
+const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+export const periodLabel = (period) => `${MONTH_LABELS[parseInt(period.slice(5, 7), 10) - 1]} ${period.slice(0, 4)}`;
+
+// "Apr 1–20, 2025" — the span a statement actually covers.
+export function statementLabel(statement) {
+  if (!statement?.from || !statement?.through) return "no statement yet";
+  const { from, through } = statement;
+  const head = `${MONTH_LABELS[parseInt(from.slice(5, 7), 10) - 1]} ${parseInt(from.slice(8, 10), 10)}`;
+  const span = from === through ? head : `${head}–${parseInt(through.slice(8, 10), 10)}`;
+  return `${span}, ${through.slice(0, 4)}`;
+}
 
 // ── Determinism ──────────────────────────────────────────────────────────────
 // A string hash, so a record's fate is a function of its identity rather than
@@ -86,6 +120,14 @@ function railFor(record, roll) {
 // weighted so the exception list stays short — a statement where a third of the
 // lines need attention is not a demo of exception management, it is a demo of
 // a broken ledger.
+
+// A closed month has had time to settle, so nothing booked in it is still in
+// flight — except what was booked in its last days and posted early the next.
+function pastFateOf(record, roll) {
+  if (roll < 0.12) return "late";
+  if (roll < 0.24) return "anonymous";
+  return "clean";
+}
 
 function fateOf(record, roll) {
   // A giro is a post-dated cheque: the bill is relieved when it is handed over
@@ -145,24 +187,37 @@ const ALWAYS_PRINTED = new Set(["JE-2025-0305:1-1300", "JE-2025-0306:1-1300"]);
 // A payment that went out twice. The books hold one; the bank holds both.
 const DUPLICATED = { "bca-op": ["BILL009:0"] };
 
-function statementWindow(account) {
-  return { from: account.statementFrom, through: account.statementThrough };
+// The current month runs to the account's cut-off; a past month is the whole
+// month. An account with no statement feed at all has no window in any month.
+function statementWindow(account, period) {
+  if (!account.statementThrough) return { from: null, through: null };
+  if (period === CURRENT_PERIOD) return { from: account.statementFrom, through: account.statementThrough };
+  return { from: `${period}-01`, through: monthEnd(period) };
 }
+
+// Fees and interest recur every month; the one-off cases (the unregistered VA,
+// the mystery debit, the payment made outside Klay, the duplicate) belong to
+// the current statement, where the demo needs them.
+const RECURRING = /^(BIAYA|BUNGA)/;
 
 // ── Building one account's statement ─────────────────────────────────────────
 
-export function statementFor(accountId, { extraPayments = null } = {}) {
+export function statementFor(accountId, { extraPayments = null, period = CURRENT_PERIOD } = {}) {
   const account = bankAccountById(accountId);
   if (!account) return null;
-  const { from, through } = statementWindow(account);
+  const current = period === CURRENT_PERIOD;
+  const { from, through } = period > CURRENT_PERIOD ? { from: null, through: null } : statementWindow(account, period);
   if (!from || !through) {
-    return { account, from: null, through: null, lines: [], outstanding: [], openingBalance: account.openingBalance, closingBalance: account.openingBalance, loaded: false };
+    return { account, period, from: null, through: null, lines: [], outstanding: [], openingBalance: account.openingBalance, expectedOpening: account.openingBalance, closingBalance: account.openingBalance, loaded: false };
   }
+  // Line ids carry the month so a decision on a March line can never land on an
+  // April one. The current month keeps the short form.
+  const idOf = (n) => (current ? `L${accountId}-${n}` : `L${accountId}-${period}-${n}`);
 
   // The ledger is read to the LAST day of the period, not to the statement
   // cut-off: a payment booked after the cut-off is exactly what "in transit"
   // means, and reading only as far as the statement would hide it.
-  const books = bookRecordsFor(accountId, { from, to: addDays(through, 14), extraPayments });
+  const books = bookRecordsFor(accountId, { from, to: current ? addDays(through, 14) : through, extraPayments });
 
   const lines = [];
   const outstanding = []; // booked, not on this statement — the other direction of exception
@@ -172,7 +227,11 @@ export function statementFor(accountId, { extraPayments = null } = {}) {
     const roll = hash(record.id);
     // Only shapes the description text; the engine never sees it as a field.
     const rail = record.rail || railFor(record, hash(`${record.id}:rail`));
-    const fate = record.date > through ? "intransit" : ALWAYS_PRINTED.has(record.id) ? "clean" : fateOf(record, roll);
+    const fate = record.date > through ? "intransit"
+      : ALWAYS_PRINTED.has(record.id) ? "clean"
+      : current ? fateOf(record, roll)
+      : record.method === "giro" ? "clean" // presented within the month
+      : pastFateOf(record, roll);
 
     if (fate === "intransit") {
       outstanding.push({ record });
@@ -183,7 +242,7 @@ export function statementFor(accountId, { extraPayments = null } = {}) {
     if (date > through) { outstanding.push({ record }); continue; }
 
     lines.push({
-      id: `L${accountId}-${seq}`,
+      id: idOf(seq),
       accountId,
       date,
       amount: record.amount,
@@ -197,10 +256,10 @@ export function statementFor(accountId, { extraPayments = null } = {}) {
     });
     seq++;
 
-    if ((DUPLICATED[accountId] || []).includes(record.id)) {
+    if (current && (DUPLICATED[accountId] || []).includes(record.id)) {
       const dupDate = nextBusinessDay(date) <= through ? nextBusinessDay(date) : date;
       lines.push({
-        id: `L${accountId}-${seq}`,
+        id: idOf(seq),
         accountId,
         date: dupDate,
         amount: record.amount,
@@ -210,13 +269,13 @@ export function statementFor(accountId, { extraPayments = null } = {}) {
     }
   }
 
-  for (const spec of PAID_OUTSIDE_KLAY[accountId] || []) {
+  for (const spec of current ? PAID_OUTSIDE_KLAY[accountId] || [] : []) {
     const bill = BILLS.find((b) => b.id === spec.billId);
     if (!bill) continue;
     const date = addDays(from, spec.day);
     if (date > through) continue;
     lines.push({
-      id: `L${accountId}-${seq}`,
+      id: idOf(seq),
       accountId,
       date,
       amount: -(bill.total - (bill.pph23 || 0)),
@@ -225,11 +284,11 @@ export function statementFor(accountId, { extraPayments = null } = {}) {
     seq++;
   }
 
-  for (const extra of BANK_ONLY[accountId] || []) {
+  for (const extra of (BANK_ONLY[accountId] || []).filter((x) => current || RECURRING.test(x.description))) {
     const date = addDays(from, extra.day);
     if (date > through) continue;
     lines.push({
-      id: `L${accountId}-${seq}`,
+      id: idOf(seq),
       accountId,
       date,
       amount: extra.amount,
@@ -243,12 +302,20 @@ export function statementFor(accountId, { extraPayments = null } = {}) {
   // The closing balance is what the bank says it holds after these lines. The
   // opening-balance check on the next upload leans on this being arithmetic
   // rather than a number somebody typed.
-  const openingBalance = account.openingBalance;
+  //
+  // The current month opens at the balance on file. An earlier month is worked
+  // backwards from the month after it, so its closing balance is exactly the
+  // next month's opening — which is what makes the opening-balance check agree
+  // when months are uploaded out of order.
+  const net = lines.reduce((sum, l) => sum + l.amount, 0);
+  const openingBalance = current
+    ? account.openingBalance
+    : statementFor(accountId, { period: shiftPeriod(period, 1) }).openingBalance - net;
   let running = openingBalance;
   for (const l of lines) { running += l.amount; l.balance = running; }
   const closingBalance = running;
 
-  return { account, from, through, lines, outstanding, openingBalance, closingBalance, loaded: true };
+  return { account, period, from, through, lines, outstanding, openingBalance, expectedOpening: openingBalance, closingBalance, loaded: true };
 }
 
 export const STATEMENT_ACCOUNT_IDS = COMPANY_BANK_ACCOUNTS.filter((a) => a.statementThrough).map((a) => a.id);

@@ -20,20 +20,22 @@
 //   blocking exceptions are gone, and crossing it is what closes Gate 4 on the
 //   close board.
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import "./modules.css";
 import "./invoices-ledger.css";
 import "./close.css";
 import "./bank-reconciliation.css";
-import { COMPANY_BANK_ACCOUNTS, bankAccountById, maskOf, statementLabelOf } from "../data/seed/bankAccounts";
+import { COMPANY_BANK_ACCOUNTS, bankAccountById, maskOf } from "../data/seed/bankAccounts";
+import { CURRENT_PERIOD, shiftPeriod, periodLabel } from "../data/seed/bankStatement";
 import { EXCEPTION_TYPES } from "../lib/bankMatching";
 import { runReconciliation, stateOf, RECON_STATES, reconcilable } from "../lib/bankRecon";
 import { writeOffEntry, writeOffNote } from "../lib/reconJournal";
 import { useJournalEntries } from "../state/JournalEntriesContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
 import { usePayments } from "../state/PaymentsContext";
-import { useBankRecon } from "../state/BankReconContext";
+import { useBankRecon, periodKey } from "../state/BankReconContext";
+import { useClosePeriod } from "../state/ClosePeriodContext";
 import { TODAY } from "../lib/clock";
 
 const TODAY_ISO = TODAY.toISOString().slice(0, 10);
@@ -71,16 +73,20 @@ const ACCOUNT_GROUPS = [
   { k: "deposit", lbl: "Deposit / Restricted" },
 ];
 
-const PERIODS = [
-  { lbl: "Nov 2024", v: "2024-11", state: "locked" },
-  { lbl: "Dec 2024", v: "2024-12", state: "locked" },
-  { lbl: "Jan 2025", v: "2025-01", state: "locked" },
-  { lbl: "Feb 2025", v: "2025-02", state: "locked" },
-  { lbl: "Mar 2025", v: "2025-03", state: "locked" },
-  { lbl: "Apr 2025", v: "2025-04", state: "active" },
-  { lbl: "May 2025", v: "2025-05", state: "future" },
-  { lbl: "Jun 2025", v: "2025-06", state: "future" },
-];
+// Past months are open for upload — catching up before Klay, a late statement,
+// a re-upload after a missing page. Closed books do not stop a reconciliation;
+// they only move where its write-offs are dated (see resolveOne). Future months
+// have nothing to upload yet. The range starts in February because the demo
+// ledger starts in January with no opening balances behind it.
+const PERIODS = [-2, -1, 0, 1, 2].map((n) => {
+  const v = shiftPeriod(CURRENT_PERIOD, n);
+  return { v, lbl: periodLabel(v), state: n < 0 ? "past" : n === 0 ? "current" : "future" };
+});
+
+const fmtIsoLong = (iso) => {
+  const [y, m, d] = iso.split("-");
+  return `${parseInt(d, 10)} ${periodLabel(`${y}-${m}`).split(" ")[0]} ${y}`;
+};
 
 // ── Exception groups, in the PRD's order ─────────────────────────────────────
 //
@@ -104,6 +110,7 @@ function AccountCard({ run, selected, onSelect }) {
   const { account, state, counts, statement } = run;
   const blocking = counts.blocking;
   const noActivity = statement.loaded && counts.total === 0;
+  const notUploaded = run.notUploaded;
 
   return (
     <button
@@ -122,15 +129,17 @@ function AccountCard({ run, selected, onSelect }) {
           {blocking > 0 ? `${blocking} to resolve` : state.label}
         </span>
       </div>
-      <div className="bank-card-amt">Rp {fmtRp(statement.closingBalance)}</div>
+      <div className="bank-card-amt">{notUploaded ? "—" : `Rp ${fmtRp(statement.closingBalance)}`}</div>
       <div className="bank-card-meta">
         {!reconcilable(account)
           ? "no GL account mapped"
-          : !statement.loaded
+          : notUploaded
+            ? `${periodLabel(statement.period)} not uploaded`
+            : !statement.loaded
             ? "no statement loaded"
             : noActivity
-              ? `no activity · ${statementLabelOf(account)}`
-              : <>Matched <strong>{counts.matched}</strong> of {counts.total} · {statementLabelOf(account)}</>}
+              ? `no activity · ${run.statementLabel}`
+              : <>Matched <strong>{counts.matched}</strong> of {counts.total} · {run.statementLabel}</>}
       </div>
     </button>
   );
@@ -260,14 +269,14 @@ function MatchedList({ rows }) {
 // is the one guard that catches a page missing from a PDF, which per-line
 // matching never would.
 
-function UploadModal({ open, run, onClose }) {
+function UploadModal({ open, run, onClose, onUploaded }) {
   const [phase, setPhase] = useState("picker");
   useEffect(() => { if (!open) setPhase("picker"); }, [open]);
   useEffect(() => {
     if (phase !== "processing") return;
-    const t = setTimeout(() => setPhase("done"), 1400);
+    const t = setTimeout(() => { setPhase("done"); onUploaded?.(); }, 1400);
     return () => clearTimeout(t);
-  }, [phase]);
+  }, [phase, onUploaded]);
   if (!open || !run) return null;
 
   const { counts, balanceCheck, account, statement } = run;
@@ -281,10 +290,10 @@ function UploadModal({ open, run, onClose }) {
             <div className="bank-upload-title">
               {phase === "picker" && "Upload bank statement"}
               {phase === "processing" && "Reading the statement"}
-              {phase === "done" && `${account.name} · ${statementLabelOf(account)}`}
+              {phase === "done" && `${account.name} · ${run.statementLabel}`}
             </div>
             <div className="bank-upload-sub">
-              {phase === "picker" && "CSV, PDF or MT940. Klay detects the bank and the account from the file."}
+              {phase === "picker" && `${account.name} · ${periodLabel(statement.period)} statement. CSV, PDF or MT940 — Klay detects the bank from the file.`}
               {phase === "processing" && "Extracting transactions, then matching against the ledger"}
               {phase === "done" && `${statement.lines.length} transactions`}
             </div>
@@ -344,7 +353,11 @@ export default function BankReconciliationPage() {
   // statement and the ledger; what a person decided is laid over the top. They
   // sit outside this component because the close board asks the same question —
   // write off the last fee here and Gate 4 there has to agree.
-  const { resolutions, completed, resolve, resolveMany, markComplete } = useBankRecon();
+  const { resolutions, completed, uploaded, resolve, resolveMany, markComplete, markUploaded } = useBankRecon();
+  const { isLocked, nextOpenPeriod } = useClosePeriod();
+  const isCurrent = period === CURRENT_PERIOD;
+  // The first open month, for write-offs from a month whose books are closed.
+  const openPostDate = `${nextOpenPeriod}-01`;
 
   useEffect(() => {
     if (!groupPopOpen) return;
@@ -369,20 +382,47 @@ export default function BankReconciliationPage() {
     return Object.keys(out).length ? out : null;
   }, [allPayments]);
 
-  const runs = useMemo(
-    () =>
-      COMPANY_BANK_ACCOUNTS.map((a) => {
-        const run = runReconciliation(a.id, { extraPayments: livePayments });
-        if (!run) return null;
-        // Overlay this session's decisions, then re-derive the state from them —
-        // so writing off the last open fee moves the account to fully reconciled
-        // without anything having to remember to recompute.
-        const exceptions = run.exceptions.map((e) => (resolutions[e.id] ? { ...e, resolution: resolutions[e.id] } : e));
-        const withRes = { ...run, exceptions };
-        return { ...withRes, state: stateOf(withRes, run.statement), counts: recount(run.lines, exceptions) };
-      }).filter(Boolean),
-    [livePayments, resolutions],
+  // One account in one month, with this session's decisions laid over it. A
+  // past month nobody has uploaded yet shows as not uploaded — the statement
+  // exists in the seed, but Klay would not have seen it. `pending` keeps the
+  // run so the upload modal can report on it.
+  const overlaid = useCallback(
+    (accountId, p) => {
+      const run = runReconciliation(accountId, { extraPayments: livePayments, period: p });
+      if (!run) return null;
+      if (p !== CURRENT_PERIOD && run.statement.loaded && !uploaded[periodKey(accountId, p)]) {
+        const statement = { ...run.statement, loaded: false, lines: [] };
+        const empty = { ...run, statement, lines: [], links: [], exceptions: [], outstanding: [], balanceCheck: null };
+        return { ...empty, state: stateOf(empty, statement), counts: recount([], []), notUploaded: true, pending: run };
+      }
+      const exceptions = run.exceptions.map((e) => (resolutions[e.id] ? { ...e, resolution: resolutions[e.id] } : e));
+      const withRes = { ...run, exceptions };
+      return { ...withRes, state: stateOf(withRes, run.statement), counts: recount(run.lines, exceptions), pending: run };
+    },
+    [livePayments, resolutions, uploaded],
   );
+
+  // Overlaying re-derives the state from the decisions, so writing off the last
+  // open fee moves the account to fully reconciled without anything having to
+  // remember to recompute.
+  const runs = useMemo(
+    () => COMPANY_BANK_ACCOUNTS.map((a) => overlaid(a.id, period)).filter(Boolean),
+    [overlaid, period],
+  );
+
+  // The month bar's dots: where the selected account stands in each month.
+  const periodStatus = useMemo(() => {
+    const out = {};
+    for (const p of PERIODS) {
+      if (p.state === "future") { out[p.v] = { tone: "none", label: "Not started" }; continue; }
+      const r = overlaid(selectedAccount, p.v);
+      if (!r || !r.statement.from) out[p.v] = { tone: "none", label: "No statement feed" };
+      else if (r.notUploaded) out[p.v] = { tone: "none", label: "Not uploaded" };
+      else if (completed[periodKey(selectedAccount, p.v)] || r.state.key === "FULLY_RECONCILED") out[p.v] = { tone: "ok", label: "Reconciled" };
+      else out[p.v] = { tone: r.counts.blocking > 0 ? "warn" : "open", label: r.state.label };
+    }
+    return out;
+  }, [overlaid, selectedAccount, completed]);
 
   const runById = useMemo(() => Object.fromEntries(runs.map((r) => [r.accountId, r])), [runs]);
   const run = runById[selectedAccount];
@@ -413,10 +453,14 @@ export default function BankReconciliationPage() {
       return null;
     }
     if (action === "write-off-fee" || action === "write-off-interest" || action === "write-off") {
-      const { je, error } = writeOffEntry({ exception: ex, account, jeNumber, by: user.name, today: TODAY_ISO });
+      // A line from a month whose books are closed cannot be written off into
+      // it; the entry is dated the first day of the first open month instead.
+      const postDate = isLocked(ex.date) ? openPostDate : null;
+      const { je, error } = writeOffEntry({ exception: ex, account, jeNumber, by: user.name, today: TODAY_ISO, postDate });
       if (error) { showToast(error); return null; }
       addJournalEntry(je);
-      return { action, at: TODAY_ISO, by: user.name, note: writeOffNote(ex, je.je_number), jeNumber: je.je_number };
+      const moved = postDate ? ` Dated ${fmtIsoLong(postDate)} — ${periodLabel(ex.date.slice(0, 7))} is closed.` : "";
+      return { action, at: TODAY_ISO, by: user.name, note: writeOffNote(ex, je.je_number) + moved, jeNumber: je.je_number };
     }
     if (action === "confirm-timing") {
       return { action, at: TODAY_ISO, by: user.name, note: `Acknowledged by ${user.name} — expected to clear on its own.` };
@@ -463,10 +507,15 @@ export default function BankReconciliationPage() {
     showToast(`${Object.keys(next).length} resolved.`);
   }
 
+  const onUploaded = useCallback(() => {
+    if (!isCurrent) markUploaded(periodKey(selectedAccount, period), TODAY_ISO);
+  }, [isCurrent, markUploaded, selectedAccount, period]);
+
   const blocking = run?.counts.blocking ?? 0;
   const openNonTiming = (run?.exceptions || []).filter((e) => !e.resolution && e.type !== "TIMING_DIFFERENCE").length;
   const canComplete = run?.statement.loaded && openNonTiming === 0;
-  const isComplete = !!completed[selectedAccount];
+  const isComplete = !!completed[periodKey(selectedAccount, period)];
+  const booksClosed = isLocked(`${period}-01`);
 
   return (
     <div className="lg-page bank-recon-page">
@@ -492,13 +541,11 @@ export default function BankReconciliationPage() {
               {PERIODS.map((p) => (
                 <div
                   key={p.v}
-                  className={`lg-pt-tab ${p.state}${period === p.v ? " active" : ""}`}
-                  onClick={() => setPeriod(p.v)}
-                  title={p.state === "locked" ? "Period locked" : p.state === "future" ? "Period hasn't started" : ""}
+                  className={`lg-pt-tab${p.state === "future" ? " future" : ""}${period === p.v ? " active" : ""}`}
+                  onClick={() => { if (p.state !== "future") setPeriod(p.v); }}
+                  title={p.state === "future" ? "This month hasn't ended — no statement to upload yet" : `${p.lbl} · ${periodStatus[p.v]?.label || ""}`}
                 >
-                  {p.state === "locked" && (
-                    <svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
-                  )}
+                  {p.state !== "future" && <span className={`bank-pt-dot ${periodStatus[p.v]?.tone || "none"}`} aria-hidden />}
                   {p.lbl}
                 </div>
               ))}
@@ -585,7 +632,7 @@ export default function BankReconciliationPage() {
           <div className="recon-acct-title">
             <strong>{account?.name}</strong>
             <span className="close-meta-sep">·</span>
-            {statementLabelOf(account)}
+            {run?.notUploaded ? periodLabel(period) : run?.statementLabel}
             <span className="close-meta-sep">·</span>
             {run?.statement.lines.length || 0} transactions
           </div>
@@ -599,10 +646,15 @@ export default function BankReconciliationPage() {
               disabled={!canComplete || isComplete}
               title={
                 isComplete ? "Already marked complete"
-                  : canComplete ? "Close Gate 4 for this account"
+                  : canComplete ? (isCurrent ? "Close Gate 4 for this account" : `Mark ${periodLabel(period)} reconciled`)
                     : `${openNonTiming} item${openNonTiming === 1 ? "" : "s"} still need a decision`
               }
-              onClick={() => { markComplete(selectedAccount, TODAY_ISO); showToast(`${account.name} marked reconciled — Gate 4 closed for this account.`); }}
+              onClick={() => {
+                markComplete(periodKey(selectedAccount, period), TODAY_ISO);
+                showToast(isCurrent
+                  ? `${account.name} marked reconciled — Gate 4 closed for this account.`
+                  : `${account.name} marked reconciled for ${periodLabel(period)}.`);
+              }}
             >
               {isComplete ? "Complete" : "Mark reconciliation complete"}
             </button>
@@ -611,6 +663,13 @@ export default function BankReconciliationPage() {
 
         {run?.balanceCheck && !run.balanceCheck.ok && (
           <div className="recon-balance-warn">{run.balanceCheck.message}</div>
+        )}
+
+        {booksClosed && run?.statement.loaded && (
+          <div className="recon-closed-note">
+            The books for {periodLabel(period)} are closed. Matching works as usual; bank fees and interest written off
+            here post on {fmtIsoLong(openPostDate)}, the first open month.
+          </div>
         )}
 
         <div className="lg-table-wrap">
@@ -644,7 +703,12 @@ export default function BankReconciliationPage() {
               </div>
             )}
 
-            {!run?.statement.loaded ? (
+            {run?.notUploaded ? (
+              <div className="recon-empty">
+                No {periodLabel(period)} statement uploaded for {account?.name} yet.{" "}
+                <button type="button" className="recon-empty-link" onClick={() => setUploadOpen(true)}>Upload it</button> to reconcile the month.
+              </div>
+            ) : !run?.statement.loaded ? (
               <div className="recon-empty">
                 {reconcilable(account)
                   ? <>No statement loaded for {account?.name}. Upload one to reconcile this account.</>
@@ -652,7 +716,7 @@ export default function BankReconciliationPage() {
               </div>
             ) : run.counts.total === 0 ? (
               <div className="recon-empty">
-                No transactions on the {statementLabelOf(account)} statement for {account?.name}.
+                No transactions on the {run.statementLabel} statement for {account?.name}.
               </div>
             ) : (
               <div className="recon-groups">
@@ -747,7 +811,12 @@ export default function BankReconciliationPage() {
         </>
       )}
 
-      <UploadModal open={uploadOpen} run={run} onClose={() => setUploadOpen(false)} />
+      <UploadModal
+        open={uploadOpen}
+        run={run?.pending || run}
+        onUploaded={onUploaded}
+        onClose={() => setUploadOpen(false)}
+      />
       {toast && <div className="recon-toast">{toast}</div>}
     </div>
   );

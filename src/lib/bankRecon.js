@@ -21,7 +21,7 @@
 // matching engine, so "reconciled" means a specific bank line was matched to
 // this specific payment, and the reason can be read rather than trusted.
 
-import { statementFor } from "../data/seed/bankStatement";
+import { statementFor, statementLabel, CURRENT_PERIOD } from "../data/seed/bankStatement";
 import { bookRecordsFor } from "./bankLedger";
 import { reconcile, EXCEPTION_TYPES } from "./bankMatching";
 import { bankAccountById, COMPANY_BANK_ACCOUNTS, statementLabelOf } from "../data/seed/bankAccounts";
@@ -132,24 +132,32 @@ export function stateOf(result, statement) {
 
 const cache = new Map();
 
-export function runReconciliation(accountId, { extraPayments = null, force = false } = {}) {
-  const key = `${accountId}|${extraPayments ? "live" : "seed"}`;
+// `period` defaults to the current month, which is what every caller outside
+// the reconciliation page means — Gate 4, the payment rows, the task hub.
+export function runReconciliation(accountId, { extraPayments = null, force = false, period = CURRENT_PERIOD } = {}) {
+  const key = `${accountId}|${period}|${extraPayments ? "live" : "seed"}`;
   if (!force && cache.has(key)) return cache.get(key);
 
-  const statement = statementFor(accountId, { extraPayments });
+  const statement = statementFor(accountId, { extraPayments, period });
   if (!statement) return null;
 
   // The ledger is read past the statement's cut-off on purpose: a payment
   // booked after it is precisely what "in transit" means, and a window that
   // stopped at the cut-off would make those payments invisible rather than
   // pending.
+  // A past month stops at its own last day: what was booked in April is April's
+  // business, not March's in-transit list.
   const books = statement.loaded
-    ? bookRecordsFor(accountId, { from: statement.from, to: addDays(statement.through, 21), extraPayments })
+    ? bookRecordsFor(accountId, {
+        from: statement.from,
+        to: period === CURRENT_PERIOD ? addDays(statement.through, 21) : statement.through,
+        extraPayments,
+      })
     : [];
 
   const result = reconcile({ statement, books });
   const state = stateOf(result, statement);
-  const out = { accountId, account: statement.account, statement, ...result, state, statementLabel: statementLabelOf(statement.account) };
+  const out = { accountId, account: statement.account, statement, ...result, state, statementLabel: period === CURRENT_PERIOD ? statementLabelOf(statement.account) : statementLabel(statement) };
   cache.set(key, out);
   return out;
 }

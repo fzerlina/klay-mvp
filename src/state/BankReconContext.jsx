@@ -17,6 +17,12 @@
 // of pointing Gate 4 at the real run in the first place.
 
 import { createContext, useContext, useMemo, useState, useCallback } from "react";
+import { CURRENT_PERIOD } from "../data/seed/bankStatement";
+
+// One key per account per month. The current month keeps the bare account id,
+// which is what Gate 4 on the close board reads.
+export const periodKey = (accountId, period = CURRENT_PERIOD) =>
+  period === CURRENT_PERIOD ? accountId : `${accountId}|${period}`;
 
 const BankReconContext = createContext(null);
 
@@ -25,6 +31,13 @@ export function BankReconProvider({ children }) {
   const [resolutions, setResolutions] = useState({});
   // { [accountId]: isoDate } — the account was declared reconciled by a person.
   const [completed, setCompleted] = useState({});
+  // { [periodKey]: isoDate } — a statement for a past month was uploaded. The
+  // current month's statements are already on file, so they never appear here.
+  const [uploaded, setUploaded] = useState({});
+
+  const markUploaded = useCallback((key, at) => {
+    setUploaded((prev) => ({ ...prev, [key]: at }));
+  }, []);
 
   const resolve = useCallback((id, res) => {
     setResolutions((prev) => ({ ...prev, [id]: res }));
@@ -43,8 +56,8 @@ export function BankReconProvider({ children }) {
   }, []);
 
   const value = useMemo(
-    () => ({ resolutions, completed, resolve, resolveMany, markComplete }),
-    [resolutions, completed, resolve, resolveMany, markComplete],
+    () => ({ resolutions, completed, uploaded, resolve, resolveMany, markComplete, markUploaded }),
+    [resolutions, completed, uploaded, resolve, resolveMany, markComplete, markUploaded],
   );
 
   return <BankReconContext.Provider value={value}>{children}</BankReconContext.Provider>;
@@ -59,4 +72,4 @@ export function useBankRecon() {
 // For the non-React callers (computeBankRecon in the apClose seed, the task
 // hub): the overlay is passed in as plain data rather than reached for, so
 // those stay pure functions of their arguments.
-export const EMPTY_OVERLAY = { resolutions: {}, completed: {} };
+export const EMPTY_OVERLAY = { resolutions: {}, completed: {}, uploaded: {} };

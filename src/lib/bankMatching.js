@@ -579,7 +579,7 @@ function buildException(line, spec) {
 // missed in a PDF, which is the failure an OCR pipeline actually has and which
 // no amount of per-line matching would reveal.
 function checkOpeningBalance(statement) {
-  const expected = statement.account.openingBalance;
+  const expected = statement.expectedOpening ?? statement.account.openingBalance;
   const actual = statement.openingBalance;
   const delta = actual - expected;
   return {
