@@ -156,7 +156,10 @@ function ExceptionRow({ ex, onAction, busy }) {
   return (
     <div className={`recon-ex${resolved ? " resolved" : ""} ${meta?.tone || "muted"}`}>
       <div className="recon-ex-head">
-        <div className="recon-ex-title">{ex.title}</div>
+        <div className="recon-ex-title">
+          {ex.title}
+          {ex.detector === "NAME_FROM_DESCRIPTION" && <span className="recon-tag">Name read from description · confirm</span>}
+        </div>
         <div className="recon-ex-amt">{fmtAmt(ex.amount)}</div>
         <div className="recon-ex-date">{fmtDateShort(ex.date)}</div>
       </div>
@@ -239,6 +242,7 @@ function MatchedList({ rows }) {
           <div className="recon-matched-date">{fmtDateShort(line.date)}</div>
           <div className="recon-matched-desc">
             {line.description}
+            {link.matchType === "KNOWN_NAME" && <span className="recon-tag">Known name</span>}
             <span className="recon-matched-signal">{link.signal}</span>
           </div>
           <div className="recon-matched-ref">{link.record.ref}</div>
@@ -303,6 +307,10 @@ function UploadModal({ open, run, onClose }) {
               <div className="bank-upload-stat"><strong>{counts.matched}</strong> matched automatically</div>
               <div className="bank-upload-stat"><strong>{counts.blocking}</strong> need you</div>
               <div className="bank-upload-stat"><strong>{counts.timing}</strong> in transit — no action needed</div>
+              <div className="bank-upload-fields">
+                Read from the statement: date, amount, in/out, description and balances. Names are read out of the
+                description; transfer methods come from the payments recorded in Klay.
+              </div>
               <button type="button" className="lg-btn-brand" onClick={onClose}>See the exceptions</button>
             </div>
           )}
@@ -414,7 +422,13 @@ export default function BankReconciliationPage() {
       return { action, at: TODAY_ISO, by: user.name, note: `Acknowledged by ${user.name} — expected to clear on its own.` };
     }
     if (action === "confirm-suggestion" && ex.suggestion) {
-      return { action, at: TODAY_ISO, by: user.name, note: `Matched to ${ex.suggestion.ref} by ${user.name}. Klay will recognise this counterparty next time.` };
+      const learn = ex.suggestion.learnName;
+      return {
+        action, at: TODAY_ISO, by: user.name,
+        note: learn
+          ? `Matched to ${ex.suggestion.ref} by ${user.name}. "${learn.raw}" is now a known name for ${learn.name}.`
+          : `Matched to ${ex.suggestion.ref} by ${user.name}.`,
+      };
     }
     if (action === "escalate") {
       return { action, at: TODAY_ISO, by: user.name, note: `Escalated by ${user.name} — left open on the books for investigation.` };

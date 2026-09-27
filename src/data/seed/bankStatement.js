@@ -22,29 +22,22 @@
 //   withholding      the debit is the invoice net of PPh, so it matches nothing
 //   bank-only        fees, interest, an unregistered VA credit, a duplicate
 //
+// What a line carries is what a real statement carries, and nothing more:
+//
+//   date · amount (its sign is the direction) · description · running balance
+//
+// plus the opening and closing balance for the period. There is no
+// counterparty field, no payment rail, no value date and no VA field — a bank
+// prints none of those as data. Where the other party's name or a VA number
+// appears at all, it is somewhere inside the description, and the matching
+// engine has to read it out (lib/bankMatching.js, readCounterparty).
+//
 // Everything is deterministic: same seed, same statement, every reload.
 
 import { COMPANY_BANK_ACCOUNTS, bankAccountById } from "./bankAccounts";
 import { BILLS } from "./bills";
 import { bookRecordsFor } from "../../lib/bankLedger";
 import { addDays, nextBusinessDay } from "../../lib/clock";
-
-// ── Payment rails ────────────────────────────────────────────────────────────
-//
-// The rail is not decoration: it is what turns "this hasn't cleared" into
-// "this clears tomorrow". Clearance windows are the published ones — BI-FAST is
-// near-instant, RTGS settles inside the same operating window, SKNBI is next
-// business day. `lib/bankMatching.js` reads these to decide whether an unseen
-// payment is a timing difference or a problem.
-
-export const RAILS = {
-  BI_FAST: { key: "BI_FAST", label: "BI-FAST", clearsInDays: 0, note: "clears within hours" },
-  RTGS:    { key: "RTGS",    label: "BI-RTGS", clearsInDays: 0, note: "clears inside the same operating window (07:00–17:00 WIB)" },
-  SKNBI:   { key: "SKNBI",   label: "SKNBI",   clearsInDays: 1, note: "settles the next business day" },
-  ATBK:    { key: "ATBK",    label: "ATM Bersama", clearsInDays: 1, note: "clears same day to next day" },
-  VA:      { key: "VA",      label: "Virtual Account", clearsInDays: 0, note: "credited on receipt" },
-  UNKNOWN: { key: "UNKNOWN", label: "Unknown rail", clearsInDays: 2, note: "rail not identified from the description" },
-};
 
 // ── Determinism ──────────────────────────────────────────────────────────────
 // A string hash, so a record's fate is a function of its identity rather than
@@ -68,11 +61,15 @@ function hash(str) {
 
 const refFor = (rail, iso, n) => `${rail === "BI_FAST" ? "BF" : rail === "RTGS" ? "RT" : "SK"}${iso.replace(/-/g, "")}-${String(n).padStart(4, "0")}`;
 
+const NAME_WIDTH = 24;
+
 function describe({ amount, counterparty, rail, iso, seq }) {
   const dir = amount < 0 ? "DB" : "CR";
   const stamp = iso.slice(8, 10) + iso.slice(5, 7);
   const head = `TRSF E-BANKING ${dir} ${stamp} ${refFor(rail, iso, seq)}`;
-  return counterparty ? `${head} ${counterparty.toUpperCase()}` : head;
+  // Banks cut the name to fit a fixed-width column, which is why the engine
+  // compares prefixes rather than whole names.
+  return counterparty ? `${head} ${counterparty.toUpperCase().slice(0, NAME_WIDTH).trim()}` : head;
 }
 
 function railFor(record, roll) {
@@ -109,21 +106,21 @@ function fateOf(record, roll) {
 
 const BANK_ONLY = {
   "bca-op": [
-    { day: 3,  amount:    -2500, rail: "BI_FAST", description: "BIAYA TRANSFER BI-FAST" },
-    { day: 9,  amount:    -6500, rail: "BI_FAST", description: "BIAYA ADM E-BANKING" },
-    { day: 14, amount:   -15000, rail: "RTGS",    description: "BIAYA TRANSFER RTGS" },
-    { day: 17, amount:    -2500, rail: "BI_FAST", description: "BIAYA TRANSFER BI-FAST" },
-    { day: 11, amount:  1850000, rail: "UNKNOWN", description: "BUNGA GIRO" },
-    { day: 16, amount: 47500000, rail: "VA",      description: "SWITCHING CR VA 3812000178432", vaNumber: "3812000178432" },
-    { day: 18, amount: -8250000, rail: "BI_FAST", description: "TRSF E-BANKING DB 1804 BF20250418-9921" },
+    { day: 3,  amount:    -2500, description: "BIAYA TRANSFER BI-FAST" },
+    { day: 9,  amount:    -6500, description: "BIAYA ADM E-BANKING" },
+    { day: 14, amount:   -15000, description: "BIAYA TRANSFER RTGS" },
+    { day: 17, amount:    -2500, description: "BIAYA TRANSFER BI-FAST" },
+    { day: 11, amount:  1850000, description: "BUNGA GIRO" },
+    { day: 16, amount: 47500000, description: "SWITCHING CR VA 3812000178432" },
+    { day: 18, amount: -8250000, description: "TRSF E-BANKING DB 1804 BF20250418-9921" },
   ],
   "mandiri-op": [
-    { day: 6,  amount:    -2500, rail: "BI_FAST", description: "BIAYA TRANSFER BI-FAST" },
-    { day: 13, amount:    -4000, rail: "BI_FAST", description: "BIAYA ADM BULANAN" },
-    { day: 15, amount:   890000, rail: "UNKNOWN", description: "BUNGA GIRO" },
+    { day: 6,  amount:    -2500, description: "BIAYA TRANSFER BI-FAST" },
+    { day: 13, amount:    -4000, description: "BIAYA ADM BULANAN" },
+    { day: 15, amount:   890000, description: "BUNGA GIRO" },
   ],
   "bni-op": [
-    { day: 8,  amount:    -2500, rail: "BI_FAST", description: "BIAYA TRANSFER BI-FAST" },
+    { day: 8,  amount:    -2500, description: "BIAYA TRANSFER BI-FAST" },
   ],
 };
 
@@ -138,6 +135,12 @@ const BANK_ONLY = {
 const PAID_OUTSIDE_KLAY = {
   "bca-op": [{ billId: "BILL006", day: 10, rail: "BI_FAST" }],
 };
+
+// Two retainers of Rp 12.5M in the same week, to two vendors. Printed cleanly,
+// with the names, so the amount ties and the description has to break it: one
+// name was confirmed last month and matches on its own, the other is read fresh
+// and only suggested.
+const ALWAYS_PRINTED = new Set(["JE-2025-0305:1-1300", "JE-2025-0306:1-1300"]);
 
 // A payment that went out twice. The books hold one; the bank holds both.
 const DUPLICATED = { "bca-op": ["BILL009:0"] };
@@ -167,27 +170,23 @@ export function statementFor(accountId, { extraPayments = null } = {}) {
 
   for (const record of books) {
     const roll = hash(record.id);
-    const rail = railFor(record, hash(`${record.id}:rail`));
-    const fate = record.date > through ? "intransit" : fateOf(record, roll);
+    // Only shapes the description text; the engine never sees it as a field.
+    const rail = record.rail || railFor(record, hash(`${record.id}:rail`));
+    const fate = record.date > through ? "intransit" : ALWAYS_PRINTED.has(record.id) ? "clean" : fateOf(record, roll);
 
     if (fate === "intransit") {
-      outstanding.push({ record, rail });
+      outstanding.push({ record });
       continue;
     }
 
     const date = fate === "late" ? nextBusinessDay(record.date) : record.date;
-    if (date > through) { outstanding.push({ record, rail }); continue; }
+    if (date > through) { outstanding.push({ record }); continue; }
 
     lines.push({
       id: `L${accountId}-${seq}`,
       accountId,
       date,
-      valueDate: record.date,
       amount: record.amount,
-      rail,
-      vaNumber: null,
-      counterparty: fate === "anonymous" ? "" : record.counterparty,
-      reference: refFor(rail, date, seq),
       description: describe({
         amount: record.amount,
         counterparty: fate === "anonymous" ? "" : record.counterparty,
@@ -204,12 +203,7 @@ export function statementFor(accountId, { extraPayments = null } = {}) {
         id: `L${accountId}-${seq}`,
         accountId,
         date: dupDate,
-        valueDate: dupDate,
         amount: record.amount,
-        rail,
-        vaNumber: null,
-        counterparty: record.counterparty,
-        reference: refFor(rail, dupDate, seq),
         description: describe({ amount: record.amount, counterparty: record.counterparty, rail, iso: dupDate, seq }),
       });
       seq++;
@@ -225,12 +219,7 @@ export function statementFor(accountId, { extraPayments = null } = {}) {
       id: `L${accountId}-${seq}`,
       accountId,
       date,
-      valueDate: date,
       amount: -(bill.total - (bill.pph23 || 0)),
-      rail: spec.rail,
-      vaNumber: null,
-      counterparty: bill.vendorName,
-      reference: refFor(spec.rail, date, seq),
       description: describe({ amount: -1, counterparty: bill.vendorName, rail: spec.rail, iso: date, seq }),
     });
     seq++;
@@ -243,12 +232,7 @@ export function statementFor(accountId, { extraPayments = null } = {}) {
       id: `L${accountId}-${seq}`,
       accountId,
       date,
-      valueDate: date,
       amount: extra.amount,
-      rail: extra.rail,
-      vaNumber: extra.vaNumber || null,
-      counterparty: "",
-      reference: extra.vaNumber || refFor(extra.rail, date, seq),
       description: extra.description,
     });
     seq++;
@@ -260,7 +244,9 @@ export function statementFor(accountId, { extraPayments = null } = {}) {
   // opening-balance check on the next upload leans on this being arithmetic
   // rather than a number somebody typed.
   const openingBalance = account.openingBalance;
-  const closingBalance = lines.reduce((sum, l) => sum + l.amount, openingBalance);
+  let running = openingBalance;
+  for (const l of lines) { running += l.amount; l.balance = running; }
+  const closingBalance = running;
 
   return { account, from, through, lines, outstanding, openingBalance, closingBalance, loaded: true };
 }
