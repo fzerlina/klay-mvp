@@ -28,7 +28,7 @@ import "./close.css";
 import "./bank-reconciliation.css";
 import { COMPANY_BANK_ACCOUNTS, bankAccountById, maskOf } from "../data/seed/bankAccounts";
 import { CURRENT_PERIOD, shiftPeriod, periodLabel } from "../data/seed/bankStatement";
-import { EXCEPTION_TYPES } from "../lib/bankMatching";
+import { EXCEPTION_TYPES, isOpen } from "../lib/bankMatching";
 import { runReconciliation, stateOf, RECON_STATES, reconcilable } from "../lib/bankRecon";
 import { writeOffEntry, writeOffNote } from "../lib/reconJournal";
 import { useJournalEntries } from "../state/JournalEntriesContext";
@@ -36,6 +36,7 @@ import { useCurrentUser } from "../state/CurrentUserContext";
 import { usePayments } from "../state/PaymentsContext";
 import { useBankRecon, periodKey } from "../state/BankReconContext";
 import { useClosePeriod } from "../state/ClosePeriodContext";
+import ManualMatchModal from "../components/ManualMatchModal";
 import { TODAY } from "../lib/clock";
 
 const TODAY_ISO = TODAY.toISOString().slice(0, 10);
@@ -88,20 +89,43 @@ const fmtIsoLong = (iso) => {
   return `${parseInt(d, 10)} ${periodLabel(`${y}-${m}`).split(" ")[0]} ${y}`;
 };
 
-// ── Exception groups, in the PRD's order ─────────────────────────────────────
+// ── Tabs ─────────────────────────────────────────────────────────────────────
 //
-// Anomalies first because an unusual amount should be questioned before it is
-// matched. Timing last and collapsed because it is not a problem. The three in
-// between block the gate; the three below it need a decision but not an
-// investigation, which is why they each carry a batch action.
+// Every row is a line from the bank statement, so the four tabs always add up
+// to the statement. Where a line sits depends on whether Klay has an answer:
+//
+//   Need confirmation   Klay has one and wants a yes — a suggested match, a
+//                       fee or interest to write off, a payment made outside
+//                       Klay to record
+//   Not matched         Klay has none; a person has to look
+//   Marked for later    parked with a note, and still holding the month open
+//   Matched             matched automatically, or settled by someone
 
-const GROUPS = [
-  { key: "ANOMALY", open: true, blurb: "Verify before resolving — these are the amounts worth being wrong about." },
-  { key: "GENUINE_MISMATCH", open: true, blurb: "The bank and the books disagree, and the difference is not explained by timing." },
-  { key: "UNCLASSIFIED", open: true, blurb: "Nothing in the ledger accounts for these." },
-  { key: "KNOWN_SYSTEMATIC", open: false, blurb: "Known and recurring. One tap each." },
-  { key: "BANK_FEE", open: false, blurb: "Under the fee ceiling and described as a fee." },
-  { key: "TIMING_DIFFERENCE", open: false, blurb: "Booked, not yet on a statement. These clear by themselves — no action needed." },
+const CONFIRM_DETECTORS = new Set(["NAME_FROM_DESCRIPTION", "WIDENED_WINDOW", "PPH_WITHHOLDING", "FEE_PATTERN", "INTEREST_CREDIT"]);
+
+function tabOf(ex) {
+  if (ex.resolution?.action === "mark-later") return "later";
+  if (ex.resolution) return "matched";
+  return CONFIRM_DETECTORS.has(ex.detector) ? "confirm" : "unmatched";
+}
+
+const TABS = [
+  { k: "confirm",   lbl: "Need confirmation", blurb: "Klay has an answer for each of these. One tap to confirm, write off or record." },
+  { k: "unmatched", lbl: "Not matched",       blurb: "Nothing in Klay explains these lines. Riskiest first." },
+  { k: "later",     lbl: "Marked for later",  blurb: "Parked for now. They still hold the month open until they're decided." },
+  { k: "matched",   lbl: "Matched",           blurb: "Matched automatically, or settled by someone. Nothing to do." },
+];
+
+// Need confirmation is split by the kind of yes being asked for, so the two
+// kinds that come in bulk (fees, interest) can be cleared in one tap.
+const plural = (n) => (n === 1 ? "" : `all ${n} `);
+const CONFIRM_SECTIONS = [
+  { k: "suggest",  lbl: "Suggested matches", test: (e) => e.detector === "NAME_FROM_DESCRIPTION" || e.detector === "WIDENED_WINDOW" },
+  { k: "outside",  lbl: "Paid outside Klay", test: (e) => e.detector === "PPH_WITHHOLDING" },
+  { k: "fee",      lbl: "Bank fees",         test: (e) => e.detector === "FEE_PATTERN",
+    batch: { action: "write-off-fee", label: (n) => `Write off ${plural(n)}to Bank Charges` } },
+  { k: "interest", lbl: "Interest",          test: (e) => e.detector === "INTEREST_CREDIT",
+    batch: { action: "write-off-interest", label: (n) => `Post ${plural(n)}to Interest Income` } },
 ];
 
 // ── Account card ─────────────────────────────────────────────────────────────
@@ -154,13 +178,21 @@ const ACTION_LABEL = {
   "write-off-fee": "Write off to Bank Charges",
   "write-off-interest": "Post to Interest Income",
   "confirm-suggestion": "Confirm match",
-  "confirm-timing": "Acknowledge",
-  escalate: "Escalate",
+  "mark-later": "Mark for later",
+  unmark: "Move back",
 };
+
+// A match only links two records, so taking it back is safe: the line returns
+// to the tab it came from and its records become available again. Write-offs
+// are not here — they posted a journal entry, which is reversed in the journal.
+const UNDOABLE = new Set(["manual-match", "confirm-suggestion"]);
 
 function ExceptionRow({ ex, onAction, busy }) {
   const meta = EXCEPTION_TYPES[ex.type];
-  const resolved = !!ex.resolution;
+  const parked = ex.resolution?.action === "mark-later";
+  const resolved = !!ex.resolution && !parked;
+  // A parked line keeps every way of settling it, plus a way back.
+  const actions = parked ? [...(ex.actions || []).filter((a) => a !== "mark-later"), "unmark"] : ex.actions || [];
 
   return (
     <div className={`recon-ex${resolved ? " resolved" : ""} ${meta?.tone || "muted"}`}>
@@ -180,10 +212,14 @@ function ExceptionRow({ ex, onAction, busy }) {
         <div className="recon-ex-done">
           <svg viewBox="0 0 12 12"><polyline points="2 6 5 9 10 3" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" /></svg>
           {ex.resolution.note}
+          {UNDOABLE.has(ex.resolution.action) && (
+            <button type="button" className="recon-crow-later recon-undo" onClick={() => onAction("undo", ex)}>Undo</button>
+          )}
         </div>
       ) : (
         <div className="recon-ex-actions">
-          {(ex.actions || []).map((a) => (
+          {parked && <div className="recon-ex-parked">{ex.resolution.note}</div>}
+          {actions.map((a) => (
             <button
               key={a}
               type="button"
@@ -200,47 +236,107 @@ function ExceptionRow({ ex, onAction, busy }) {
   );
 }
 
-function ExceptionGroup({ spec, items, openByDefault, onAction, onBatch, busy }) {
-  const meta = EXCEPTION_TYPES[spec.key];
-  const [open, setOpen] = useState(openByDefault);
-  const live = items.filter((e) => !e.resolution);
-  if (!items.length) return null;
+// ── A Need-confirmation row ──────────────────────────────────────────────────
+//
+// One line per bank line: what the bank printed, what Klay found, and the one
+// action that settles it. The section header already names the kind of item and
+// the amount has its own column, so neither is repeated; the full explanation
+// opens on click rather than being printed on every row.
 
-  const n = live.length;
-  const all = n === 1 ? "" : `all ${n} `;
-  const batch =
-    spec.key === "BANK_FEE" ? { action: "write-off-fee", label: `Write off ${all}to Bank Charges` }
-    : spec.key === "KNOWN_SYSTEMATIC" ? { action: "write-off-interest", label: `Post ${all}to Interest Income` }
-    : spec.key === "TIMING_DIFFERENCE" ? { action: "confirm-timing", label: n === 1 ? "Acknowledge" : `Acknowledge all ${n}` }
-    : null;
+const PRIMARY_ACTION = {
+  NAME_FROM_DESCRIPTION: "confirm-suggestion",
+  WIDENED_WINDOW: "confirm-suggestion",
+  PPH_WITHHOLDING: "record-payment",
+  FEE_PATTERN: "write-off-fee",
+  INTEREST_CREDIT: "write-off-interest",
+};
+const PRIMARY_LABEL = { "confirm-suggestion": "Confirm", "record-payment": "Record payment", "write-off-fee": "Write off", "write-off-interest": "Post" };
 
+// One bank statement line: date, what the bank printed, amount, and the
+// actions in the right-hand column. Click the text for Klay's full reasoning.
+function LineRow({ ex, onAction, actions, showBrief = true }) {
+  const [open, setOpen] = useState(false);
   return (
-    <div className={`recon-group ${meta?.tone || "muted"}${open ? " open" : ""}`}>
-      <div className="recon-group-head">
-        <button type="button" className="recon-group-toggle" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
-          <svg viewBox="0 0 12 12" className="recon-group-caret"><polyline points="4 2 8 6 4 10" stroke="currentColor" strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round" /></svg>
-          <span className="recon-group-name">{meta?.label}</span>
-          <span className="recon-group-count">{live.length || "done"}</span>
-        </button>
-        <span className="recon-group-blurb">{spec.blurb}</span>
-        {batch && live.length > 0 && (
-          <button type="button" className="recon-group-batch" disabled={busy} onClick={() => onBatch(batch.action, live)}>
-            {batch.label}
+    <div className="recon-crow">
+      <div className="recon-crow-date">{fmtDateShort(ex.date)}</div>
+      <button type="button" className="recon-crow-main" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+        <span className="recon-crow-desc">{ex.description}</span>
+        {showBrief && ex.brief && <span className="recon-crow-why">{ex.brief}</span>}
+        {open && <span className="recon-crow-more">{ex.explanation}</span>}
+      </button>
+      <div className="recon-crow-amt">{fmtAmt(ex.amount)}</div>
+      <div className="recon-crow-acts">
+        {actions.map(({ a, label, kind }) => (
+          <button
+            key={a}
+            type="button"
+            className={kind === "link" ? "recon-crow-later" : `recon-ex-btn${kind === "primary" ? " primary" : ""}`}
+            onClick={() => onAction(a, ex)}
+          >
+            {label}
           </button>
-        )}
+        ))}
       </div>
-      {open && (
-        <div className="recon-group-body">
-          {items.map((ex) => (
-            <ExceptionRow key={ex.id} ex={ex} onAction={onAction} busy={busy} />
-          ))}
-        </div>
-      )}
     </div>
   );
 }
 
-// ── Matched lines, behind a toggle ───────────────────────────────────────────
+function ConfirmRow({ ex, onAction }) {
+  const primary = PRIMARY_ACTION[ex.detector];
+  const actions = [
+    ...(primary ? [{ a: primary, label: PRIMARY_LABEL[primary], kind: "primary" }] : []),
+    ...((ex.actions || []).includes("mark-later") ? [{ a: "mark-later", label: "Later", kind: "link" }] : []),
+  ];
+  return <LineRow ex={ex} onAction={onAction} actions={actions} />;
+}
+
+// Not matched: the bank line alone. Klay has no answer, so there is no "what
+// Klay found" line to show; the reasoning is one click away.
+function UnmatchedRow({ ex, onAction }) {
+  const has = (a) => (ex.actions || []).includes(a);
+  const actions = [
+    ...(has("manual-match") ? [{ a: "manual-match", label: "Match manually" }] : []),
+    ...(has("write-off") ? [{ a: "write-off", label: "Write off" }] : []),
+    ...(has("mark-later") ? [{ a: "mark-later", label: "Later", kind: "link" }] : []),
+  ];
+  return <LineRow ex={ex} onAction={onAction} actions={actions} showBrief={false} />;
+}
+
+// Marked for later: the same line, the note on who parked it, and a way back.
+function ParkedRow({ ex, onAction }) {
+  const primary = PRIMARY_ACTION[ex.detector];
+  const has = (a) => (ex.actions || []).includes(a);
+  const actions = [
+    ...(primary ? [{ a: primary, label: PRIMARY_LABEL[primary], kind: "primary" }] : []),
+    ...(has("manual-match") ? [{ a: "manual-match", label: "Match manually" }] : []),
+    ...(!primary && has("write-off") ? [{ a: "write-off", label: "Write off" }] : []),
+    { a: "unmark", label: "Move back", kind: "link" },
+  ];
+  return <LineRow ex={{ ...ex, brief: ex.resolution?.note }} onAction={onAction} actions={actions} />;
+}
+
+function Section({ title, items, batch, onAction, onBatch, Row = ExceptionRow }) {
+  if (!items.length) return null;
+  const live = items.filter((e) => !e.resolution);
+  return (
+    <div className="recon-section">
+      {(title || batch) && (
+        <div className="recon-section-head">
+          {title && <span className="recon-section-title">{title}</span>}
+          {title && <span className="recon-group-count">{items.length}</span>}
+          {batch && live.length > 1 && (
+            <button type="button" className="recon-group-batch" onClick={() => onBatch(batch.action, live)}>
+              {batch.label(live.length)}
+            </button>
+          )}
+        </div>
+      )}
+      {items.map((ex) => <Row key={ex.id} ex={ex} onAction={onAction} busy={false} />)}
+    </div>
+  );
+}
+
+// ── Matched lines ────────────────────────────────────────────────────────────
 
 function MatchedList({ rows }) {
   if (!rows.length) return null;
@@ -315,7 +411,6 @@ function UploadModal({ open, run, onClose, onUploaded }) {
               <div className={`bank-upload-balance ${balanceCheck.ok ? "ok" : "warn"}`}>{balanceCheck.message}</div>
               <div className="bank-upload-stat"><strong>{counts.matched}</strong> matched automatically</div>
               <div className="bank-upload-stat"><strong>{counts.blocking}</strong> need you</div>
-              <div className="bank-upload-stat"><strong>{counts.timing}</strong> in transit — no action needed</div>
               <div className="bank-upload-fields">
                 Read from the statement: date, amount, in/out, description and balances. Names are read out of the
                 description; transfer methods come from the payments recorded in Klay.
@@ -344,7 +439,10 @@ export default function BankReconciliationPage() {
   const [period, setPeriod] = useState("2025-04");
   const [accountListOpen, setAccountListOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
-  const [showMatched, setShowMatched] = useState(false);
+  // The statement line being matched by hand, or null.
+  const [manualFor, setManualFor] = useState(null);
+  // null = let the page pick: the first tab with something in it.
+  const [tab, setTab] = useState(null);
   const [search, setSearch] = useState("");
   const [toast, setToast] = useState("");
   const toastTmr = useRef(null);
@@ -353,7 +451,7 @@ export default function BankReconciliationPage() {
   // statement and the ledger; what a person decided is laid over the top. They
   // sit outside this component because the close board asks the same question —
   // write off the last fee here and Gate 4 there has to agree.
-  const { resolutions, completed, uploaded, resolve, resolveMany, markComplete, markUploaded } = useBankRecon();
+  const { resolutions, completed, uploaded, resolve, unresolve, resolveMany, markComplete, markUploaded } = useBankRecon();
   const { isLocked, nextOpenPeriod } = useClosePeriod();
   const isCurrent = period === CURRENT_PERIOD;
   // The first open month, for write-offs from a month whose books are closed.
@@ -430,7 +528,7 @@ export default function BankReconciliationPage() {
 
   const filteredAccounts = runs.filter((r) => accountGroup === "all" || r.account.group === accountGroup);
 
-  const grouped = useMemo(() => {
+  const byTab = useMemo(() => {
     const q = search.trim().toLowerCase();
     const match = (e) =>
       !q ||
@@ -438,12 +536,29 @@ export default function BankReconciliationPage() {
       e.explanation.toLowerCase().includes(q) ||
       (e.description || "").toLowerCase().includes(q) ||
       (e.counterparty || "").toLowerCase().includes(q);
-    const out = {};
-    for (const g of GROUPS) out[g.key] = (run?.exceptions || []).filter((e) => e.type === g.key && match(e));
+    const out = { confirm: [], unmatched: [], later: [], matched: [] };
+    for (const e of run?.exceptions || []) if (match(e)) out[tabOf(e)].push(e);
+    const rank = (e) => EXCEPTION_TYPES[e.type]?.rank ?? 9;
+    out.unmatched.sort((a, b) => rank(a) - rank(b) || (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
     return out;
   }, [run, search]);
 
-  const matchedRows = useMemo(() => (run?.lines || []).filter((r) => r.link), [run]);
+  const matchedRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return (run?.lines || []).filter(
+      (r) => r.link && (!q || r.line.description.toLowerCase().includes(q) || r.link.signal.toLowerCase().includes(q)),
+    );
+  }, [run, search]);
+
+  const tabCount = {
+    confirm: byTab.confirm.length,
+    unmatched: byTab.unmatched.length,
+    later: byTab.later.length,
+    matched: matchedRows.length + byTab.matched.length,
+  };
+  const activeTab = tab || ["confirm", "unmatched", "later"].find((k) => tabCount[k] > 0) || "matched";
+  // A new account or month starts again from the first tab with work in it.
+  useEffect(() => { setTab(null); }, [selectedAccount, period]);
 
   // ── Resolving ──────────────────────────────────────────────────────────────
 
@@ -462,9 +577,6 @@ export default function BankReconciliationPage() {
       const moved = postDate ? ` Dated ${fmtIsoLong(postDate)} — ${periodLabel(ex.date.slice(0, 7))} is closed.` : "";
       return { action, at: TODAY_ISO, by: user.name, note: writeOffNote(ex, je.je_number) + moved, jeNumber: je.je_number };
     }
-    if (action === "confirm-timing") {
-      return { action, at: TODAY_ISO, by: user.name, note: `Acknowledged by ${user.name} — expected to clear on its own.` };
-    }
     if (action === "confirm-suggestion" && ex.suggestion) {
       const learn = ex.suggestion.learnName;
       return {
@@ -474,17 +586,27 @@ export default function BankReconciliationPage() {
           : `Matched to ${ex.suggestion.ref} by ${user.name}.`,
       };
     }
-    if (action === "escalate") {
-      return { action, at: TODAY_ISO, by: user.name, note: `Escalated by ${user.name} — left open on the books for investigation.` };
+    if (action === "mark-later") {
+      return { action, at: TODAY_ISO, by: user.name, note: `Marked for later by ${user.name}. Still open — the month can't be marked reconciled until it's decided.` };
     }
     if (action === "manual-match") {
-      showToast("Manual match opens the ledger search — not wired in this pass.");
+      setManualFor(ex);
       return null;
     }
     return null;
   }
 
   function onAction(action, ex) {
+    if (action === "unmark") {
+      unresolve(ex.id);
+      showToast("Moved back.");
+      return;
+    }
+    if (action === "undo") {
+      unresolve(ex.id);
+      showToast(`Match undone — the ${fmtDateShort(ex.date)} line is back in ${CONFIRM_DETECTORS.has(ex.detector) ? "Need confirmation" : "Not matched"}.`);
+      return;
+    }
     const res = resolveOne(action, ex, peekNextJeNumber());
     if (!res) return;
     resolve(ex.id, res);
@@ -507,12 +629,35 @@ export default function BankReconciliationPage() {
     showToast(`${Object.keys(next).length} resolved.`);
   }
 
+  // What Match manually can offer: records on this account the engine left
+  // unclaimed, minus anything a person has already tied to another line.
+  const manualCandidates = useMemo(() => {
+    if (!run) return [];
+    const used = new Set(run.links.map((l) => l.recordId));
+    for (const e of run.exceptions) {
+      if (e.resolution?.recordIds) e.resolution.recordIds.forEach((id) => used.add(id));
+      if (e.resolution?.action === "confirm-suggestion" && e.suggestion) used.add(e.suggestion.recordId);
+    }
+    return (run.outstanding || []).map((o) => o.record).filter((r) => !used.has(r.id));
+  }, [run]);
+
+  function onManualMatch(records) {
+    const ex = manualFor;
+    if (!ex) return;
+    const refs = records.map((r) => r.ref).join(" + ");
+    const note = `Matched manually to ${refs} by ${user.name}.`;
+    resolve(ex.id, { action: "manual-match", at: TODAY_ISO, by: user.name, note, recordIds: records.map((r) => r.id) });
+    setManualFor(null);
+    showToast(note);
+  }
+
   const onUploaded = useCallback(() => {
     if (!isCurrent) markUploaded(periodKey(selectedAccount, period), TODAY_ISO);
   }, [isCurrent, markUploaded, selectedAccount, period]);
 
   const blocking = run?.counts.blocking ?? 0;
-  const openNonTiming = (run?.exceptions || []).filter((e) => !e.resolution && e.type !== "TIMING_DIFFERENCE").length;
+  // Parked lines count as open: marking for later is not a decision.
+  const openNonTiming = (run?.exceptions || []).filter(isOpen).length;
   const canComplete = run?.statement.loaded && openNonTiming === 0;
   const isComplete = !!completed[periodKey(selectedAccount, period)];
   const booksClosed = isLocked(`${period}-01`);
@@ -674,6 +819,16 @@ export default function BankReconciliationPage() {
 
         <div className="lg-table-wrap">
           <div className="lg-card recon-card">
+            {run?.statement.loaded && run.counts.total > 0 && (
+              <div className="bp-tabs-row">
+                {TABS.map((t) => (
+                  <button key={t.k} type="button" className={`bp-tab${activeTab === t.k ? " active" : ""}`} onClick={() => setTab(t.k)}>
+                    {t.lbl}
+                    <span className="bp-tab-count">{tabCount[t.k]}</span>
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="lg-filter-row">
               <div className="lg-klay-bar">
                 <span className="lg-klay-bar-icon" aria-hidden><SparkleIcon /></span>
@@ -689,19 +844,6 @@ export default function BankReconciliationPage() {
                 )}
               </div>
             </div>
-
-            {run?.statement.loaded && run.counts.total > 0 && (
-              <div className="recon-account-summary">
-                <span className="recon-account-summary-icon"><SparkleIcon /></span>
-                <div className="recon-account-summary-text">
-                  <strong>Klay matched {run.counts.matched} of {run.counts.total} lines</strong>
-                  {blocking > 0 && <> · <strong className="recon-account-summary-warn">{blocking}</strong> need investigating</>}
-                  {openNonTiming - blocking > 0 && <> · {openNonTiming - blocking} one-tap {openNonTiming - blocking === 1 ? "decision" : "decisions"}</>}
-                  {openNonTiming === 0 && <> · nothing left to decide</>}
-                  {run.counts.timing > 0 && <> · {run.counts.timing} in transit, no action needed</>}
-                </div>
-              </div>
-            )}
 
             {run?.notUploaded ? (
               <div className="recon-empty">
@@ -720,29 +862,20 @@ export default function BankReconciliationPage() {
               </div>
             ) : (
               <div className="recon-groups">
-                {GROUPS.map((g) => (
-                  <ExceptionGroup
-                    key={g.key}
-                    spec={g}
-                    items={grouped[g.key]}
-                    openByDefault={g.open}
-                    onAction={onAction}
-                    onBatch={onBatch}
-                    busy={false}
-                  />
+                {activeTab === "confirm" && CONFIRM_SECTIONS.map((sec) => (
+                  <Section key={sec.k} title={sec.lbl} items={byTab.confirm.filter(sec.test)} batch={sec.batch} Row={ConfirmRow} onAction={onAction} onBatch={onBatch} />
                 ))}
-
-                <div className={`recon-group matched${showMatched ? " open" : ""}`}>
-                  <div className="recon-group-head">
-                    <button type="button" className="recon-group-toggle" onClick={() => setShowMatched((v) => !v)} aria-expanded={showMatched}>
-                      <svg viewBox="0 0 12 12" className="recon-group-caret"><polyline points="4 2 8 6 4 10" stroke="currentColor" strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                      <span className="recon-group-name">Matched</span>
-                      <span className="recon-group-count">{matchedRows.length}</span>
-                    </button>
-                    <span className="recon-group-blurb">Confirmed against the ledger. Hover any line for the reason it matched.</span>
-                  </div>
-                  {showMatched && <div className="recon-group-body"><MatchedList rows={matchedRows} /></div>}
-                </div>
+                {activeTab === "unmatched" && <Section items={byTab.unmatched} Row={UnmatchedRow} onAction={onAction} onBatch={onBatch} />}
+                {activeTab === "later" && <Section items={byTab.later} Row={ParkedRow} onAction={onAction} onBatch={onBatch} />}
+                {activeTab === "matched" && (
+                  <>
+                    {matchedRows.length > 0 && <MatchedList rows={matchedRows} />}
+                    <Section title={byTab.matched.length ? "Settled by someone" : null} items={byTab.matched} onAction={onAction} onBatch={onBatch} />
+                  </>
+                )}
+                {tabCount[activeTab] === 0 && (
+                  <div className="recon-empty">{search ? "Nothing here matches the search." : "Nothing here."}</div>
+                )}
               </div>
             )}
           </div>
@@ -755,11 +888,11 @@ export default function BankReconciliationPage() {
           {/* Separate flex children, not one span: .lg-footer-sep gets its
               spacing from the footer's own flex gap, so nesting the whole line
               inside a single span collapsed it to "10 matched·11 to decide". */}
-          <span><span className="lg-footer-num">{run?.counts.matched || 0}</span> matched</span>
+          <span><span className="lg-footer-num">{tabCount.matched}</span> matched</span>
           <span className="lg-footer-sep">·</span>
-          <span><span className="lg-footer-num">{openNonTiming}</span> to decide</span>
+          <span><span className="lg-footer-num">{tabCount.confirm}</span> to confirm</span>
           <span className="lg-footer-sep">·</span>
-          <span><span className="lg-footer-num">{run?.counts.timing || 0}</span> in transit</span>
+          <span><span className="lg-footer-num">{tabCount.unmatched}</span> not matched</span>
         </div>
         <div className="lg-footer-right">
           <span className="lg-footer-lbl">Opening</span>
@@ -811,6 +944,14 @@ export default function BankReconciliationPage() {
         </>
       )}
 
+      {manualFor && (
+        <ManualMatchModal
+          line={manualFor}
+          candidates={manualCandidates}
+          onConfirm={onManualMatch}
+          onClose={() => setManualFor(null)}
+        />
+      )}
       <UploadModal
         open={uploadOpen}
         run={run?.pending || run}
@@ -826,7 +967,7 @@ export default function BankReconciliationPage() {
 // bankMatching.js, which cannot be used directly because it runs before any of
 // this session's decisions exist.
 function recount(rows, exceptions) {
-  const live = exceptions.filter((e) => !e.resolution);
+  const live = exceptions.filter(isOpen);
   const by = (t) => live.filter((e) => e.type === t).length;
   return {
     total: rows.length,
