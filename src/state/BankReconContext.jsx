@@ -46,6 +46,15 @@ export function BankReconProvider({ children }) {
   // A batch is one state write, not N. Writing off four fees one at a time
   // would re-render (and re-derive every account's state) four times, and the
   // intermediate states are ones nobody decided on.
+  // Takes a decision back — used to move an item out of "Marked for later".
+  const unresolve = useCallback((id) => {
+    setResolutions((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  }, []);
+
   const resolveMany = useCallback((map) => {
     if (!map || !Object.keys(map).length) return;
     setResolutions((prev) => ({ ...prev, ...map }));
@@ -56,8 +65,8 @@ export function BankReconProvider({ children }) {
   }, []);
 
   const value = useMemo(
-    () => ({ resolutions, completed, uploaded, resolve, resolveMany, markComplete, markUploaded }),
-    [resolutions, completed, uploaded, resolve, resolveMany, markComplete, markUploaded],
+    () => ({ resolutions, completed, uploaded, resolve, unresolve, resolveMany, markComplete, markUploaded }),
+    [resolutions, completed, uploaded, resolve, unresolve, resolveMany, markComplete, markUploaded],
   );
 
   return <BankReconContext.Provider value={value}>{children}</BankReconContext.Provider>;

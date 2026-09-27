@@ -23,7 +23,7 @@
 
 import { statementFor, statementLabel, CURRENT_PERIOD } from "../data/seed/bankStatement";
 import { bookRecordsFor } from "./bankLedger";
-import { reconcile, EXCEPTION_TYPES } from "./bankMatching";
+import { reconcile, EXCEPTION_TYPES, isOpen } from "./bankMatching";
 import { bankAccountById, COMPANY_BANK_ACCOUNTS, statementLabelOf } from "../data/seed/bankAccounts";
 import { addDays } from "./clock";
 
@@ -113,7 +113,7 @@ export const reconcilable = (account) => !!account?.glAccount;
 export function stateOf(result, statement) {
   if (!reconcilable(statement?.account)) return RECON_STATES.OUT_OF_SCOPE;
   if (!statement || !statement.loaded) return RECON_STATES.UNRECONCILED;
-  const open = result.exceptions.filter((e) => !e.resolution);
+  const open = result.exceptions.filter(isOpen);
   if (!open.length) return RECON_STATES.FULLY_RECONCILED;
   const blocking = open.filter((e) => EXCEPTION_TYPES[e.type]?.blocking);
   if (blocking.length) return RECON_STATES.RECONCILED_WITH_EXCEPTIONS;

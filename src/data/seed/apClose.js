@@ -11,7 +11,7 @@
 // universal Close page CLOSE_PERIOD "2025-04"). No working-day math.
 
 import { allReconciliations, stateOf } from "../../lib/bankRecon";
-import { EXCEPTION_TYPES } from "../../lib/bankMatching";
+import { EXCEPTION_TYPES, isOpen } from "../../lib/bankMatching";
 import { EMPTY_OVERLAY } from "../../state/BankReconContext";
 import { maskOf } from "./bankAccounts";
 import { BILLS } from "./bills";
@@ -363,7 +363,7 @@ export function computeBankRecon(overlay = EMPTY_OVERLAY) {
 
   const rows = runs.map((r) => {
     const exceptions = r.exceptions.map((e) => (resolutions[e.id] ? { ...e, resolution: resolutions[e.id] } : e));
-    const open = exceptions.filter((e) => !e.resolution);
+    const open = exceptions.filter(isOpen);
     const timingItems = open.filter((e) => e.type === "TIMING_DIFFERENCE");
 
     // What the two sides disagree about, in rupiah. A matched pair cancels, so

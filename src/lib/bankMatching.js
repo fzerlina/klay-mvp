@@ -239,6 +239,8 @@ function priorityWithholding(line, { billsById, read }) {
   return {
     type: EXCEPTION_TYPES.GENUINE_MISMATCH.key,
     detector: "PPH_WITHHOLDING",
+    // One line for a list row; `explanation` stays the full account of it.
+    brief: `${bill.id} (${bill.vendorName}) less ${rate} PPh 23. Paid, but not recorded in Klay.`,
     title: `Recognised via PPh 23 — ${bill.id} was paid but never recorded`,
     explanation:
       `${rp(line.amount)} left the bank on ${d(line.date)} and matches no payment recorded in Klay. ` +
@@ -273,7 +275,7 @@ function priorityVirtualAccount(line) {
     // No "add to registry" action: the registry is not built yet, and offering
     // a button that cannot do what it says is worse than saying so in the
     // explanation, which this one does.
-    actions: ["manual-match", "write-off", "escalate"],
+    actions: ["manual-match", "write-off", "mark-later"],
   };
 }
 
@@ -381,6 +383,7 @@ export function reconcile({ statement, books = [] }) {
       const ex = buildException(line, {
         type: EXCEPTION_TYPES.UNCLASSIFIED.key,
         detector: "NAME_FROM_DESCRIPTION",
+        brief: `${r.ref} — read as ${read.name}. ${exact.candidates.length} entries share this amount.`,
         title: `Suggested match — ${r.ref}, ${rp(line.amount)}`,
         explanation:
           `${exact.candidates.length} entries on this account are ${rp(line.amount)} within ${DATE_WINDOW_DAYS} days, so the amount ` +
@@ -388,7 +391,7 @@ export function reconcile({ statement, books = [] }) {
           `${r.billId && r.ref !== r.billId ? ` (${r.billId})` : ""} on ${d(r.date)}. Confirm it and Klay will remember that name.`,
         counterparty: read.name,
         suggestion: { recordId: r.id, ref: r.ref, note: `Read "${read.raw}" as ${read.name}.`, learnName: { raw: read.raw, name: read.name } },
-        actions: ["confirm-suggestion", "manual-match", "escalate"],
+        actions: ["confirm-suggestion", "manual-match", "mark-later"],
       });
       exceptions.push(ex);
       rows.push({ line, link: null, exception: ex });
@@ -436,7 +439,7 @@ export function reconcile({ statement, books = [] }) {
           `${rp(line.amount)} left the account twice on this statement, both lines reading "${read.raw}" (${read.name}), and the ledger holds one ` +
           `payment of that amount. Either the transfer was sent twice or one of them belongs to a bill that has not been ` +
           `entered. Verify before matching — this is the amount worth being wrong about.`,
-        actions: ["manual-match", "write-off", "escalate"],
+        actions: ["manual-match", "write-off", "mark-later"],
       });
       exceptions.push(ex);
       rows.push({ line, link: null, exception: ex });
@@ -448,6 +451,7 @@ export function reconcile({ statement, books = [] }) {
     const ex = buildException(line, {
       type: EXCEPTION_TYPES.UNCLASSIFIED.key,
       detector: suggestion ? "WIDENED_WINDOW" : "NO_CANDIDATE",
+      brief: suggestion ? `${suggestion.record.ref} — same amount, ${Math.abs(dayDiff(line.date, suggestion.record.date))} days apart.` : null,
       title: suggestion
         ? `Possibly ${suggestion.record.ref} — ${rp(line.amount)}`
         : `Unexplained ${line.amount < 0 ? "debit" : "credit"} — ${rp(line.amount)}`,
@@ -463,7 +467,7 @@ export function reconcile({ statement, books = [] }) {
           `This one needs a person.`,
       counterparty: read.name,
       suggestion: suggestion ? { recordId: suggestion.record.id, ref: suggestion.record.ref, note: suggestion.note } : null,
-      actions: suggestion ? ["confirm-suggestion", "manual-match", "write-off", "escalate"] : ["manual-match", "write-off", "escalate"],
+      actions: suggestion ? ["confirm-suggestion", "manual-match", "write-off", "mark-later"] : ["manual-match", "write-off", "mark-later"],
     });
     exceptions.push(ex);
     rows.push({ line, link: null, exception: ex });
@@ -519,7 +523,7 @@ export function reconcile({ statement, books = [] }) {
               `${d(statement.through)}. The books say the money moved and the bank has never seen it.`,
             recordId: record.id,
             billId: record.billId,
-            actions: ["manual-match", "escalate"],
+            actions: ["manual-match", "mark-later"],
           }
         : {
             type: EXCEPTION_TYPES.TIMING_DIFFERENCE.key,
@@ -541,7 +545,9 @@ export function reconcile({ statement, books = [] }) {
             actions: ["confirm-timing"],
           },
     );
-    exceptions.push(ex);
+    // Kept off the exception list on purpose: reconciliation works through the
+    // STATEMENT, line by line, and a record the bank never printed is not a line.
+    // It stays here so a payment row can still say Cleared / In transit / Unmatched.
     outstanding.push({ record, rail: rail.key, expected, overdue, exception: ex });
   }
 
@@ -599,7 +605,7 @@ function emptyCounts() {
 }
 
 function countOf(rows, exceptions) {
-  const live = exceptions.filter((e) => !e.resolution);
+  const live = exceptions.filter(isOpen);
   const by = (t) => live.filter((e) => e.type === t).length;
   const blocking = live.filter((e) => EXCEPTION_TYPES[e.type]?.blocking).length;
   return {
@@ -615,5 +621,10 @@ function countOf(rows, exceptions) {
     open: live.length,
   };
 }
+
+// "Mark for later" parks an item without deciding it. It is recorded like any
+// other decision, but it is still open: parking must never be a way to get a
+// month marked reconciled.
+export const isOpen = (e) => !e.resolution || e.resolution.action === "mark-later";
 
 export { countOf, nameAgrees };
