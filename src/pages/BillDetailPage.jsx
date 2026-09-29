@@ -33,6 +33,7 @@ import { PAYMENT_METHOD_BY_KEY, auditTextFor, breakdownTotal, describeBreakdown,
 import { bankAccountById } from "../data/seed/bankAccounts";
 import { paymentJournalLines } from "../lib/paymentJournal";
 import { reconOf, billReconOf } from "../lib/bankRecon";
+import { useBankRecon } from "../state/BankReconContext";
 import { TODAY } from "../lib/clock";
 import "./modules.css";
 import "./invoice-create.css";
@@ -63,6 +64,7 @@ const PAY_LABEL      = { paid: "Paid", unpaid: "Unpaid", overdue: "Overdue" };
 // other. It is also why neither axis is allowed to say "settled".
 function PaymentTab({ bill, detail }) {
   const navigate = useNavigate();
+  const { resolutions } = useBankRecon();
   const isPosted = !!bill.je_number || workflowStatus(bill) === "POSTED" || workflowStatus(bill) === "PAID";
   const total = bill.total || 0;
   const remaining = bill.sisa != null ? bill.sisa : total;
@@ -87,7 +89,7 @@ function PaymentTab({ bill, detail }) {
         ref: h.breakdown?.giroNumber || null,
         withheld: withheldTax(h.breakdown),
         jeNumber: h.je_number || null,
-        recon: reconOf({ ...h, billId: bill.id }),
+        recon: reconOf({ ...h, billId: bill.id }, resolutions),
         journal: paymentJournalLines(h.breakdown, { vendorName: bill.vendorName }),
       }));
     }
@@ -102,7 +104,7 @@ function PaymentTab({ bill, detail }) {
         key: `a${i}`, at: a.date, time: a.time, amount: null, by: a.by, withheld: 0,
         detail: a.action, method: null, jeNumber: null, recon: reconOf({ at: a.date }), journal: null,
       }));
-  }, [detail, bill.audit, bill.vendorName, bill.id]);
+  }, [detail, bill.audit, bill.vendorName, bill.id, resolutions]);
 
   const [openRow, setOpenRow] = useState(null);
 
@@ -1304,6 +1306,7 @@ export default function BillDetailPage() {
   const { id } = useParams();
   const { bills, updateBill } = useBills();
   const { requestStatusOf, returnedOf, detailOf: paymentDetailOf, acksOf: paymentAcksOf, requestPayment, approvePayment, recordPayment, acknowledgeFlag, returnRequest } = usePayments();
+  const { resolutions: reconResolutions } = useBankRecon();
   const { addJournalEntry, peekNextJeNumber } = useJournalEntries();
   const { closedThrough, autoAssignLateBills, nextOpenPeriod } = useClosePeriod();
   const { hasLevel, hasCapability, level, user } = useCurrentUser();
@@ -1732,7 +1735,7 @@ export default function BillDetailPage() {
   // off the bill. `bill.bankReconStatus` used to be seeded on the record and
   // written by nothing, so it sat here contradicting the payment rows on the
   // tab next door. One axis, one source (lib/bankRecon.js).
-  const billRecon = billReconOf(bill.id, payDetail?.history || []);
+  const billRecon = billReconOf(bill.id, payDetail?.history || [], reconResolutions);
 
   return (
     <div className="bd-page">

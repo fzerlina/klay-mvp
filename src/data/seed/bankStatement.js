@@ -36,6 +36,7 @@
 
 import { COMPANY_BANK_ACCOUNTS, bankAccountById } from "./bankAccounts";
 import { BILLS } from "./bills";
+import { INVOICES } from "./invoices";
 import { bookRecordsFor } from "../../lib/bankLedger";
 import { addDays, nextBusinessDay, TODAY } from "../../lib/clock";
 
@@ -166,6 +167,18 @@ const BANK_ONLY = {
   ],
 };
 
+// Every other account still sees the bank's own monthly lines: interest on the
+// balance, credited on the first, and an admin fee a few days in. A statement
+// with nothing on it at all is not what a real account looks like. A deposit's
+// statement is a single day, so it only carries the interest.
+function bankOnlyFor(account) {
+  if (BANK_ONLY[account.id]) return BANK_ONLY[account.id];
+  const interest = Math.max(1000, Math.round((account.openingBalance * 0.0002) / 100) * 100);
+  const lines = [{ day: 0, amount: interest, description: account.group === "deposit" ? "BUNGA DEPOSITO" : "BUNGA GIRO" }];
+  if (account.group !== "deposit") lines.push({ day: 3, amount: -5000, description: "BIAYA ADM BULANAN" });
+  return lines;
+}
+
 // ── Paid outside Klay ────────────────────────────────────────────────────────
 //
 // The case the withholding priority exists for. Somebody paid this vendor from
@@ -176,6 +189,24 @@ const BANK_ONLY = {
 
 const PAID_OUTSIDE_KLAY = {
   "bca-op": [{ billId: "BILL006", day: 10, rail: "BI_FAST" }],
+};
+
+// ── Customers paying invoices ────────────────────────────────────────────────
+//
+// Receipts nobody has recorded in Klay yet, so the engine has to find the
+// invoice from the amount. One pays the subtotal exactly; one pays it less the
+// 2% PPh 23 it withholds; one rounds up; one arrives with no name, short by
+// more than the withholding. `off` is the difference as a share of
+// the subtotal.
+
+const CUSTOMER_RECEIPTS = {
+  "bca-op": [
+    { invoiceId: "INV005", day: 6,  off: -0.02 },
+    { invoiceId: "INV008", day: 13, off: 0 },
+    { invoiceId: "INV024", day: 15, off: 0.02 },
+    // No name printed, and short by more than the 2% withholding.
+    { invoiceId: "INV022", day: 17, off: -0.025, anonymous: true },
+  ],
 };
 
 // Two retainers of Rp 12.5M in the same week, to two vendors. Printed cleanly,
@@ -289,7 +320,22 @@ export function statementFor(accountId, { extraPayments = null, period = CURRENT
     seq++;
   }
 
-  for (const extra of (BANK_ONLY[accountId] || []).filter((x) => current || RECURRING.test(x.description))) {
+  for (const spec of current ? CUSTOMER_RECEIPTS[accountId] || [] : []) {
+    const inv = INVOICES.find((i) => i.id === spec.invoiceId);
+    if (!inv) continue;
+    const date = addDays(from, spec.day);
+    if (date > through) continue;
+    lines.push({
+      id: idOf(seq),
+      accountId,
+      date,
+      amount: Math.round((inv.dpp || inv.total) * (1 + spec.off)),
+      description: describe({ amount: 1, counterparty: spec.anonymous ? "" : inv.customerName, rail: "BI_FAST", iso: date, seq }),
+    });
+    seq++;
+  }
+
+  for (const extra of bankOnlyFor(account).filter((x) => current || RECURRING.test(x.description))) {
     const date = addDays(from, extra.day);
     if (date > through) continue;
     lines.push({

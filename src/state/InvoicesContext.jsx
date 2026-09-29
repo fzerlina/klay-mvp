@@ -85,9 +85,46 @@ export function InvoicesProvider({ children }) {
     );
   }, []);
 
+  // A customer receipt reconciled on a bank statement. The invoice is paid in
+  // full when the receipt is short of the subtotal by no more than the 2% PPh 23
+  // the customer withholds; otherwise it is part-paid. `lineId` ties it to the
+  // statement line so undoing the reconciliation takes it back.
+  const recordReceipt = useCallback((id, { amount, date, lineId, by, paysInFull }) => {
+    const { time } = isoNow();
+    setInvoices((prev) =>
+      prev.map((inv) => {
+        if (inv.id !== id) return inv;
+        const receipts = [...(inv.receipts || []), { amount, date, lineId }];
+        return {
+          ...inv,
+          receipts,
+          payStatus: paysInFull ? "paid" : "partial",
+          _payStatusBefore: inv._payStatusBefore ?? inv.payStatus,
+          audit: [
+            ...inv.audit,
+            { type: "paid", action: paysInFull ? "Payment received — reconciled on bank statement" : "Part payment received — reconciled on bank statement", by, date, time },
+          ],
+        };
+      }),
+    );
+  }, []);
+
+  const undoReceipt = useCallback((lineId) => {
+    setInvoices((prev) =>
+      prev.map((inv) => {
+        if (!(inv.receipts || []).some((r) => r.lineId === lineId)) return inv;
+        const receipts = inv.receipts.filter((r) => r.lineId !== lineId);
+        const { _payStatusBefore, ...rest } = inv;
+        return receipts.length
+          ? { ...inv, receipts }
+          : { ...rest, receipts, payStatus: _payStatusBefore || "unpaid", audit: inv.audit.slice(0, -1) };
+      }),
+    );
+  }, []);
+
   const value = useMemo(
-    () => ({ invoices, addInvoice, sendInvoice }),
-    [invoices, addInvoice, sendInvoice],
+    () => ({ invoices, addInvoice, sendInvoice, recordReceipt, undoReceipt }),
+    [invoices, addInvoice, sendInvoice, recordReceipt, undoReceipt],
   );
 
   return <InvoicesContext.Provider value={value}>{children}</InvoicesContext.Provider>;

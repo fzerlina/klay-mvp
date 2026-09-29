@@ -169,18 +169,18 @@ function journalTasks(ctx) {
     severity: "action", to: "/journal-entry", cta: "Review" }];
 }
 
-// Bank · Reconciliation — unmatched / in-transit items (Finance Staff).
+// Bank · Reconciliation — statement lines still to reconcile (Finance Staff).
 function bankTasks(ctx) {
   const { hasCapability, reconOverlay } = ctx;
   if (!hasCapability("bank.reconcile")) return [];
   const g = { group: "bank", groupLabel: "Bank Reconciliation", groupTo: "/bank-reconciliation" };
   const recon = computeBankRecon(reconOverlay);
-  // Items to act on = payments in transit + unreconciled accounts.
-  const inTransit = sum(recon.exceptions, (r) => r.outstanding);
-  if (!inTransit && !recon.unrec) return [];
-  const blocking = recon.unrec > 0;
-  return [{ ...g, id: "bank:match", label: "Match bank items", count: inTransit || recon.unrec,
-    amount: null, sub: blocking ? "Unreconciled accounts need review" : "Payments in transit to match",
+  // Every statement line waits for a person — suggestions included.
+  const lines = sum(recon.rows, (r) => r.toReconcile || 0);
+  if (!lines && !recon.unrec) return [];
+  const blocking = recon.rows.some((r) => r.sev === "red");
+  return [{ ...g, id: "bank:match", label: "Reconcile bank lines", count: lines || recon.unrec,
+    amount: null, sub: blocking ? "Some lines have nothing in Klay to explain them" : "Klay has a suggestion for each — confirm them",
     tag: blocking ? { text: "unreconciled", tone: "danger" } : null,
     severity: blocking ? "blocking" : "advisory", to: "/bank-reconciliation", cta: "Reconcile" }];
 }

@@ -18,8 +18,8 @@
 // a stand-in for matching, and it was wrong in both directions — it called a
 // payment reconciled when no bank line corresponded to it, and it had no way to
 // see a bank line that corresponded to nothing. Now the answer comes from the
-// matching engine, so "reconciled" means a specific bank line was matched to
-// this specific payment, and the reason can be read rather than trusted.
+// matching engine and the decisions laid over it, so "reconciled" means a
+// person reconciled a specific bank line to this specific payment.
 
 import { statementFor, statementLabel, CURRENT_PERIOD } from "../data/seed/bankStatement";
 import { bookRecordsFor } from "./bankLedger";
@@ -70,10 +70,10 @@ export const RECON_STATES = {
   },
   RECONCILED_WITH_EXCEPTIONS: {
     key: "RECONCILED_WITH_EXCEPTIONS",
-    label: "Exceptions open",
+    label: "Lines open",
     tone: "warn",
     gateClosed: false,
-    blurb: "Matching complete. Some items need a decision.",
+    blurb: "Statement read. Some lines still need a person to reconcile them.",
   },
   RECONCILED_WITH_TIMING: {
     key: "RECONCILED_WITH_TIMING",
@@ -94,9 +94,10 @@ export const RECON_STATES = {
 // The PRD's wording for a single payment, which is a narrower question than an
 // account's state: did THIS money reach the bank.
 export const RECON_META = {
-  cleared:   { key: "cleared",   label: "Cleared",   tone: "success" },
+  cleared:   { key: "cleared",   label: "Reconciled", tone: "success" },
+  suggested: { key: "suggested", label: "To confirm", tone: "muted" },
   intransit: { key: "intransit", label: "In transit", tone: "muted" },
-  unmatched: { key: "unmatched", label: "Unmatched", tone: "warn" },
+  unmatched: { key: "unmatched", label: "Not reconciled", tone: "warn" },
 };
 
 // ── State derivation ─────────────────────────────────────────────────────────
@@ -157,7 +158,7 @@ export function runReconciliation(accountId, { extraPayments = null, force = fal
 
   const result = reconcile({ statement, books });
   const state = stateOf(result, statement);
-  const out = { accountId, account: statement.account, statement, ...result, state, statementLabel: period === CURRENT_PERIOD ? statementLabelOf(statement.account) : statementLabel(statement) };
+  const out = { accountId, account: statement.account, statement, records: books, ...result, state, statementLabel: period === CURRENT_PERIOD ? statementLabelOf(statement.account) : statementLabel(statement) };
   cache.set(key, out);
   return out;
 }
@@ -190,7 +191,10 @@ export function entityState(runs) {
 // rather than trusted — that discipline is the reason this function exists
 // instead of a stored flag on the bill.
 
-export function reconOf({ at, breakdown, billId } = {}) {
+// `resolutions` is the session's decisions (state/BankReconContext). Without
+// them every payment would read "to confirm" — nothing is reconciled until a
+// person says so.
+export function reconOf({ at, breakdown, billId } = {}, resolutions = {}) {
   const out = (key, why) => ({ ...RECON_META[key], why });
 
   if (!breakdown) {
@@ -206,13 +210,21 @@ export function reconOf({ at, breakdown, billId } = {}) {
   const run = runReconciliation(account.id);
   if (!run) return out("unmatched", `${account.name} has no statement loaded.`);
 
-  const link = run.links.find((l) => l.record.billId === billId && l.record.date === at);
-  if (link) return out("cleared", link.signal);
+  const record = (run.records || []).find((r) => r.billId === billId && r.date === at);
+  if (record) {
+    const exceptions = run.exceptions.map((e) => (resolutions[e.id] ? { ...e, resolution: resolutions[e.id] } : e));
+    const done = exceptions.find((e) => {
+      const r = e.resolution;
+      if (!r || r.action === "mark-later") return false;
+      return (r.recordIds || []).includes(record.id) || (r.action === "reconcile" && e.suggestion?.recordId === record.id);
+    });
+    if (done) return out("cleared", done.resolution.note);
+    const suggested = exceptions.find((e) => !e.resolution && e.suggestion?.recordId === record.id);
+    if (suggested) return out("suggested", `On the statement ${suggested.date} — waiting for someone to reconcile it. ${suggested.explanation}`);
+  }
 
   const pending = run.outstanding.find((o) => o.record.billId === billId && o.record.date === at);
-  if (pending) {
-    return out(pending.overdue ? "unmatched" : "intransit", pending.exception.explanation);
-  }
+  if (pending) return out(pending.overdue ? "unmatched" : "intransit", pending.why);
 
   return out(
     "unmatched",
@@ -229,13 +241,13 @@ export function reconOf({ at, breakdown, billId } = {}) {
 // This replaces `bill.bankReconStatus`, a string seeded on the bill record that
 // no reconciliation ever wrote to and that disagreed with the payment rows
 // directly below it on the same page.
-export function billReconOf(billId, history = []) {
+export function billReconOf(billId, history = [], resolutions = {}) {
   if (!history.length) {
     return { ...RECON_META.unmatched, label: "—", why: "Nothing has been paid on this bill yet, so there is nothing for a bank statement to confirm." };
   }
-  const answers = history.map((h) => reconOf({ ...h, billId }));
-  const worst = answers.find((a) => a.key === "unmatched") || answers.find((a) => a.key === "intransit") || answers[0];
+  const answers = history.map((h) => reconOf({ ...h, billId }, resolutions));
+  const worst = answers.find((a) => a.key === "unmatched") || answers.find((a) => a.key === "intransit") || answers.find((a) => a.key === "suggested") || answers[0];
   if (answers.length === 1) return worst;
   const cleared = answers.filter((a) => a.key === "cleared").length;
-  return { ...worst, why: `${cleared} of ${answers.length} payments on this bill are confirmed by a bank statement. ${worst.why}` };
+  return { ...worst, why: `${cleared} of ${answers.length} payments on this bill are reconciled to a bank statement. ${worst.why}` };
 }

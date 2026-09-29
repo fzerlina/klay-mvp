@@ -404,7 +404,7 @@ export function computeBankRecon(overlay = EMPTY_OVERLAY) {
       // Timing never appears alone in the label while something else is open —
       // "1 in transit" on an account that also has an unwritten-off fee reads
       // as nothing to do.
-      : toDecide > 0 ? `${toDecide} to decide`
+      : toDecide > 0 ? `${toDecide} to confirm`
       : `${timingItems.length} in transit`;
 
     return {
@@ -413,6 +413,8 @@ export function computeBankRecon(overlay = EMPTY_OVERLAY) {
       mask: maskOf(r.account),
       state: state.key,
       outstanding: timingItems.length,
+      // Statement lines nobody has reconciled yet — nothing reconciles itself.
+      toReconcile: open.length,
       delta,
       sev,
       gateGreen,

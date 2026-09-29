@@ -5,6 +5,7 @@ import { useVendors } from "../state/VendorsContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
 import { PAYMENT_STATUS_META, usePayments } from "../state/PaymentsContext";
 import { billReconOf } from "../lib/bankRecon";
+import { useBankRecon } from "../state/BankReconContext";
 import { paymentStatusOf } from "../lib/paymentStage";
 import { workflowStatus, STATUS_LABEL } from "../lib/billStatus";
 import { withholdingLabel, ACCT_LABELS } from "../data/labels";
@@ -65,6 +66,7 @@ export default function VendorDetailPage() {
   // account has no approval flow, so it stays manager-only.
   const canEditBank = hasCapability("vendor.edit_bank");
   const { detailOf } = usePayments();
+  const { resolutions: reconResolutions } = useBankRecon();
   // The LIVE bills, not the static seed. Payment status is derived from the
   // ledger balance, and the seed record never moves — so a bill paid in the
   // demo read "Unpaid" here while Bill Detail and the new Bank column both said
@@ -365,7 +367,7 @@ export default function VendorDetailPage() {
                         // The PRD case: AP Staff answering "did our payment reach you?"
                         // without opening the bank portal. Derived per bill from the
                         // matching run, so it cannot drift from Bill Detail.
-                        const recon = billReconOf(b.id, detailOf(b.id)?.history || []);
+                        const recon = billReconOf(b.id, detailOf(b.id)?.history || [], reconResolutions);
                         return (
                           <tr key={b.id} className="vd-tx-row" onClick={() => navigate(`/bills/${b.id}`)}>
                             <td style={{ fontFamily: "var(--font-mono)" }}>{b.invNo}</td>
