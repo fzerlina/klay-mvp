@@ -9,7 +9,7 @@
 //   fs: 'BS' (Balance Sheet) | 'PL' (Profit & Loss)
 //   section: free-form grouping label used by Trial Balance (e.g. "Current Asset")
 //
-// 102 leaf accounts + 25 groups. English-only. Codes follow Indonesian-SMB
+// 106 leaf accounts + 25 groups. English-only. Codes follow Indonesian-SMB
 // convention (1-asset, 2-liability, 3-equity, 4-revenue, 5-cogs, 6-opex,
 // 7-other, 8-tax). Every JE in the seed references one of these codes.
 
@@ -22,6 +22,11 @@ export const COA = [
   { id: '1-1200', code: '1-1200', name: 'Petty Cash',                    type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-cash',  level: 3, is_active: true },
   { id: '1-1300', code: '1-1300', name: 'Bank — BCA Operating',          type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-cash',  level: 3, is_active: true },
   { id: '1-1400', code: '1-1400', name: 'Bank — Mandiri Operating',      type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-cash',  level: 3, is_active: true },
+  // Where bank-reconciliation journals (bank fees, interest) post the bank
+  // side. The line names the bank or currency: "Bank IDR — BCA",
+  // "Bank Foreign Currency — USD".
+  { id: '11110', code: '11110', name: 'Bank IDR',                        type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-cash',  level: 3, is_active: true },
+  { id: '11120', code: '11120', name: 'Bank Foreign Currency',           type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-cash',  level: 3, is_active: true },
 
   { id: 'g-ar',             type: 'group', level: 2, parent: 'g-current-asset',   label: 'Trade Receivables' },
   { id: '1-2100', code: '1-2100', name: 'Accounts Receivable — Trade',   type: 'asset',         normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-ar', level: 3, is_active: true },
@@ -126,6 +131,8 @@ export const COA = [
   { id: '4-2200', code: '4-2200', name: 'Foreign Exchange Gain',         type: 'revenue', normal_balance: 'credit', fs: 'PL', section: 'Other Revenue', parent: 'g-other-rev', level: 2, is_active: true },
   { id: '4-2300', code: '4-2300', name: 'Miscellaneous Income',          type: 'revenue', normal_balance: 'credit', fs: 'PL', section: 'Other Revenue', parent: 'g-other-rev', level: 2, is_active: true },
   { id: '4-2400', code: '4-2400', name: 'Gain on Asset Disposal',        type: 'revenue', normal_balance: 'credit', fs: 'PL', section: 'Other Revenue', parent: 'g-other-rev', level: 2, is_active: true },
+  // Bank interest credited on the statement (bank reconciliation).
+  { id: '71010', code: '71010', name: 'Interest Income',                 type: 'revenue', normal_balance: 'credit', fs: 'PL', section: 'Other Revenue', parent: 'g-other-rev', level: 2, is_active: true },
 
   { id: 'g-contra-rev',     type: 'group', level: 1, parent: 'g-revenue',         label: 'Contra Revenue' },
   { id: '4-3100', code: '4-3100', name: 'Sales Returns and Allowances',  type: 'contra_revenue', normal_balance: 'debit', fs: 'PL', section: 'Revenue', parent: 'g-contra-rev', level: 2, is_active: true },
@@ -185,6 +192,8 @@ export const COA = [
   { id: '7-1300', code: '7-1300', name: 'Loss on Asset Disposal',        type: 'expense', normal_balance: 'debit', fs: 'PL', section: 'Other', parent: 'g-other-exp', level: 1, is_active: true },
   { id: '7-1400', code: '7-1400', name: 'Bank Loan Origination Fees',    type: 'expense', normal_balance: 'debit', fs: 'PL', section: 'Other', parent: 'g-other-exp', level: 1, is_active: true },
   { id: '7-1500', code: '7-1500', name: 'Miscellaneous Other Expense',   type: 'expense', normal_balance: 'debit', fs: 'PL', section: 'Other', parent: 'g-other-exp', level: 1, is_active: true },
+  // Bank fees charged on the statement (bank reconciliation).
+  { id: '72050', code: '72050', name: 'Other Non-Operating Expenses',    type: 'expense', normal_balance: 'debit', fs: 'PL', section: 'Other', parent: 'g-other-exp', level: 1, is_active: true },
 
   // ─── INCOME TAX ────────────────────────────────────────────────────────────
   { id: 'g-tax-exp',        type: 'group', level: 0,                              label: 'Income Tax' },
