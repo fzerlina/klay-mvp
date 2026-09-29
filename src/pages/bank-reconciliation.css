@@ -101,7 +101,7 @@
 .recon-acct-head{padding:0 24px 8px}
 .recon-acct-title{font-size:13px;color:var(--color-text-secondary);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .recon-acct-title strong{font-family:var(--font-display);font-size:15px;color:var(--color-text-primary);letter-spacing:-.005em;font-weight:700}
-/* ── SELECTED ACCOUNT: STATE + FINISH LINE ───────────────────────────── */
+/* ── SELECTED ACCOUNT: STATE + FINISH LINE ───────────────────────────── */
 .recon-acct-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap}
 .recon-acct-right{display:flex;align-items:center;gap:10px;flex-shrink:0}
 .recon-state-pill{font-size:10.5px;font-weight:700;padding:3px 10px;border-radius:9999px;border:1px solid;white-space:nowrap}
@@ -355,3 +355,130 @@
 .mm-foot-left{color:var(--color-warning-text)}
 .recon-ex-btn:disabled{opacity:.45;cursor:not-allowed}
 .recon-undo{margin-left:auto}
+
+/* A statement line's body: the bank text and Klay's suggestion, then (for fees
+   and interest) the drafted journal it would post. */
+.recon-crow-body{display:flex;flex-direction:column;gap:8px;min-width:0}
+.recon-je{border:1px solid var(--color-border-subtle);border-radius:var(--radius-sm);background:var(--color-surface-sunken);padding:6px 10px;max-width:520px}
+.recon-je-head{font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--color-text-tertiary);margin-bottom:3px}
+.recon-je-line{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:8px;align-items:baseline;font-size:11.5px;color:var(--color-text-secondary);padding:1px 0}
+.recon-je-line.cr .recon-je-acct{padding-left:14px}
+.recon-je-side{font-family:var(--font-mono);font-size:10.5px;color:var(--color-text-tertiary)}
+.recon-je-acct{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.recon-je-acct strong{font-family:var(--font-mono);font-weight:600;color:var(--color-text-primary);margin-right:4px}
+.recon-je-amt{font-family:var(--font-mono);font-size:11px;color:var(--color-text-primary);white-space:nowrap}
+
+/* Edit journal */
+.rj-modal{width:min(760px,calc(100vw - 32px));max-height:min(640px,calc(100vh - 48px));display:flex;flex-direction:column}
+.rj-body{flex:1;overflow-y:auto;padding:14px 18px;display:flex;flex-direction:column;gap:14px}
+.rj-fields{display:flex;gap:12px;flex-wrap:wrap}
+.rj-field{display:flex;flex-direction:column;gap:4px;font-size:11px;font-weight:600;color:var(--color-text-secondary)}
+.rj-field-grow{flex:1;min-width:220px}
+.rj-field input,.rj-line input,.rj-line select{box-sizing:border-box;width:100%;padding:6px 8px;border:1px solid var(--color-border-default);border-radius:var(--radius-sm);background:var(--color-surface-raised);font-family:var(--font-sans);font-size:12px;color:var(--color-text-primary);min-width:0}
+.rj-lines{display:flex;flex-direction:column;border:1px solid var(--color-border-subtle);border-radius:var(--radius-sm);overflow:hidden}
+.rj-line{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) 110px 110px 24px;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--color-border-subtle);font-size:12px}
+.rj-line:last-child{border-bottom:none}
+.rj-line .num{text-align:right;font-family:var(--font-mono)}
+.rj-line-head{background:var(--color-surface-sunken);font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--color-text-tertiary)}
+.rj-line-locked{background:var(--color-surface-sunken);color:var(--color-text-secondary)}
+.rj-acct{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rj-acct strong{font-family:var(--font-mono);font-weight:600;color:var(--color-text-primary);margin-right:4px}
+.rj-desc{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px}
+.rj-lock{font-size:9.5px;font-weight:700;text-transform:uppercase;color:var(--color-text-tertiary)}
+.rj-remove{background:none;border:0;font-size:16px;line-height:1;color:var(--color-text-tertiary);cursor:pointer;padding:0}
+.rj-remove:hover{color:var(--color-danger-text)}
+.rj-line-total{font-weight:700}
+.rj-problem{color:var(--color-danger-text)}
+@media (max-width:640px){.rj-line{grid-template-columns:minmax(0,1fr) 90px 90px 20px}.rj-line > :nth-child(2){display:none}}
+.recon-crow{grid-template-columns:52px minmax(0,1fr) 120px 290px}
+.recon-crow-acts .recon-ex-btn{white-space:nowrap}
+@media (max-width:640px){.recon-crow{grid-template-columns:44px minmax(0,1fr) auto}}
+
+/* Statement table: Date · Bank statement line · Journal no. · Matching result · Amount · Actions.
+   Each row is its own grid on the same template, so section headers can sit between rows. */
+.recon-trow{display:grid;grid-template-columns:56px minmax(200px,1.2fr) 118px minmax(220px,1.3fr) 128px 272px;gap:14px;align-items:start;padding:10px 18px;border-bottom:1px solid var(--color-border-subtle)}
+.recon-thead{padding-top:8px;padding-bottom:8px;background:var(--color-surface-sunken);font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--color-text-tertiary);position:sticky;top:0;z-index:1}
+.recon-thead .num{text-align:right}
+.recon-td-date{font-family:var(--font-mono);font-size:11px;color:var(--color-text-tertiary);padding-top:2px}
+.recon-td-line{display:flex;flex-direction:column;gap:4px;min-width:0;text-align:left;background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer}
+.recon-td-desc{font-family:var(--font-mono);font-size:11px;line-height:1.45;color:var(--color-text-primary);word-break:break-word}
+.recon-td-line:hover .recon-td-desc{text-decoration:underline;text-decoration-color:var(--color-border-strong);text-underline-offset:2px}
+.recon-td-more{font-size:11.5px;line-height:1.5;color:var(--color-text-tertiary)}
+.recon-td-je{display:flex;flex-direction:column;gap:2px;font-family:var(--font-mono);font-size:11px;color:var(--color-text-primary);padding-top:2px;min-width:0}
+.recon-td-none{color:var(--color-text-tertiary)}
+.recon-td-draft{display:inline-block;align-self:flex-start;font-family:var(--font-sans);font-size:10.5px;font-weight:700;padding:1px 8px;border-radius:999px;background:var(--color-surface-sunken);border:1px dashed var(--color-border-strong);color:var(--color-text-secondary)}
+.recon-td-result{display:flex;flex-direction:column;gap:2px;min-width:0}
+.recon-res-head{font-size:12px;font-weight:700;color:var(--color-text-primary)}
+.recon-res-head.warn{color:var(--color-warning-text)}
+.recon-res-head.danger{color:var(--color-danger-text)}
+.recon-res-head.ok{color:var(--color-success-text)}
+.recon-res-sub{font-size:11.5px;line-height:1.45;color:var(--color-text-secondary)}
+.recon-res-note{font-size:11px;line-height:1.45;color:var(--color-text-tertiary);margin-top:3px}
+.recon-td-result .recon-je{display:flex;flex-direction:column;gap:1px;border:0;background:none;padding:0;margin-top:1px;max-width:none}
+.recon-td-result .recon-je-line{display:flex;gap:6px;font-size:11px;padding:0}
+.recon-td-result .recon-je-line.cr{padding-left:12px}
+.recon-td-result .recon-je-line.cr .recon-je-acct{padding-left:0}
+.recon-td-amt{font-family:var(--font-mono);font-size:12px;font-weight:600;color:var(--color-text-primary);text-align:right;white-space:nowrap;padding-top:1px}
+.recon-td-acts{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap}
+.recon-td-acts .recon-ex-btn{white-space:nowrap}
+/* Breakpoints follow the table's own width (the sidebar eats into the window). */
+.recon-groups{container-type:inline-size}
+@container (max-width:1180px){.recon-trow{grid-template-columns:48px minmax(150px,1fr) 100px minmax(170px,1fr) 112px 246px;gap:12px}}
+@container (max-width:960px){
+  .recon-thead{display:none}
+  .recon-trow{grid-template-columns:48px minmax(0,1fr) auto;row-gap:6px}
+  .recon-td-line{grid-column:2 / 3}
+  .recon-td-amt{grid-column:3;grid-row:1}
+  .recon-td-je,.recon-td-result,.recon-td-acts{grid-column:2 / -1}
+  .recon-td-je:has(.recon-td-none){display:none}
+  .recon-td-acts{justify-content:flex-start}
+}
+.recon-res-basis{font-size:10.5px;line-height:1.4;color:var(--color-text-tertiary);margin-top:2px}
+.recon-section-blurb{font-size:11px;color:var(--color-text-tertiary);min-width:0}
+
+/* Review journals: Date · Bank statement line · Debit · Credit · Amount · Actions */
+.recon-jrow{grid-template-columns:56px minmax(200px,1.2fr) minmax(190px,1fr) minmax(190px,1fr) 128px 200px}
+.recon-jside{display:flex;align-items:baseline;gap:8px;font-size:12px;color:var(--color-text-primary);min-width:0}
+.recon-jside-acct{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.recon-jside-acct strong{font-family:var(--font-mono);font-weight:600;margin-right:4px}
+.recon-jside-amt{margin-left:auto;font-family:var(--font-mono);font-size:11px;color:var(--color-text-secondary);white-space:nowrap}
+.recon-td-line .recon-td-draft{align-self:flex-start}
+@container (max-width:1180px){.recon-jrow{grid-template-columns:48px minmax(150px,1fr) minmax(150px,1fr) minmax(150px,1fr) 112px 180px}}
+@container (max-width:960px){.recon-jrow{grid-template-columns:48px minmax(0,1fr) auto}}
+
+/* Progress — accounts reconciled (hero), lines by status (selected account), per card. */
+.recon-bar{display:flex;height:8px;border-radius:999px;background:var(--color-surface-sunken);border:1px solid var(--color-border-subtle);overflow:hidden;min-width:0}
+.recon-bar.sm{height:5px;margin-top:8px}
+.recon-bar-seg{height:100%;transition:width var(--transition-fast,.15s) ease}
+.recon-bar-seg.reconciled{background:var(--color-success-text)}
+.recon-bar-seg.journals{background:var(--color-brand-mid)}
+.recon-bar-seg.confirm{background:var(--color-action)}
+.recon-bar-seg.later{background:var(--color-text-tertiary)}
+.recon-bar-seg.unreconciled{background:var(--color-warning-text)}
+.bank-accts-progress{display:flex;align-items:center;gap:14px;flex:1;min-width:0;max-width:560px}
+.bank-accts-progress-lbl{font-size:12.5px;color:var(--color-text-secondary);white-space:nowrap}
+.bank-accts-progress-lbl strong{color:var(--color-text-primary);font-family:var(--font-mono)}
+.bank-accts-progress .recon-bar{flex:1;order:1}
+.bank-card-progress{display:flex;align-items:center;gap:10px;margin-top:8px}
+.bank-card-progress .recon-bar{flex:1;margin-top:0}
+.bank-card-count{font-size:11px;color:var(--color-text-tertiary);white-space:nowrap}
+.bank-card-count strong{font-family:var(--font-mono);color:var(--color-text-primary)}
+.bank-card-count.done{color:var(--color-success-text);font-weight:700}
+.recon-left{display:flex;flex-direction:column;align-items:flex-end;font-size:12px;color:var(--color-text-secondary);line-height:1.3}
+.recon-left strong{font-family:var(--font-mono);color:var(--color-text-primary)}
+.recon-left-split{font-size:10.5px;color:var(--color-text-tertiary)}
+.recon-foot-item{display:inline-flex;align-items:baseline;gap:6px}
+.recon-foot-amt{font-family:var(--font-mono);font-size:10.5px;color:var(--color-text-tertiary)}
+.recon-left-main{white-space:nowrap}
+
+/* Month */
+.bank-month{position:relative;flex:none}
+.bank-month-btn{display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 12px;border:1px solid var(--color-border-default);border-radius:var(--radius-sm);background:var(--color-surface-raised);font-family:var(--font-sans);font-size:12.5px;color:var(--color-text-secondary);cursor:pointer}
+.bank-month-btn:hover{border-color:var(--color-border-strong)}
+.bank-month-btn strong{color:var(--color-text-primary);font-weight:700}
+.bank-month-btn > svg:first-child{width:14px;height:14px;color:var(--color-text-tertiary)}
+.bank-month-caret{width:11px;height:11px;color:var(--color-text-tertiary)}
+.bank-month-tag{display:inline-block;margin-left:6px;padding:0 7px;border-radius:999px;font-size:10px;font-weight:700;line-height:17px;background:var(--color-action-wash,#EEF2FD);color:var(--color-action)}
+.bank-month-pop{min-width:260px;left:0;right:auto}
+.bank-month-state{margin-left:auto;font-size:11px;color:var(--color-text-tertiary);white-space:nowrap}
+.bank-month-state.done{color:var(--color-success-text);font-weight:700}

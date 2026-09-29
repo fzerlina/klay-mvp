@@ -1,12 +1,15 @@
-// Match manually — pair a bank line with the Klay records it stands for.
+// Reconcile manually — pair a bank line with the Klay records it stands for.
 //
-// Opened from a statement line the engine could not settle. It lists what the
-// books hold on the same account that no bank line has claimed yet, in the same
-// direction as the line (money out against money out). More than one record can
-// be ticked, because one transfer often settles several bills — the case the
-// engine deliberately does not guess at. The match only goes through when the
-// ticked records add up to the bank line exactly; anything else would leave a
-// difference nobody explained.
+// Lists what the books hold on the same account that no bank line has been
+// reconciled to yet, in the same direction as the line (money out against
+// money out), plus open invoices for money in. More than one can be ticked,
+// because one transfer often settles several bills — the case the engine
+// deliberately does not guess at.
+//
+// Payments and recorded receipts have to add up to the bank line exactly: the
+// payment module records the cash that left. Invoices may land within 3% of
+// their subtotals either way, the same range the engine suggests on — customers
+// withhold 2% PPh 23 and round.
 //
 // Ranking is a reading aid, not a decision: records for the party named in the
 // bank text come first, then exact amounts, then the nearest dates.
@@ -14,7 +17,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { formatRupiahExact } from "../lib/format";
 import { dayDiff } from "../lib/clock";
-import { nameAgrees } from "../lib/bankMatching";
+import { nameAgrees, AR_TOLERANCE } from "../lib/bankMatching";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const shortDate = (iso) => `${parseInt(iso.slice(8, 10), 10)} ${MONTHS[parseInt(iso.slice(5, 7), 10) - 1]}`;
@@ -48,7 +51,9 @@ export default function ManualMatchModal({ line, candidates, onConfirm, onClose 
   const selected = candidates.filter((r) => picked.has(r.id));
   const total = selected.reduce((s, r) => s + r.amount, 0);
   const left = line.amount - total;
-  const balanced = selected.length > 0 && left === 0;
+  const allInvoices = selected.length > 0 && selected.every((r) => r.kind === "invoice");
+  const inRange = allInvoices && left !== 0 && Math.abs(left) <= Math.round(Math.abs(total) * AR_TOLERANCE);
+  const balanced = selected.length > 0 && (left === 0 || inRange);
 
   const toggle = (id) =>
     setPicked((prev) => {
@@ -59,10 +64,10 @@ export default function ManualMatchModal({ line, candidates, onConfirm, onClose 
 
   return (
     <div className="bank-upload-backdrop" onClick={onClose}>
-      <div className="bank-upload-modal mm-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Match manually">
+      <div className="bank-upload-modal mm-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Reconcile manually">
         <div className="bank-upload-head">
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div className="bank-upload-title">Match manually</div>
+            <div className="bank-upload-title">Reconcile manually</div>
             <div className="mm-line">
               <span className="mm-line-date">{shortDate(line.date)}</span>
               <span className="mm-line-desc">{line.description}</span>
@@ -89,8 +94,8 @@ export default function ManualMatchModal({ line, candidates, onConfirm, onClose 
             <div className="mm-empty">
               {q
                 ? "No record matches that search."
-                : `No unmatched ${line.amount < 0 ? "payments" : "receipts"} on this account.`}{" "}
-              If the payment was never recorded in Klay, record it from its bill first.
+                : `Nothing left to reconcile this ${line.amount < 0 ? "payment" : "receipt"} to on this account.`}{" "}
+              {line.amount < 0 ? "If the payment was never recorded in Klay, record it from its bill first." : ""}
             </div>
           ) : (
             ranked.map(({ r, named, exact, gap }) => (
@@ -98,7 +103,7 @@ export default function ManualMatchModal({ line, candidates, onConfirm, onClose 
                 <input type="checkbox" checked={picked.has(r.id)} onChange={() => toggle(r.id)} />
                 <span className="mm-row-date">{shortDate(r.date)}</span>
                 <span className="mm-row-main">
-                  <span className="mm-row-ref">{r.ref}{r.billId && r.billId !== r.ref ? ` · ${r.billId}` : ""}</span>
+                  <span className="mm-row-ref">{r.ref}{r.billId && r.billId !== r.ref ? ` · ${r.billId}` : ""}{r.kind === "invoice" ? " · open invoice" : ""}</span>
                   <span className="mm-row-label">{r.label}</span>
                   <span className="mm-row-hints">
                     {named && <span className="recon-tag">Same name as the bank line</span>}
@@ -115,14 +120,16 @@ export default function ManualMatchModal({ line, candidates, onConfirm, onClose 
         <div className="mm-foot">
           <div className="mm-foot-sum">
             {selected.length === 0
-              ? "Tick the records this bank line pays."
+              ? `Tick the records this bank line ${line.amount < 0 ? "pays" : "settles"}.`
+              : balanced && inRange
+                ? <><strong>{signed(Math.abs(left))} {left < 0 ? "under" : "over"}</strong> the {selected.length === 1 ? "invoice subtotal" : "invoice subtotals"} — within {Math.round(AR_TOLERANCE * 100)}%.</>
               : balanced
                 ? <><strong>{selected.length} {selected.length === 1 ? "record" : "records"}</strong> add up to the bank line exactly.</>
                 : <>Selected {signed(total)} · <strong className="mm-foot-left">{signed(Math.abs(left))} {Math.abs(total) > Math.abs(line.amount) ? "over" : "still unaccounted for"}</strong></>}
           </div>
           <button type="button" className="recon-ex-btn" onClick={onClose}>Cancel</button>
           <button type="button" className="recon-ex-btn primary" disabled={!balanced} onClick={() => onConfirm(selected)}>
-            Match {selected.length > 1 ? `${selected.length} records` : ""}
+            Reconcile{selected.length > 1 ? ` ${selected.length} records` : ""}
           </button>
         </div>
       </div>

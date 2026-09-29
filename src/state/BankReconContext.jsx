@@ -18,6 +18,7 @@
 
 import { createContext, useContext, useMemo, useState, useCallback } from "react";
 import { CURRENT_PERIOD } from "../data/seed/bankStatement";
+import { historicalResolutions } from "../lib/bankReconHistory";
 
 // One key per account per month. The current month keeps the bare account id,
 // which is what Gate 4 on the close board reads.
@@ -28,12 +29,18 @@ const BankReconContext = createContext(null);
 
 export function BankReconProvider({ children }) {
   // { [exceptionId]: { action, at, by, note, jeNumber } }
-  const [resolutions, setResolutions] = useState({});
-  // { [accountId]: isoDate } — the account was declared reconciled by a person.
-  const [completed, setCompleted] = useState({});
+  // Seeded with how the previous months were left (lib/bankReconHistory.js).
+  const [resolutions, setResolutions] = useState(historicalResolutions);
   // { [periodKey]: isoDate } — a statement for a past month was uploaded. The
   // current month's statements are already on file, so they never appear here.
   const [uploaded, setUploaded] = useState({});
+  // { [exceptionId]: { je_date, memo, lines } } — a bank fee or interest journal
+  // somebody edited but has not posted yet. Unedited lines use Klay's draft.
+  const [drafts, setDrafts] = useState({});
+
+  const saveDraft = useCallback((id, draft) => {
+    setDrafts((prev) => ({ ...prev, [id]: draft }));
+  }, []);
 
   const markUploaded = useCallback((key, at) => {
     setUploaded((prev) => ({ ...prev, [key]: at }));
@@ -60,13 +67,9 @@ export function BankReconProvider({ children }) {
     setResolutions((prev) => ({ ...prev, ...map }));
   }, []);
 
-  const markComplete = useCallback((accountId, at) => {
-    setCompleted((prev) => ({ ...prev, [accountId]: at }));
-  }, []);
-
   const value = useMemo(
-    () => ({ resolutions, completed, uploaded, resolve, unresolve, resolveMany, markComplete, markUploaded }),
-    [resolutions, completed, uploaded, resolve, unresolve, resolveMany, markComplete, markUploaded],
+    () => ({ resolutions, uploaded, drafts, resolve, unresolve, resolveMany, markUploaded, saveDraft }),
+    [resolutions, uploaded, drafts, resolve, unresolve, resolveMany, markUploaded, saveDraft],
   );
 
   return <BankReconContext.Provider value={value}>{children}</BankReconContext.Provider>;
@@ -81,4 +84,4 @@ export function useBankRecon() {
 // For the non-React callers (computeBankRecon in the apClose seed, the task
 // hub): the overlay is passed in as plain data rather than reached for, so
 // those stay pure functions of their arguments.
-export const EMPTY_OVERLAY = { resolutions: {}, completed: {}, uploaded: {} };
+export const EMPTY_OVERLAY = { resolutions: {}, uploaded: {}, drafts: {} };
