@@ -37,6 +37,7 @@ import AccessPolicyPage from "./pages/AccessPolicyPage";
 import ApprovalSettingsPage from "./pages/ApprovalSettingsPage";
 import PostingPeriodsSettingsPage from "./pages/PostingPeriodsSettingsPage";
 import InventorySettingsPage from "./pages/InventorySettingsPage";
+import BankReconSettingsPage from "./pages/BankReconSettingsPage";
 import { InvoicesProvider } from "./state/InvoicesContext";
 import { BillsProvider } from "./state/BillsContext";
 import { PaymentsProvider } from "./state/PaymentsContext";
@@ -172,6 +173,7 @@ export default function App() {
                 <Route path="/approval" element={<ApprovalSettingsPage />} />
                 <Route path="/posting-periods" element={<PostingPeriodsSettingsPage />} />
                 <Route path="/inventory-settings" element={<InventorySettingsPage />} />
+                <Route path="/bank-recon-settings" element={<BankReconSettingsPage />} />
                 <Route path="*" element={<RoleLanding />} />
               </Route>
             </Routes>

@@ -99,6 +99,7 @@ const ROUTE_MODULE = [
   ["/trial-balance", "reports"],
   ["/chart-of-accounts", "settings"],
   ["/inventory-settings", "settings"],
+  ["/bank-recon-settings", "settings"],
   ["/bank-accounts", "settings"],
   ["/dimensions", "settings"],
   ["/users", "settings"],
