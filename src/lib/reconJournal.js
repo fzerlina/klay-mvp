@@ -112,3 +112,32 @@ export function postedEntry({ draft, exception, jeNumber, by, today, postDate = 
 
 export const postedNote = (exception, jeNumber, by) =>
   `${isInterest(exception) ? "Interest" : "Bank fee"} journal ${jeNumber} posted by ${by}.`;
+
+// The entry for a difference booked in Reconcile manually: the gap between a
+// bank line and the records it was reconciled to, sent to one of the accounts
+// in Settings → Bank reconciliation. `diff` is signed the way the statement
+// signs it — negative means the bank took more than the records say (Dr the
+// difference account, Cr bank), positive means more arrived (Dr bank, Cr the
+// difference account). Posted as soon as the person reconciles; there is no
+// draft step, because they chose the account a moment ago.
+export function differenceEntry({ exception, account, diff, accountCode, refs, jeNumber, by, today, postDate = null }) {
+  const bank = bankLineFor(account);
+  const amt = Math.abs(diff);
+  const inflow = diff > 0;
+  return {
+    je_number: jeNumber,
+    je_date: postDate || exception.date,
+    status: "posted",
+    memo: `Reconciliation difference — ${account.name} statement`,
+    reference_type: "bank_reconciliation",
+    reference_id: exception.lineId,
+    created_by: by,
+    created_date: today,
+    posted_by: by,
+    posted_date: today,
+    lines: [
+      { ...bank, debit: inflow ? amt : 0, credit: inflow ? 0 : amt, description: `Difference on ${exception.description}` },
+      { account_code: accountCode, account_name: nameOf(accountCode), debit: inflow ? 0 : amt, credit: inflow ? amt : 0, description: `Difference against ${refs}` },
+    ],
+  };
+}

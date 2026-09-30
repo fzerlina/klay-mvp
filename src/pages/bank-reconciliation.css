@@ -482,3 +482,8 @@
 .bank-month-pop{min-width:260px;left:0;right:auto}
 .bank-month-state{margin-left:auto;font-size:11px;color:var(--color-text-tertiary);white-space:nowrap}
 .bank-month-state.done{color:var(--color-success-text);font-weight:700}
+/* Reconcile manually — booking the difference. */
+.mm-diff{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:10px 18px;border-top:1px solid var(--color-border-default);background:var(--color-surface-sunken);font-size:12px;color:var(--color-text-secondary)}
+.mm-diff-lbl{white-space:nowrap}
+.mm-diff-select{flex:1;min-width:200px;padding:6px 8px;border:1px solid var(--color-border-default);border-radius:var(--radius-sm);background:var(--color-surface);font-family:var(--font-sans);font-size:12px;color:var(--color-text-primary)}
+.mm-diff-none a{color:var(--color-action)}

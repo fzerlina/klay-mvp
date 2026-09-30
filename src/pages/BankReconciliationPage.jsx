@@ -26,13 +26,14 @@ import { periodLabel, CURRENT_PERIOD } from "../data/seed/bankStatement";
 import { PERIODS } from "../lib/bankReconHistory";
 import { EXCEPTION_TYPES, STRENGTHS, isOpen, countOf, paysInFull, subtotalOf } from "../lib/bankMatching";
 import { runReconciliation, stateOf, reconcilable } from "../lib/bankRecon";
-import { draftEntry, draftProblem, postedEntry, postedNote } from "../lib/reconJournal";
+import { draftEntry, draftProblem, postedEntry, postedNote, differenceEntry } from "../lib/reconJournal";
 import { useJournalEntries } from "../state/JournalEntriesContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
 import { usePayments } from "../state/PaymentsContext";
 import { useInvoices } from "../state/InvoicesContext";
 import { useBankRecon } from "../state/BankReconContext";
 import { useClosePeriod } from "../state/ClosePeriodContext";
+import { useAccountingSettings } from "../state/AccountingSettingsContext";
 import ManualMatchModal from "../components/ManualMatchModal";
 import ReconJournalModal from "../components/ReconJournalModal";
 import { TODAY } from "../lib/clock";
@@ -380,12 +381,13 @@ function OpenRow({ ex, onAction, draftOf }) {
 }
 
 // A decided line and what decided it. Reconciling only links records, so it
-// can be undone; a posted journal is reversed in the journal instead.
+// can be undone; a posted journal is reversed in the journal instead — which
+// includes a manual reconciliation that booked a difference.
 const UNDOABLE = new Set(["reconcile", "manual-match"]);
 const RESOLVED_HEAD = { "post-journal": "Journal posted", reconcile: "Reconciled", "manual-match": "Reconciled manually" };
 function ReconciledRow({ ex, onAction }) {
   const r = ex.resolution;
-  const actions = UNDOABLE.has(r.action) ? [{ a: "undo", label: "Undo", kind: "link" }] : [];
+  const actions = UNDOABLE.has(r.action) && !r.jeNumber ? [{ a: "undo", label: "Undo", kind: "link" }] : [];
   const journals = r.journals?.length ? r.journals : r.jeNumber ? [r.jeNumber] : [];
   return (
     <TableRow
@@ -522,6 +524,7 @@ export default function BankReconciliationPage() {
   // sit outside this component because the close board asks the same question.
   const { resolutions, drafts, resolve, unresolve, resolveMany, saveDraft } = useBankRecon();
   const { isLocked, nextOpenPeriod } = useClosePeriod();
+  const { reconDifferenceAccounts } = useAccountingSettings();
   // The first open month, for journals from a month whose books are closed.
   const openPostDate = `${nextOpenPeriod}-01`;
 
@@ -710,25 +713,47 @@ export default function BankReconciliationPage() {
     return [...records, ...open];
   }, [run, invoices]);
 
-  function onManualMatch(picked) {
+  // `diff` is { accountCode, amount } when the person booked the gap between
+  // the bank line and the records to a difference account; amount is signed
+  // like the statement.
+  function onManualMatch(picked, diff = null) {
     const ex = manualFor;
     if (!ex) return;
     const records = picked.filter((r) => r.kind !== "invoice");
     const invs = picked.filter((r) => r.kind === "invoice");
+    // What the records account for: the bank line, less any booked difference.
+    const settledAmount = ex.amount - (diff?.amount || 0);
     // Split what arrived across the invoices by subtotal, the last taking the
     // rounding, and settle each by the same rule the suggestions use.
     const totalSub = invs.reduce((s, r) => s + r.amount, 0);
-    let left = ex.amount - records.reduce((s, r) => s + r.amount, 0);
+    let left = settledAmount - records.reduce((s, r) => s + r.amount, 0);
     const settled = invs.map((r, i) => {
-      const share = i === invs.length - 1 ? left : Math.round((ex.amount * r.amount) / totalSub);
+      const share = i === invs.length - 1 ? left : Math.round((settledAmount * r.amount) / totalSub);
       left -= share;
       const full = paysInFull(share, r.amount);
       recordReceipt(r.invoiceId, { amount: share, date: ex.date, lineId: ex.lineId, by: user.name, paysInFull: full });
       return `${r.invoiceId}${full ? "" : " (part-paid)"}`;
     });
     const refs = [...records.map((r) => r.ref), ...settled].join(" + ");
-    const note = `Reconciled manually to ${refs} by ${user.name}.`;
-    resolve(ex.id, { action: "manual-match", at: TODAY_ISO, by: user.name, note, recordIds: records.map((r) => r.id), journals: records.map((r) => r.ref), invoiceIds: invs.map((r) => r.invoiceId) });
+    let note = `Reconciled manually to ${refs} by ${user.name}.`;
+    let je = null;
+    if (diff) {
+      // Same closed-month rule as fee and interest journals.
+      const postDate = isLocked(ex.date) ? openPostDate : null;
+      je = differenceEntry({
+        exception: ex, account, diff: diff.amount, accountCode: diff.accountCode,
+        refs, jeNumber: peekNextJeNumber(), by: user.name, today: TODAY_ISO, postDate,
+      });
+      addJournalEntry(je);
+      note += ` Rp ${fmtRp(Math.abs(diff.amount))} difference booked to ${diff.accountCode} in ${je.je_number}.`;
+    }
+    resolve(ex.id, {
+      action: "manual-match", at: TODAY_ISO, by: user.name, note,
+      recordIds: records.map((r) => r.id),
+      journals: [...records.map((r) => r.ref), ...(je ? [je.je_number] : [])],
+      invoiceIds: invs.map((r) => r.invoiceId),
+      ...(je ? { jeNumber: je.je_number, difference: { accountCode: diff.accountCode, amount: diff.amount } } : {}),
+    });
     setManualFor(null);
     showToast(note);
   }
@@ -992,6 +1017,7 @@ export default function BankReconciliationPage() {
         <ManualMatchModal
           line={manualFor}
           candidates={manualCandidates}
+          diffAccounts={reconDifferenceAccounts}
           onConfirm={onManualMatch}
           onClose={() => setManualFor(null)}
         />

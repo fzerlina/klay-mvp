@@ -11,10 +11,16 @@
 // their subtotals either way, the same range the engine suggests on — customers
 // withhold 2% PPh 23 and round.
 //
+// Anything else can still be reconciled if the gap is booked to one of the
+// difference accounts in Settings → Bank reconciliation — the picker offers
+// those and nothing else. Klay posts the journal for it.
+//
 // Ranking is a reading aid, not a decision: records for the party named in the
 // bank text come first, then exact amounts, then the nearest dates.
 
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import { COA } from "../data/seed/coa";
 import { formatRupiahExact } from "../lib/format";
 import { dayDiff } from "../lib/clock";
 import { nameAgrees, AR_TOLERANCE } from "../lib/bankMatching";
@@ -23,10 +29,14 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 const shortDate = (iso) => `${parseInt(iso.slice(8, 10), 10)} ${MONTHS[parseInt(iso.slice(5, 7), 10) - 1]}`;
 const signed = (n) => `${n < 0 ? "−" : ""}Rp ${formatRupiahExact(Math.abs(n)).replace(/^Rp\s?/, "")}`;
 
-export default function ManualMatchModal({ line, candidates, onConfirm, onClose }) {
+const accountName = (code) => COA.find((a) => a.code === code)?.name || code;
+
+export default function ManualMatchModal({ line, candidates, diffAccounts = [], onConfirm, onClose }) {
   const [q, setQ] = useState("");
   const [picked, setPicked] = useState(() => new Set());
-  useEffect(() => { setQ(""); setPicked(new Set()); }, [line?.id]);
+  // Where the difference goes, or "" to not book one.
+  const [diffAcct, setDiffAcct] = useState("");
+  useEffect(() => { setQ(""); setPicked(new Set()); setDiffAcct(""); }, [line?.id]);
 
   const ranked = useMemo(() => {
     if (!line) return [];
@@ -53,7 +63,11 @@ export default function ManualMatchModal({ line, candidates, onConfirm, onClose 
   const left = line.amount - total;
   const allInvoices = selected.length > 0 && selected.every((r) => r.kind === "invoice");
   const inRange = allInvoices && left !== 0 && Math.abs(left) <= Math.round(Math.abs(total) * AR_TOLERANCE);
-  const balanced = selected.length > 0 && (left === 0 || inRange);
+  // A gap the records don't explain on their own — the only case the
+  // difference picker appears for.
+  const gap = selected.length > 0 && left !== 0 && !inRange;
+  const booking = gap && !!diffAcct;
+  const balanced = selected.length > 0 && (left === 0 || inRange || booking);
 
   const toggle = (id) =>
     setPicked((prev) => {
@@ -117,10 +131,33 @@ export default function ManualMatchModal({ line, candidates, onConfirm, onClose 
           )}
         </div>
 
+        {gap && (
+          <div className="mm-diff">
+            {diffAccounts.length === 0 ? (
+              <span className="mm-diff-none">
+                To book the {signed(Math.abs(left))} difference, add an account in{" "}
+                <Link to="/bank-recon-settings">Settings → Bank reconciliation</Link>.
+              </span>
+            ) : (
+              <>
+                <label className="mm-diff-lbl" htmlFor="mm-diff-acct">Book the {signed(Math.abs(left))} difference to</label>
+                <select id="mm-diff-acct" className="mm-diff-select" value={diffAcct} onChange={(e) => setDiffAcct(e.target.value)}>
+                  <option value="">Don't book it</option>
+                  {diffAccounts.map((code) => (
+                    <option key={code} value={code}>{code} · {accountName(code)}</option>
+                  ))}
+                </select>
+              </>
+            )}
+          </div>
+        )}
+
         <div className="mm-foot">
           <div className="mm-foot-sum">
             {selected.length === 0
               ? `Tick the records this bank line ${line.amount < 0 ? "pays" : "settles"}.`
+              : booking
+                ? <><strong>{signed(Math.abs(left))} difference</strong> to {diffAcct} {accountName(diffAcct)} — Klay posts the journal.</>
               : balanced && inRange
                 ? <><strong>{signed(Math.abs(left))} {left < 0 ? "under" : "over"}</strong> the {selected.length === 1 ? "invoice subtotal" : "invoice subtotals"} — within {Math.round(AR_TOLERANCE * 100)}%.</>
               : balanced
@@ -128,7 +165,7 @@ export default function ManualMatchModal({ line, candidates, onConfirm, onClose 
                 : <>Selected {signed(total)} · <strong className="mm-foot-left">{signed(Math.abs(left))} {Math.abs(total) > Math.abs(line.amount) ? "over" : "still unaccounted for"}</strong></>}
           </div>
           <button type="button" className="recon-ex-btn" onClick={onClose}>Cancel</button>
-          <button type="button" className="recon-ex-btn primary" disabled={!balanced} onClick={() => onConfirm(selected)}>
+          <button type="button" className="recon-ex-btn primary" disabled={!balanced} onClick={() => onConfirm(selected, booking ? { accountCode: diffAcct, amount: left } : null)}>
             Reconcile{selected.length > 1 ? ` ${selected.length} records` : ""}
           </button>
         </div>
