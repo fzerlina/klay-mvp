@@ -368,3 +368,16 @@
 }
 .pm-pay-form .pm-amt-custom { grid-template-columns: 1fr 136px; }
 .pm-amt-presets + .pm-sec-hint, .pm-amt-custom + .pm-sec-hint { margin: -2px 0 8px; }
+
+/* ── Export bank file ──────────────────────────────────────────────────── */
+.pm-export-modal { max-width: 620px; }
+.pm-export-modal .apa-modal-body { max-height: 72vh; overflow-y: auto; }
+.pm-export-list { max-height: 340px; overflow-y: auto; }
+.pm-snap-row.pm-export-row { grid-template-columns: 1fr 170px; }
+.pm-export-row .num { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.pm-export-wht { font-size: 10.5px; color: var(--color-text-tertiary); }
+.pm-export-excluded {
+  display: flex; flex-direction: column; gap: 4px; font-size: 12px; line-height: 1.45;
+  padding: 10px 12px; border-radius: 10px; background: #FBF1E0; border: 1px solid #EEDCBB; color: #7A5510;
+}
+.pm-export-excluded strong { font-family: var(--font-mono); margin-right: 4px; }

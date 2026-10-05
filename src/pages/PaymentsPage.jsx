@@ -6,6 +6,7 @@ import { useVendors } from "../state/VendorsContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
 import RelationshipTierControl from "../components/RelationshipTier";
 import RecordPaymentModal from "../components/RecordPaymentModal";
+import BankFileExportModal from "../components/BankFileExportModal";
 import { buildAgingLines } from "../lib/apAging";
 import { auditTextFor, breakdownTotal, defaultBreakdown } from "../lib/paymentBreakdown";
 import { accountsForMethod, bankAccountById } from "../data/seed/bankAccounts";
@@ -251,6 +252,7 @@ export default function PaymentsPage() {
   const [filter, setFilter] = useState(() => ({ ...BLANK_FILTER }));
   const [filterOpen, setFilterOpen] = useState(false);
   const [payingLine, setPayingLine] = useState(null);
+  const [exportLines, setExportLines] = useState(null);
   const [expandedFlags, setExpandedFlags] = useState(null);
 
   // Posted, non-accrual bills — the payable universe.
@@ -592,12 +594,16 @@ export default function PaymentsPage() {
           </div>
           <div className="apa-action-bar-actions">
             <button className="apa-action-bar-btn" onClick={() => setSelected(new Set())}>Clear</button>
+            {payMode === "execute" && (
+              <button className="apa-action-bar-btn" onClick={() => setExportLines(rows.filter((r) => selected.has(r.id) && canActOn(r)))}>Export bank file</button>
+            )}
             <button className="apa-action-bar-btn primary" onClick={runBulk}>{BOLT}{roleCfg.bulk}</button>
           </div>
         </div>
       )}
 
       {payingLine && <RecordPaymentModal bill={payingLine} onConfirm={confirmPayment} onClose={() => setPayingLine(null)} />}
+      {exportLines && <BankFileExportModal lines={exportLines} onClose={() => setExportLines(null)} />}
     </div>
   );
 }
