@@ -297,7 +297,8 @@ export default function PaymentsPage() {
   const searchBase = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return postedLines;
-    return postedLines.filter((l) => l.vendorName.toLowerCase().includes(q) || (l.invNo || "").toLowerCase().includes(q));
+    return postedLines.filter((l) =>
+      l.id.toLowerCase().includes(q) || l.vendorName.toLowerCase().includes(q) || (l.invNo || "").toLowerCase().includes(q));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [postedLines, search]);
 
@@ -472,7 +473,7 @@ export default function PaymentsPage() {
             <div className="lg-filter-row pm-filter-row">
               <div className="apa-search">
                 <svg viewBox="0 0 16 16" aria-hidden><circle cx="7" cy="7" r="5" /><path d="M11 11l3 3" /></svg>
-                <input className="apa-search-input" placeholder="Search vendor or invoice…" value={search} onChange={(e) => setSearch(e.target.value)} />
+                <input className="apa-search-input" placeholder="Search bill, vendor or invoice…" value={search} onChange={(e) => setSearch(e.target.value)} />
                 {search && <button type="button" className="apa-search-clear" onClick={() => setSearch("")} aria-label="Clear search">×</button>}
               </div>
               <div className="lg-filter-meta">
