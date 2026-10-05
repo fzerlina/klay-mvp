@@ -22,6 +22,22 @@ export const COA = [
   { id: '1-1200', code: '1-1200', name: 'Petty Cash',                    type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-cash',  level: 3, is_active: true },
   { id: '1-1300', code: '1-1300', name: 'Bank — BCA Operating',          type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-cash',  level: 3, is_active: true },
   { id: '1-1400', code: '1-1400', name: 'Bank — Mandiri Operating',      type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-cash',  level: 3, is_active: true },
+  // One account per company bank account in Settings → Bank accounts (seed/bankAccounts.js
+  // points each at its code here), so a payment or bank journal posts to a real
+  // ledger account rather than to a code the chart does not contain.
+  { id: '1-1210', code: '1-1210', name: 'Petty Cash — Mandiri',          type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-cash',  level: 3, is_active: true },
+  { id: '1-1410', code: '1-1410', name: 'Bank — BNI Operating',          type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-cash',  level: 3, is_active: true },
+  { id: '1-1420', code: '1-1420', name: 'Bank — CIMB Operating',         type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-cash',  level: 3, is_active: true },
+  { id: '1-1430', code: '1-1430', name: 'Bank — BRI Operating',          type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-cash',  level: 3, is_active: true },
+  { id: '1-1440', code: '1-1440', name: 'Bank — Permata Operating',      type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-cash',  level: 3, is_active: true },
+  { id: '1-1450', code: '1-1450', name: 'Bank — BNI Tax Account',        type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-cash',  level: 3, is_active: true },
+  { id: '1-1460', code: '1-1460', name: 'Bank — Mandiri Payroll',        type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-cash',  level: 3, is_active: true },
+  { id: '1-1470', code: '1-1470', name: 'Bank — BCA USD',                type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-cash',  level: 3, is_active: true },
+  { id: '1-1480', code: '1-1480', name: 'Bank — BCA SGD',                type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-cash',  level: 3, is_active: true },
+  { id: '1-1490', code: '1-1490', name: 'Bank — BCA EUR',                type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-cash',  level: 3, is_active: true },
+  { id: '1-1510', code: '1-1510', name: 'Time Deposit — BCA',            type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-cash',  level: 3, is_active: true },
+  { id: '1-1520', code: '1-1520', name: 'Time Deposit — Mandiri',        type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-cash',  level: 3, is_active: true },
+  { id: '1-1530', code: '1-1530', name: 'Restricted Cash — BCA',         type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-cash',  level: 3, is_active: true },
   // Where bank-reconciliation journals (bank fees, interest) post the bank
   // side. The line names the bank or currency: "Bank IDR — BCA",
   // "Bank Foreign Currency — USD".
@@ -103,6 +119,7 @@ export const COA = [
   { id: '2-4300', code: '2-4300', name: 'Deferred Revenue',              type: 'liability', normal_balance: 'credit', fs: 'BS', section: 'Current Liability', parent: 'g-other-current-liab', level: 3, is_active: true },
   { id: '2-4400', code: '2-4400', name: 'Bonus Payable',                 type: 'liability', normal_balance: 'credit', fs: 'BS', section: 'Current Liability', parent: 'g-other-current-liab', level: 3, is_active: true },
   { id: '2-4500', code: '2-4500', name: 'Dividends Payable',             type: 'liability', normal_balance: 'credit', fs: 'BS', section: 'Current Liability', parent: 'g-other-current-liab', level: 3, is_active: true },
+  { id: '2-4600', code: '2-4600', name: 'Employee Reimbursements Payable', type: 'liability', normal_balance: 'credit', fs: 'BS', section: 'Current Liability', parent: 'g-other-current-liab', level: 3, is_active: true },
 
   { id: 'g-nc-liab',        type: 'group', level: 1, parent: 'g-liab',            label: 'Non-Current Liabilities' },
   { id: '2-5100', code: '2-5100', name: 'Long-term Bank Loans',          type: 'liability', normal_balance: 'credit', fs: 'BS', section: 'Non-Current Liability', parent: 'g-nc-liab', level: 2, is_active: true },
@@ -119,7 +136,6 @@ export const COA = [
 
   // ─── REVENUE ───────────────────────────────────────────────────────────────
   { id: 'g-revenue',        type: 'group', level: 0,                              label: 'Revenue' },
-  { id: '2-4600', code: '2-4600', name: 'Employee Reimbursements Payable', type: 'liability', normal_balance: 'credit', fs: 'BS', section: 'Current Liability', parent: 'g-other-current-liab', level: 3, is_active: true },
   { id: 'g-operating-rev',  type: 'group', level: 1, parent: 'g-revenue',         label: 'Operating Revenue' },
   { id: '4-1100', code: '4-1100', name: 'Product Sales — Furniture',     type: 'revenue', normal_balance: 'credit', fs: 'PL', section: 'Revenue', parent: 'g-operating-rev', level: 2, is_active: true },
   { id: '4-1200', code: '4-1200', name: 'Product Sales — Textiles',      type: 'revenue', normal_balance: 'credit', fs: 'PL', section: 'Revenue', parent: 'g-operating-rev', level: 2, is_active: true },

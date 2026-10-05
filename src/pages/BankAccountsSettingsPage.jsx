@@ -4,6 +4,7 @@ import "./invoices-ledger.css";
 import "./settings-pages.css";
 import "./bank-accounts-settings.css";
 import { COMPANY_BANK_ACCOUNTS } from "../data/seed/bankAccounts";
+import { COA } from "../data/seed/coa";
 
 const BANK_OPTIONS = [
   { v: "BCA",     lbl: "Bank Central Asia (BCA)", color: "#0050A8" },
@@ -28,25 +29,10 @@ const GROUP_OPTIONS = [
 
 const CURRENCY_OPTIONS = ["IDR", "USD", "SGD", "EUR", "JPY", "AUD"];
 
-// Mock GL accounts available to link — cash-type only (1101-*, 1102-*, 1103-*)
-const AVAILABLE_GL_ACCOUNTS = [
-  { code: "1101-100", name: "Cash - BCA Operating" },
-  { code: "1101-110", name: "Cash - BNI Operating" },
-  { code: "1101-115", name: "Cash - Mandiri Operating" },
-  { code: "1101-120", name: "Cash - CIMB Operating" },
-  { code: "1101-130", name: "Cash - BRI Operating" },
-  { code: "1101-140", name: "Cash - Permata Operating" },
-  { code: "1101-200", name: "Cash - Tax Holding" },
-  { code: "1101-300", name: "Cash - Payroll" },
-  { code: "1101-400", name: "Cash - Petty BCA" },
-  { code: "1101-410", name: "Cash - Petty Mandiri" },
-  { code: "1102-100", name: "Cash - BCA USD" },
-  { code: "1102-200", name: "Cash - BCA SGD" },
-  { code: "1102-300", name: "Cash - BCA EUR" },
-  { code: "1103-100", name: "Time Deposits - BCA" },
-  { code: "1103-110", name: "Time Deposits - Mandiri" },
-  { code: "1103-200", name: "Restricted Cash - BCA" },
-];
+// GL accounts a bank account can post to: the cash and cash-equivalent
+// accounts in the chart of accounts, so a payment from this account lands on a
+// code the ledger actually has.
+const AVAILABLE_GL_ACCOUNTS = COA.filter((a) => a.parent === "g-cash" && a.code && a.is_active).map((a) => ({ code: a.code, name: a.name }));
 
 function fmtRp(n) {
   if (n == null) return "—";

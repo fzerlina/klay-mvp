@@ -29,11 +29,10 @@ const inCoa = (code) => COA.some((a) => a.type !== "group" && a.code === code);
 
 // Where a payment out of this account is credited, and how much we trust it.
 //
-// The bank-account master carries its own posting code (e.g. "1101-100 Cash -
-// BCA Operating") which does NOT exist in the chart of accounts — the seeds use
-// two different code systems. Rather than silently substitute an account
-// nobody chose, the configured code is used and the line is flagged, so the
-// mismatch shows up on screen instead of in a reconciliation three weeks later.
+// The bank-account master names the chart-of-accounts code each account posts
+// to. If someone configures a code the chart does not contain, it is still
+// used — nobody chose a substitute — but the line is flagged, so the mismatch
+// shows up on screen instead of in a reconciliation three weeks later.
 function creditAccountFor(account) {
   if (!account) {
     return { code: FALLBACK_CASH.default, name: "Cash on Hand", flag: "No source account recorded on this payment — defaulted to Cash on Hand." };

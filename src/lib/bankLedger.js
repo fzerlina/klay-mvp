@@ -26,17 +26,15 @@ import { VENDORS } from "../data/seed/vendors";
 import { CUSTOMERS } from "../data/seed/customers";
 import { cashOut, breakdownTotal, withheldTax } from "./paymentBreakdown";
 
-// ── Bridging two code systems ────────────────────────────────────────────────
+// ── From a ledger code to a bank account ────────────────────────────────────
 //
-// The bank-account master carries its own posting code ("1101-100 Cash - BCA
-// Operating") and the chart of accounts carries another ("1-1300 Bank — BCA
-// Operating"). paymentJournal.js already surfaces this mismatch as a flag on
-// the entry rather than silently substituting an account, and this file takes
-// the same line: the bridge is explicit, tries the configured code FIRST, and
-// falls back to the CoA name only because "Bank — {account name}" is a naming
-// convention the chart actually follows. Where neither works we return null and
-// the ledger simply has no bank movement to offer, which is the honest answer —
-// better than attributing someone's payroll run to the wrong account.
+// Each bank account in the master names the chart-of-accounts code it posts
+// to (e.g. bca-op → "1-1300 Bank — BCA Operating"). The bridge tries that
+// configured code FIRST and falls back to the CoA name only because
+// "Bank — {account name}" is a naming convention the chart follows — which
+// covers accounts with no code configured. Where neither works we return null
+// and the ledger simply has no bank movement to offer, which is the honest
+// answer — better than attributing someone's payroll run to the wrong account.
 
 const bankCoaCodes = new Set(
   COA.filter((a) => a.type !== "group" && /^Bank — /.test(a.name || "")).map((a) => a.code),
