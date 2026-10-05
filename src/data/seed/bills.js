@@ -3,8 +3,9 @@
 // AP bills. `vendor` references vendors.js by id. The first 8 records are
 // hand-curated demo anchors that the JE generator references; the rest are
 // synthetic but reference the same vendor + CoA universe.
-// No PPN: bills carry DPP only (see scripts/remove-ppn-fields.mjs) — with one
-// exception, BILL204, the worked tax example at the end of this file.
+// No PPN: bills carry DPP only (see scripts/remove-ppn-fields.mjs), with one
+// set of exceptions: BILL204, the worked tax example, and BILL205–208 after it,
+// all at the end of this file.
 export const BILLS = [
   {id:"BILL001",isAnchor:true,vendor:"V001",vendorName:"PT Supplier Elektronik Indonesia",initials:"SE",poNo:"PO001",invNo:"INV-V001-20250115",date:"2025-01-15",due:"2025-02-14",grn:"matched",dpp:75000000,pph23:0,total:75000000,sisa:0,approval:"approved",pay:"paid",isAI:false,keterangan:"Panel LCD untuk kebutuhan produksi Q1 2025.",pphRate:0,discountDueDate:"2025-01-24",grnNo:"GRN-001",contractNo:"KTR-V001-2025",bankReconStatus:"reconciled",paymentDate:"2025-02-10",paymentTime:"14:30",items:[{desc:"Komponen Elektronik - Panel LCD 24 inch",qty:50,price:1500000,subtotal:75000000,acct:"1-3100",acctName:"Raw Materials"}],audit:[{type:"created",action:"Bill dibuat",by:"Sarah Wijaya",date:"2025-01-20",time:"10:00"},{type:"approved",action:"Disetujui",by:"Budi Santoso",date:"2025-01-21",time:"09:30"}]},
   {id:"BILL002",isAnchor:true,vendor:"V002",vendorName:"CV Toko Bangunan Jaya",initials:"TB",poNo:"PO002",invNo:"INV-V002-20250120",date:"2025-01-20",due:"2025-02-04",grn:"matched",dpp:19200000,pph23:0,total:19200000,sisa:0,approval:"approved",pay:"paid",isAI:false,keterangan:"Pengadaan furnitur kantor baru.",pphRate:0,discountDueDate:"2025-01-29",grnNo:"GRN-002",contractNo:"",bankReconStatus:"reconciled",paymentDate:"2025-01-31",paymentTime:"14:30",items:[{desc:"Meja Kerja Ergonomis",qty:12,price:850000,subtotal:10200000,acct:"1-6300",acctName:"Office Equipment"},{desc:"Kursi Kantor",qty:20,price:450000,subtotal:9000000,acct:"1-6300",acctName:"Office Equipment"}],audit:[{type:"created",action:"Bill dibuat",by:"Andi Prasetyo",date:"2025-01-25",time:"14:00"},{type:"approved",action:"Disetujui",by:"Budi Santoso",date:"2025-01-26",time:"10:00"}]},
@@ -212,7 +213,7 @@ export const BILLS = [
   // Worked tax example (see the Payment thread): one bill that carries every
   // line of the Indonesian tax ladder at once — PPN on all three lines, PPh 23
   // on the service line only. DPP 82.850.000 + PPN 9.113.500 = Total 91.963.500;
-  // less PPh 23 of 160.000 = Net Payable 91.803.500. It is the only bill in the
+  // less PPh 23 of 160.000 = Net Payable 91.803.500. It was the first bill in the
   // seed where Total != DPP, which is the point: it shows what the Payment
   // list's "Total bill" column does and does not include.
   {id:"BILL204",vendor:"V008",vendorName:"PT Teknologi Solusi Digital",initials:"TS",poNo:"PO-2025-0204",invNo:"INV-V008-20250417",date:"2025-04-17",due:"2025-05-17",grn:"matched",dpp:82850000,ppn:9113500,ppnRate:0.11,pph23:160000,pphRate:0.02,pphBase:8000000,total:91963500,sisa:91963500,approval:"approved",pay:"unpaid",isAI:false,keterangan:"Laptop refresh for the finance team, with network installation.",discountDueDate:"2025-04-26",grnNo:"GRN-204",contractNo:"KTR-V008-2025",bankReconStatus:"",paymentDate:"",paymentTime:"",je_number:"JE-2025-1204",je_posted_date:"2025-04-17",items:[
@@ -220,4 +221,29 @@ export const BILLS = [
     {desc:"Network installation & setup",kind:"service",qty:1,price:8000000,subtotal:8000000,ppnRate:0.11,ppn:880000,pphRate:0.02,pph:160000,lineTotal:8880000,acct:"6-2700",acctName:"Professional Services"},
     {desc:"Network cables & accessories",kind:"product",qty:1,price:2350000,subtotal:2350000,ppnRate:0.11,ppn:258500,pph:0,lineTotal:2608500,acct:"6-2500",acctName:"Office Supplies"},
   ],audit:[{type:"created",action:"Bill created",by:"Sarah Wijaya",date:"2025-04-17",time:"09:12"},{type:"approved",action:"Approved",by:"Budi Santoso",date:"2025-04-17",time:"15:40"},{type:"posted",action:"Posted to GL · JE-2025-1204",by:"Budi Santoso",date:"2025-04-17",time:"15:45"}]},
+  // More PPN examples, payable now, so Record payment has bills whose
+  // breakdown differs from their total. They carry PPN like BILL204 because
+  // their vendors are PKP, and a PKP bill without PPN raises the
+  // missing-tax-invoice check.
+  //   BILL205, BILL208  PPN + PPh 23 (services): to vendor = total − PPh
+  //   BILL206, BILL207  PPN only (goods): to vendor = total
+  {id:"BILL205",vendor:"V004",vendorName:"PT Penyedia Layanan Konsultasi",initials:"PK",poNo:"PO-2025-0205",invNo:"INV-V004-20250410",date:"2025-04-10",due:"2025-05-25",grn:"matched",dpp:60000000,ppn:6600000,ppnRate:0.11,pph23:1200000,pphRate:0.02,pphBase:60000000,total:66600000,sisa:66600000,approval:"approved",pay:"unpaid",isAI:false,keterangan:"Process review, Q2 engagement.",discountDueDate:"",grnNo:"GRN-205",contractNo:"KTR-V004-2025",bankReconStatus:"",paymentDate:"",paymentTime:"",je_number:"JE-2025-1205",je_posted_date:"2025-04-11",
+    items:[
+    {desc:"Process review consulting — Q2 engagement",kind:"service",qty:1,price:60000000,subtotal:60000000,ppnRate:0.11,ppn:6600000,pphRate:0.02,pph:1200000,lineTotal:66600000,acct:"6-2700",acctName:"Professional Services"},
+  ],audit:[{type:"created",action:"Bill created",by:"Sarah Wijaya",date:"2025-04-10",time:"10:20"},{type:"approved",action:"Approved",by:"Budi Santoso",date:"2025-04-11",time:"09:05"},{type:"posted",action:"Posted to GL · JE-2025-1205",by:"Budi Santoso",date:"2025-04-11",time:"09:10"}]},
+  {id:"BILL206",vendor:"V006",vendorName:"PT Kemasan Nusantara",initials:"KN",poNo:"PO-2025-0206",invNo:"INV-V006-20250415",date:"2025-04-15",due:"2025-05-15",grn:"matched",dpp:42000000,ppn:4620000,ppnRate:0.11,pph23:0,pphRate:0,total:46620000,sisa:46620000,approval:"approved",pay:"unpaid",isAI:false,keterangan:"May packaging stock.",discountDueDate:"2025-04-25",grnNo:"GRN-206",contractNo:"",bankReconStatus:"",paymentDate:"",paymentTime:"",je_number:"JE-2025-1206",je_posted_date:"2025-04-15",
+    items:[
+    {desc:"Corrugated shipping boxes",kind:"product",qty:12000,price:2500,subtotal:30000000,ppnRate:0.11,ppn:3300000,pph:0,lineTotal:33300000,acct:"1-3100",acctName:"Raw Materials"},
+    {desc:"Printed product sleeves",kind:"product",qty:8000,price:1500,subtotal:12000000,ppnRate:0.11,ppn:1320000,pph:0,lineTotal:13320000,acct:"1-3100",acctName:"Raw Materials"},
+  ],audit:[{type:"created",action:"Bill created",by:"Rina Kusuma",date:"2025-04-15",time:"13:40"},{type:"approved",action:"Approved",by:"Budi Santoso",date:"2025-04-15",time:"16:10"},{type:"posted",action:"Posted to GL · JE-2025-1206",by:"Budi Santoso",date:"2025-04-15",time:"16:15"}]},
+  {id:"BILL207",vendor:"V007",vendorName:"CV Percetakan Maju",initials:"PM",poNo:"PO-2025-0207",invNo:"INV-V007-20250414",date:"2025-04-14",due:"2025-05-14",grn:"matched",dpp:18500000,ppn:2035000,ppnRate:0.11,pph23:0,pphRate:0,total:20535000,sisa:20535000,approval:"approved",pay:"unpaid",isAI:false,keterangan:"Q2 catalogue print run.",discountDueDate:"",grnNo:"GRN-207",contractNo:"",bankReconStatus:"",paymentDate:"",paymentTime:"",je_number:"JE-2025-1207",je_posted_date:"2025-04-14",
+    items:[
+    {desc:"Product catalogue, 48 pages",kind:"product",qty:2000,price:8000,subtotal:16000000,ppnRate:0.11,ppn:1760000,pph:0,lineTotal:17760000,acct:"6-2500",acctName:"Office Supplies"},
+    {desc:"Tri-fold brochures",kind:"product",qty:5000,price:500,subtotal:2500000,ppnRate:0.11,ppn:275000,pph:0,lineTotal:2775000,acct:"6-2500",acctName:"Office Supplies"},
+  ],audit:[{type:"created",action:"Bill created",by:"Andi Prasetyo",date:"2025-04-14",time:"11:02"},{type:"approved",action:"Approved",by:"Budi Santoso",date:"2025-04-14",time:"15:30"},{type:"posted",action:"Posted to GL · JE-2025-1207",by:"Budi Santoso",date:"2025-04-14",time:"15:35"}]},
+  {id:"BILL208",vendor:"V003",vendorName:"PT Jasa Logistik Cepat",initials:"JL",poNo:"PO-2025-0208",invNo:"INV-V003-20250418",date:"2025-04-18",due:"2025-04-25",grn:"matched",dpp:30000000,ppn:3300000,ppnRate:0.11,pph23:600000,pphRate:0.02,pphBase:30000000,total:33300000,sisa:33300000,approval:"approved",pay:"unpaid",isAI:false,keterangan:"April logistics — freight and warehouse handling.",discountDueDate:"",grnNo:"GRN-208",contractNo:"",bankReconStatus:"",paymentDate:"",paymentTime:"",je_number:"JE-2025-1208",je_posted_date:"2025-04-18",
+    items:[
+    {desc:"Freight — April, Jabodetabek & Surabaya",kind:"service",qty:1,price:26000000,subtotal:26000000,ppnRate:0.11,ppn:2860000,pphRate:0.02,pph:520000,lineTotal:28860000,acct:"6-3100",acctName:"Postage & Courier"},
+    {desc:"Warehouse handling — April",kind:"service",qty:1,price:4000000,subtotal:4000000,ppnRate:0.11,ppn:440000,pphRate:0.02,pph:80000,lineTotal:4440000,acct:"6-3100",acctName:"Postage & Courier"},
+  ],audit:[{type:"created",action:"Bill created",by:"Rina Kusuma",date:"2025-04-18",time:"09:48"},{type:"approved",action:"Approved",by:"Budi Santoso",date:"2025-04-18",time:"14:20"},{type:"posted",action:"Posted to GL · JE-2025-1208",by:"Budi Santoso",date:"2025-04-18",time:"14:25"}]},
 ];

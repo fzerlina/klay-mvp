@@ -91,6 +91,18 @@ function seedPayments() {
     approvedBy: "Sari Dewanti", approvedAt: isoDaysAgo(1),
   };
 
+  // The other PPN examples (BILL205–208, see seed/bills.js) are pinned for the
+  // same reason: how PPN and PPh shape the payment is only visible when one
+  // is recorded. BILL207 waits on approval so the FM queue shows one too.
+  for (const id of ["BILL205", "BILL206", "BILL208"]) {
+    m[id] = {
+      request: "approved",
+      requestedBy: "Budi Santoso", requestedAt: isoDaysAgo(2),
+      approvedBy: "Sari Dewanti", approvedAt: isoDaysAgo(1),
+    };
+  }
+  m.BILL207 = { request: "requested", requestedBy: "Budi Santoso", requestedAt: isoDaysAgo(1) };
+
   payable.forEach((id, i) => {
     if (m[id]) return; // already pinned above
     if (i < 6) {
