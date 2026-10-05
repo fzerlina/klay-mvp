@@ -359,3 +359,12 @@
   .pm-snap-row, .pm-snap-row.ppn { grid-template-columns: 1fr 96px; }
   .pm-snap-row.ppn > :nth-child(3) { display: none; }
 }
+
+/* ── Quick amounts (Record payment) ─────────────────────────────────────── */
+.pm-amt-presets { margin-bottom: 8px; }
+.pm-amt-custom {
+  display: grid; grid-template-columns: 1fr 172px; gap: 10px; align-items: center;
+  margin-bottom: 8px; font-size: 12px; color: var(--color-text-secondary);
+}
+.pm-pay-form .pm-amt-custom { grid-template-columns: 1fr 136px; }
+.pm-amt-presets + .pm-sec-hint, .pm-amt-custom + .pm-sec-hint { margin: -2px 0 8px; }

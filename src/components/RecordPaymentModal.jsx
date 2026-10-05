@@ -60,6 +60,30 @@ export default function RecordPaymentModal({ bill, onConfirm, onClose }) {
 
   const patch = (p) => setBd((prev) => ({ ...prev, ...p }));
 
+  // Quick amounts. A preset sets how much of the open balance this payment
+  // clears and rebuilds the default split for it, with withholding scaled to
+  // the same share: PPh is withheld on what is actually paid, so half a
+  // payment withholds half the tax. Editing the split by hand afterwards
+  // deselects the preset rather than leaving it claiming numbers it no longer
+  // describes.
+  const [preset, setPreset] = useState("full");
+  const [customAmt, setCustomAmt] = useState(0);
+  const basePph = Math.min(bill.pph23 || 0, bill.remaining || 0);
+  const applyAmount = (amount) => setBd((prev) => {
+    const amt = Math.max(0, Math.min(amount, bill.remaining || 0));
+    const pph = bill.remaining > 0 ? Math.round((basePph * amt) / bill.remaining) : 0;
+    const next = defaultBreakdown({ remaining: amt, pph23: pph });
+    return { ...next, method: prev.method, sourceAccountId: prev.sourceAccountId, giroNumber: prev.giroNumber, rail: prev.rail };
+  });
+  const pickPreset = (key) => {
+    setPreset(key);
+    if (key === "full") applyAmount(bill.remaining);
+    else if (key === "half") applyAmount(Math.round(bill.remaining / 2));
+    else if (key === "custom") { setCustomAmt(allocated); applyAmount(allocated); }
+  };
+  const onCustomAmount = (v) => { const amt = Math.min(v, bill.remaining || 0); setCustomAmt(amt); applyAmount(amt); };
+  const editedByHand = () => setPreset(null);
+
   // Moving a deduction takes the difference out of the vendor's cash, so the
   // total allocated stays where it was and the bill stays fully covered until
   // you deliberately lower the cash line.
@@ -199,7 +223,37 @@ export default function RecordPaymentModal({ bill, onConfirm, onClose }) {
 
             {/* ── How much, and booked where ──────────────────────────────── */}
             <div className="pm-sec">
-              <div className="pm-sec-lbl">Breakdown</div>
+              <div className="pm-sec-lbl">Payment amount</div>
+              <div className="pm-method-row pm-amt-presets">
+                {AMOUNT_PRESETS.map((p) => (
+                  <button
+                    key={p.key}
+                    type="button"
+                    className={`pm-method${preset === p.key ? " on" : ""}`}
+                    onClick={() => pickPreset(p.key)}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+              {preset === "custom" && (
+                <div className="pm-amt-custom">
+                  <span>Amount to clear off the bill</span>
+                  <div className="pm-bd-input">
+                    <span className="apa-modal-prefix">Rp</span>
+                    <input
+                      inputMode="numeric"
+                      autoFocus
+                      value={customAmt ? customAmt.toLocaleString("id-ID") : ""}
+                      placeholder="0"
+                      onChange={(e) => onCustomAmount(digits(e.target.value))}
+                    />
+                  </div>
+                </div>
+              )}
+              {basePph > 0 && (
+                <div className="pm-sec-hint">PPh is withheld on the amount paid, so it scales with the amount you pick.</div>
+              )}
               <div className="pm-bd-list">
                 <div className="pm-bd-row cash">
                   <div className="pm-bd-lbl">
@@ -215,7 +269,7 @@ export default function RecordPaymentModal({ bill, onConfirm, onClose }) {
                       autoFocus
                       value={bd.to_vendor ? bd.to_vendor.toLocaleString("id-ID") : ""}
                       placeholder="0"
-                      onChange={(e) => patch({ to_vendor: digits(e.target.value) })}
+                      onChange={(e) => { editedByHand(); patch({ to_vendor: digits(e.target.value) }); }}
                     />
                   </div>
                   <span aria-hidden className="pm-bd-x-spacer" />
@@ -225,9 +279,9 @@ export default function RecordPaymentModal({ bill, onConfirm, onClose }) {
                   <DeductionRow
                     key={d.id}
                     row={d}
-                    onAmount={(v) => setDeductionAmount(d.id, v)}
+                    onAmount={(v) => { editedByHand(); setDeductionAmount(d.id, v); }}
                     onAccount={(v) => setDeductionAccount(d.id, v)}
-                    onRemove={() => dropDeduction(d.id)}
+                    onRemove={() => { editedByHand(); dropDeduction(d.id); }}
                   />
                 ))}
               </div>
@@ -276,6 +330,12 @@ export default function RecordPaymentModal({ bill, onConfirm, onClose }) {
 }
 
 const digits = (s) => Number(String(s).replace(/[^\d]/g, "")) || 0;
+
+const AMOUNT_PRESETS = [
+  { key: "full", label: "Full balance" },
+  { key: "half", label: "50%" },
+  { key: "custom", label: "Custom" },
+];
 
 // What the bill itself says, read-only, so the person paying can see where the
 // default split comes from: which lines carry PPN, which carry PPh, and how
