@@ -2,6 +2,9 @@ import { useState, useMemo } from "react";
 import { getActiveAccounts, COA_BY_CODE } from "../data/seed/coa";
 import { DIM_BY_KEY, paletteFor, dimensionsForAccount } from "../data/seed/dimensions";
 import { TODAY } from "../lib/clock";
+import { useAccountingSettings } from "../state/AccountingSettingsContext";
+import { useVendors } from "../state/VendorsContext";
+import { useCustomers } from "../state/CustomersContext";
 
 // Seed JEs store dates as local ISO "YYYY-MM-DD" strings; match that so list
 // sorting (which calls String.localeCompare on je_date) keeps working.
@@ -22,7 +25,7 @@ function valuesFor(key) {
 
 let LINE_SEQ = 0;
 function blankLine() {
-  return { id: ++LINE_SEQ, account_code: "", debit: "", credit: "", description: "", dims: {} };
+  return { id: ++LINE_SEQ, account_code: "", debit: "", credit: "", description: "", dims: {}, payee: "" };
 }
 
 // Map pre-filled lines (from a stock adjustment or other flow) into the modal's
@@ -35,6 +38,7 @@ function seedLines(initialLines) {
     debit: l.debit ? String(l.debit) : "",
     credit: l.credit ? String(l.credit) : "",
     description: l.description || "",
+    payee: "",
     dims: {},
   }));
 }
@@ -48,6 +52,29 @@ export default function DraftJournalModal({ open, intentQuery, initialLines, ini
   const [memo, setMemo] = useState(initialMemo || intentQuery || "");
   const [lines, setLines] = useState(() => seedLines(initialLines));
   const [showErrors, setShowErrors] = useState(false);
+
+  // A line on a reconcilable account is a payable the Payment list has to
+  // settle, so it must say who is owed — without a payee there is nobody to pay
+  // and nothing to match a bank line against. Other lines in the same entry
+  // (the expense side) need none. Employees being reimbursed are registered as
+  // vendors until there is an Expense module.
+  const { reconcilableAccounts } = useAccountingSettings();
+  const { vendors } = useVendors();
+  const { customers } = useCustomers();
+  const isReconcilable = (code) => !!code && reconcilableAccounts.includes(code);
+  const payeeOf = (key) => {
+    const [kind, id] = String(key || "").split(":");
+    const rec = kind === "vendor" ? vendors.find((v) => v.id === id) : kind === "customer" ? customers.find((c) => c.id === id) : null;
+    return rec ? { kind, id, name: rec.name } : null;
+  };
+  const payeeVendors = useMemo(
+    () => vendors.filter((v) => v.status !== "inactive").slice().sort((a, b) => a.name.localeCompare(b.name)),
+    [vendors],
+  );
+  const payeeCustomers = useMemo(
+    () => customers.slice().sort((a, b) => a.name.localeCompare(b.name)),
+    [customers],
+  );
 
   function applicableDims(code) {
     const acct = COA_BY_CODE[code];
@@ -66,7 +93,7 @@ export default function DraftJournalModal({ open, intentQuery, initialLines, ini
         const keys = code ? applicableDims(code) : [];
         const dims = {};
         for (const k of keys) if (l.dims[k]) dims[k] = l.dims[k];
-        return { ...l, account_code: code, dims };
+        return { ...l, account_code: code, dims, payee: isReconcilable(code) ? l.payee : "" };
       }),
     );
   }
@@ -104,13 +131,15 @@ export default function DraftJournalModal({ open, intentQuery, initialLines, ini
       const missing = [];
       if (d === 0 && c === 0) missing.push("amount");
       if (d > 0 && c > 0) missing.push("one side only");
+      if (isReconcilable(l.account_code) && !payeeOf(l.payee)) missing.push("payee");
       for (const k of applicableDims(l.account_code)) {
         if (!l.dims[k]) missing.push(DIM_BY_KEY[k]?.label || k);
       }
       if (missing.length) errs[l.id] = missing;
     }
     return errs;
-  }, [lines]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lines, reconcilableAccounts, vendors, customers]);
 
   const dimsComplete = Object.keys(lineErrors).length === 0;
   const canSave = activeLines.length >= 2 && balanced && dimsComplete;
@@ -142,6 +171,7 @@ export default function DraftJournalModal({ open, intentQuery, initialLines, ini
           credit: parseInt(l.credit, 10) || 0,
           description: l.description.trim(),
           dimensions: { ...l.dims },
+          ...(isReconcilable(l.account_code) && payeeOf(l.payee) ? { payee: payeeOf(l.payee) } : {}),
         };
       }),
     };
@@ -227,6 +257,26 @@ export default function DraftJournalModal({ open, intentQuery, initialLines, ini
                   value={l.description}
                   onChange={(e) => patchLine(l.id, { description: e.target.value })}
                 />
+
+                {isReconcilable(l.account_code) && (
+                  <div className="dje-payee">
+                    <span className="dje-dims-lbl">Payee</span>
+                    <select
+                      className={`dje-input dje-payee-sel${l.payee ? " set" : ""}`}
+                      value={l.payee}
+                      onChange={(e) => patchLine(l.id, { payee: e.target.value })}
+                    >
+                      <option value="">Who is owed this?</option>
+                      <optgroup label="Vendors">
+                        {payeeVendors.map((v) => <option key={v.id} value={`vendor:${v.id}`}>{v.name}</option>)}
+                      </optgroup>
+                      <optgroup label="Customers">
+                        {payeeCustomers.map((c) => <option key={c.id} value={`customer:${c.id}`}>{c.name}</option>)}
+                      </optgroup>
+                    </select>
+                    <span className="dje-payee-hint">Reconcilable account — this line goes to Payment until it is paid.</span>
+                  </div>
+                )}
 
                 {l.account_code && (
                   keys.length > 0 ? (

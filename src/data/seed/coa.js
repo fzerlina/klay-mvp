@@ -119,6 +119,7 @@ export const COA = [
 
   // ─── REVENUE ───────────────────────────────────────────────────────────────
   { id: 'g-revenue',        type: 'group', level: 0,                              label: 'Revenue' },
+  { id: '2-4600', code: '2-4600', name: 'Employee Reimbursements Payable', type: 'liability', normal_balance: 'credit', fs: 'BS', section: 'Current Liability', parent: 'g-other-current-liab', level: 3, is_active: true },
   { id: 'g-operating-rev',  type: 'group', level: 1, parent: 'g-revenue',         label: 'Operating Revenue' },
   { id: '4-1100', code: '4-1100', name: 'Product Sales — Furniture',     type: 'revenue', normal_balance: 'credit', fs: 'PL', section: 'Revenue', parent: 'g-operating-rev', level: 2, is_active: true },
   { id: '4-1200', code: '4-1200', name: 'Product Sales — Textiles',      type: 'revenue', normal_balance: 'credit', fs: 'PL', section: 'Revenue', parent: 'g-operating-rev', level: 2, is_active: true },

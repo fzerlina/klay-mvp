@@ -56,7 +56,10 @@ function creditAccountFor(account) {
   return { code: account.glAccount, name: account.glAccountName || accountByCode(account.glAccount)?.name || account.name, flag: null };
 }
 
-export function paymentJournalLines(breakdown, { vendorName } = {}) {
+// `payableAccount` overrides the debit side for a payable that is not a bill:
+// a journal payable (lib/journalPayables.js) is owed on its own account, not on
+// trade AP, so that is the account the payment relieves.
+export function paymentJournalLines(breakdown, { vendorName, payableAccount = null } = {}) {
   if (!breakdown) return { lines: [], balanced: true, totalDr: 0, totalCr: 0 };
 
   const cleared = breakdownTotal(breakdown);
@@ -66,11 +69,13 @@ export function paymentJournalLines(breakdown, { vendorName } = {}) {
 
   lines.push({
     side: "DR",
-    account_code: ACCT_AP_TRADE.code,
-    account_name: ACCT_AP_TRADE.name,
+    account_code: (payableAccount || ACCT_AP_TRADE).code,
+    account_name: (payableAccount || ACCT_AP_TRADE).name,
     amount: cleared,
     description: `Payable cleared${vendorName ? ` — ${vendorName}` : ""}`,
-    rule: "AP control rule: a payment relieves the payable by everything it clears, cash and deductions alike",
+    rule: payableAccount
+      ? `Payable rule: a payment relieves ${payableAccount.code} — the account the journal booked the payable to — by everything it clears`
+      : "AP control rule: a payment relieves the payable by everything it clears, cash and deductions alike",
     flag: null,
   });
 

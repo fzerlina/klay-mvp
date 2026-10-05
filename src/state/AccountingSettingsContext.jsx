@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useMemo, useState } from "react";
 import { ACCOUNTING_SETTINGS } from "../data/seed/accountingSettings";
 
 // Company-wide accounting policy that pages read at runtime. Seeded from
@@ -15,9 +15,20 @@ export function AccountingSettingsProvider({ children }) {
   const [reconDifferenceAccounts, setReconDifferenceAccounts] = useState(
     ACCOUNTING_SETTINGS.recon_difference_accounts,
   );
+  // Account codes whose journal lines are payables to settle through Payment.
+  const [reconcilableAccounts, setReconcilableAccounts] = useState(
+    ACCOUNTING_SETTINGS.reconcilable_accounts,
+  );
+  const toggleReconcilable = useCallback((code) => setReconcilableAccounts((prev) => (
+    prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]
+  )), []);
   const value = useMemo(
-    () => ({ inventoryCostingMethod, setInventoryCostingMethod, reconDifferenceAccounts, setReconDifferenceAccounts }),
-    [inventoryCostingMethod, reconDifferenceAccounts],
+    () => ({
+      inventoryCostingMethod, setInventoryCostingMethod,
+      reconDifferenceAccounts, setReconDifferenceAccounts,
+      reconcilableAccounts, toggleReconcilable,
+    }),
+    [inventoryCostingMethod, reconDifferenceAccounts, reconcilableAccounts, toggleReconcilable],
   );
   return (
     <AccountingSettingsContext.Provider value={value}>

@@ -89,7 +89,9 @@ export function makeFlagger({ lines = [], versionsOf = () => [], returnedOf = ()
     // ── Where the money is going ─────────────────────────────────────────
     const banks = v?.banks || [];
     if (banks.length === 0) {
-      add("no_bank_details", "There is no bank account on this vendor, so the transfer has no destination. Add and approve one before paying.");
+      add("no_bank_details", line.customerId
+        ? "This payee is a customer, and customers carry no bank account in Klay, so the transfer has no destination. Pay it outside Klay or register the payee as a vendor."
+        : "There is no bank account on this vendor, so the transfer has no destination. Add and approve one before paying.");
     }
 
     // A payee change bounces the vendor back to Pending approval. Paying
@@ -122,14 +124,17 @@ export function makeFlagger({ lines = [], versionsOf = () => [], returnedOf = ()
     }
 
     // ── Tax at the moment of payment ─────────────────────────────────────
+    // Bill-only: a journal payable (a bonus, a reimbursement) carries no
+    // vendor invoice, so there is no PPh to withhold and no faktur to expect.
+    const isBill = line.kind !== "journal";
     const expectsPph = typeof v?.pph === "string" && v.pph.startsWith("pph23");
-    if (expectsPph && !(line.pph23 > 0)) {
+    if (isBill && expectsPph && !(line.pph23 > 0)) {
       add("withholding_mismatch", `${v.name} is set up for PPh 23, but this bill withholds nothing. Release it as-is and the vendor is overpaid and never gets a bukti potong.`);
-    } else if (!expectsPph && line.pph23 > 0) {
+    } else if (isBill && !expectsPph && line.pph23 > 0) {
       add("withholding_mismatch", "PPh is being withheld from a vendor whose master record says no withholding applies. One of the two is wrong.");
     }
 
-    if (v?.pkp === "PKP" && line.raw && line.raw.dpp === line.raw.total) {
+    if (isBill && v?.pkp === "PKP" && line.raw && line.raw.dpp === line.raw.total) {
       add("missing_tax_invoice", `${v.name} is PKP, but this bill records no PPN — the faktur pajak is probably missing. No tax paperwork, no payment.`);
     }
 

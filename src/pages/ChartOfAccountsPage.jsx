@@ -1,6 +1,7 @@
 import { useState, useMemo, Fragment } from "react";
 import { COA } from "../data/seed/coa";
 import { DIM_BY_KEY, paletteFor, dimensionsForAccount } from "../data/seed/dimensions";
+import { useAccountingSettings } from "../state/AccountingSettingsContext";
 import "./invoices-ledger.css";
 import "./settings-pages.css";
 
@@ -51,6 +52,7 @@ function subsectionLabel(node, byId) {
 export default function ChartOfAccountsPage() {
   const [search, setSearch] = useState("");
   const [lockedOnly, setLockedOnly] = useState(false);
+  const { reconcilableAccounts, toggleReconcilable } = useAccountingSettings();
 
   const byId = useMemo(() => Object.fromEntries(COA.map((n) => [n.id, n])), []);
 
@@ -149,6 +151,7 @@ export default function ChartOfAccountsPage() {
             <th>Code</th>
             <th>Account name</th>
             <th>Dimensions</th>
+            <th title="Journal lines on this account are payables settled through Payment">Reconcilable</th>
             <th />
             <th />
           </tr>
@@ -156,7 +159,7 @@ export default function ChartOfAccountsPage() {
         <tbody>
           {filteredSections.length === 0 && (
             <tr>
-              <td colSpan={5} style={{ padding: 32, textAlign: "center", color: "var(--color-text-tertiary)", fontSize: 12 }}>
+              <td colSpan={6} style={{ padding: 32, textAlign: "center", color: "var(--color-text-tertiary)", fontSize: 12 }}>
                 No accounts match your filter.
               </td>
             </tr>
@@ -164,7 +167,7 @@ export default function ChartOfAccountsPage() {
           {filteredSections.map((sec) => (
             <Fragment key={sec.key}>
               <tr className="coa-section-row">
-                <td colSpan={5}>{sec.label}</td>
+                <td colSpan={6}>{sec.label}</td>
               </tr>
               {sec.subs.map((sub, si) => {
                 const showSub = sec.subs.length > 1 && sub.label;
@@ -172,7 +175,7 @@ export default function ChartOfAccountsPage() {
                   <Fragment key={si}>
                     {showSub && (
                       <tr className="coa-subsection-row">
-                        <td colSpan={5}>{sub.label}</td>
+                        <td colSpan={6}>{sub.label}</td>
                       </tr>
                     )}
                     {sub.rows.map((acct) => {
@@ -211,6 +214,25 @@ export default function ChartOfAccountsPage() {
                               );
                             })()}
                           </td>
+                          <td className="recon-col">
+                            {/* Only balance-sheet accounts hold something owed.
+                                Control accounts are settled through their own
+                                subledger (bills, invoices), so they stay out. */}
+                            {acct.fs === "BS" && !isControl ? (
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={reconcilableAccounts.includes(acct.code)}
+                                className={`coa-recon-toggle${reconcilableAccounts.includes(acct.code) ? " on" : ""}`}
+                                title={reconcilableAccounts.includes(acct.code)
+                                  ? "Journal lines crediting this account appear on Payment until paid. A payee is required on those lines."
+                                  : "Make journal lines on this account payable through Payment"}
+                                onClick={() => toggleReconcilable(acct.code)}
+                              >
+                                <span className="knob" />
+                              </button>
+                            ) : <span className="coa-dim-none">—</span>}
+                          </td>
                           <td className="lock-col">
                             {locked && (
                               <span className="coa-lock-ico" title="Code is fixed by the system. Display name is editable.">🔒</span>
@@ -242,6 +264,10 @@ export default function ChartOfAccountsPage() {
         <span className="coa-legend-item">
           <span className="coa-tag ctrl">CTRL</span>
           <span>control account, posts via subledger only</span>
+        </span>
+        <span className="coa-legend-item">
+          <span className="coa-recon-toggle on" aria-hidden><span className="knob" /></span>
+          <span>reconcilable — journal lines crediting it need a payee and appear on Payment until paid</span>
         </span>
       </div>
     </div>

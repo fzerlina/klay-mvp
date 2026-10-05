@@ -1206,6 +1206,11 @@ export default function JournalEntryPage() {
                 {Math.abs(pageDebit - pageCredit) < 1 ? "✓ Balanced" : `Variance Rp ${fmtRp(Math.abs(pageDebit - pageCredit))}`}
               </span>
             </>
+                          {l.payee && (
+                            <div style={{ fontSize: 11, marginTop: 4, color: "var(--color-text-secondary)" }}>
+                              Payee: <strong>{l.payee.name}</strong> <span style={{ color: "var(--color-text-tertiary)" }}>· {l.payee.kind === "customer" ? "customer" : "vendor"}</span>
+                            </div>
+                          )}
           )}
         </div>
         <div className="lg-footer-right">

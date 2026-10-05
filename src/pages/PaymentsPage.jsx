@@ -8,6 +8,9 @@ import RelationshipTierControl from "../components/RelationshipTier";
 import RecordPaymentModal from "../components/RecordPaymentModal";
 import BankFileExportModal from "../components/BankFileExportModal";
 import { buildAgingLines } from "../lib/apAging";
+import { journalPayableLines, isJournalPayable } from "../lib/journalPayables";
+import { useJournalEntries } from "../state/JournalEntriesContext";
+import { useAccountingSettings } from "../state/AccountingSettingsContext";
 import { auditTextFor, breakdownTotal, defaultBreakdown } from "../lib/paymentBreakdown";
 import { accountsForMethod, bankAccountById } from "../data/seed/bankAccounts";
 import { FLAG_TIERS, makeFlagger, releaseState, tierCounts } from "../lib/paymentFlags";
@@ -35,6 +38,12 @@ function dueMeta(l) {
 // The audit wording lives in paymentBreakdown.js so the list and Bill Detail
 // describe the same payment identically; this just resolves the source account
 // name for it.
+// What recordPayment needs to book a journal payable rather than a bill: the
+// account the payable sits on, who is paid, and the entry it came from.
+const journalExtras = (line) => (isJournalPayable(line)
+  ? { payableAccount: line.payableAccount, payeeName: line.vendorName, ref: line.je_number }
+  : {});
+
 const auditText = (bd, full) =>
   auditTextFor(bd, full, { sourceName: bankAccountById(bd.sourceAccountId)?.name });
 
@@ -103,7 +112,9 @@ const countActiveFilters = (f) => (f.request !== "any" ? 1 : 0);
 // ── Table row ──────────────────────────────────────────────────────────────
 // One column per thing you need to decide with: which bill, which invoice, who
 // is being paid, when it is due, both status axes, what the bill was, and what
-// is still payable on it. Bill ID and Invoice no. are separate columns because
+// is still payable on it. A row is a bill (BILL…) or a journal payable (JE-…,
+// see lib/journalPayables.js); the document ID says which. For a bill, the ID
+// and Invoice no. are separate columns because
 // they are separate keys — the bill is ours, the invoice number is the vendor's
 // and is what they quote back when they chase the payment. The destination bank
 // account is deliberately NOT here — it is verified at release, on the flag
@@ -150,7 +161,7 @@ function PaymentRow({
       </div>
 
       <div className="pm-cell-inv">
-        <span className="pm-inv-no">{line.invNo}</span>
+        <span className={isJournalPayable(line) ? "pm-inv-memo" : "pm-inv-no"} title={line.invNo}>{line.invNo}</span>
       </div>
 
       <div className="pm-cell-payee">
@@ -233,8 +244,10 @@ function PaymentRow({
 export default function PaymentsPage() {
   const navigate = useNavigate();
   const { bills, updateBill } = useBills();
-  const { requestStatusOf, returnedOf, acksOf, requestPayment, approvePayment, markPaid, recordPayment, acknowledgeFlag, returnRequest } = usePayments();
-  const { versionsOf } = useVendors();
+  const { payments, requestStatusOf, returnedOf, acksOf, requestPayment, approvePayment, markPaid, recordPayment, acknowledgeFlag, returnRequest } = usePayments();
+  const { entries: journalEntries } = useJournalEntries();
+  const { reconcilableAccounts } = useAccountingSettings();
+  const { versionsOf, vendorById } = useVendors();
   const { hasCapability, user } = useCurrentUser();
 
   // Role-scoped stage and action set — shared with Bill Detail (paymentStage.js)
@@ -255,10 +268,15 @@ export default function PaymentsPage() {
   const [exportLines, setExportLines] = useState(null);
   const [expandedFlags, setExpandedFlags] = useState(null);
 
-  // Posted, non-accrual bills — the payable universe.
+  // The payable universe: posted, non-accrual bills, plus journal lines on a
+  // reconcilable account that name a payee (lib/journalPayables.js). A journal
+  // payable's open balance is its amount less what has been paid against it.
   const postedLines = useMemo(
-    () => buildAgingLines(TODAY, bills).filter((l) => !l.is_accrual && l.raw.je_number),
-    [bills],
+    () => [
+      ...buildAgingLines(TODAY, bills).filter((l) => !l.is_accrual && l.raw.je_number),
+      ...journalPayableLines(journalEntries, reconcilableAccounts, (id) => payments[id]?.paidSoFar || 0, { vendorById }),
+    ],
+    [bills, journalEntries, reconcilableAccounts, payments, vendorById],
   );
 
   // Release checks run over the payable universe (the duplicate check needs the
@@ -383,7 +401,7 @@ export default function PaymentsPage() {
       const linesById = {};
       for (const id of ids) {
         const l = rows.find((r) => r.id === id);
-        if (l) linesById[id] = { remaining: l.remaining, pph23: l.pph23 };
+        if (l) linesById[id] = { remaining: l.remaining, pph23: l.pph23, ...journalExtras(l) };
       }
       // Bulk has no room to pick a method and a source per bill, so it takes
       // the obvious one: a transfer out of the primary operating account. The
@@ -392,6 +410,9 @@ export default function PaymentsPage() {
       const defaults = { method: "bank", sourceAccountId: accountsForMethod("bank")[0]?.id || null };
       markPaid(ids, by, linesById, defaults);
       for (const id of ids) {
+        // A journal payable has no bill record to update; its balance is
+        // derived from the payments recorded against it.
+        if (linesById[id]?.payableAccount) continue;
         const bd = defaultBreakdown(linesById[id] || {}, defaults);
         updateBill(id, { pay: "paid", sisa: 0 }, { type: "paid", action: auditText(bd, true), by, date: dateISO, time: "" });
       }
@@ -419,12 +440,14 @@ export default function PaymentsPage() {
     if (line) {
       const total = breakdownTotal(breakdown);
       const full = total >= line.remaining;
-      recordPayment([{ id, breakdown, paysInFull: full }], by);
-      updateBill(
-        id,
-        full ? { pay: "paid", sisa: 0 } : { sisa: line.remaining - total },
-        { type: "paid", action: auditText(breakdown, full), by, date: dateISO, time: "" },
-      );
+      recordPayment([{ id, breakdown, paysInFull: full, ...journalExtras(line) }], by);
+      if (!isJournalPayable(line)) {
+        updateBill(
+          id,
+          full ? { pay: "paid", sisa: 0 } : { sisa: line.remaining - total },
+          { type: "paid", action: auditText(breakdown, full), by, date: dateISO, time: "" },
+        );
+      }
     }
     setPayingLine(null);
     setSelected((p) => { const n = new Set(p); n.delete(id); return n; });
@@ -456,7 +479,7 @@ export default function PaymentsPage() {
             <div style={{ flex: 1, minWidth: 0 }}>
               <h1 className="lg-title">Payment</h1>
               <p className="pm-lede">
-                Posted bills by <strong>payment status</strong> — <strong>{formatRupiah(totalOpen)}</strong> still open.
+                Posted bills and journal payables by <strong>payment status</strong> — <strong>{formatRupiah(totalOpen)}</strong> still open.
                 {roleCfg && <> You're working the <strong>{roleCfg.stage}</strong> stage.</>}
                 {withholding.count > 0 && (
                   <> Of that, <strong>{formatRupiah(withholding.sum)}</strong> is withheld for the tax office across{" "}
@@ -536,13 +559,13 @@ export default function PaymentsPage() {
                   </span>
                 )}
               </div>
-              <div>Bill ID</div>
-              <div>Invoice no.</div>
+              <div>Document</div>
+              <div>Invoice no. / memo</div>
               <div>Payment to</div>
               <div>Due date</div>
               <div>Payment status</div>
               <div>Request status</div>
-              <div className="pm-num">Total bill</div>
+              <div className="pm-num">Total</div>
               <div className="pm-num">Payable</div>
               <div />
             </div>
@@ -563,7 +586,7 @@ export default function PaymentsPage() {
                   onToggleSelect={toggleSelect}
                   onAction={runRow}
                   onSecondary={onSecondary}
-                  onOpen={() => navigate(`/bills/${line.id}`)}
+                  onOpen={() => navigate(isJournalPayable(line) ? `/journal-entry?je=${line.je_number}` : `/bills/${line.id}`)}
                   flags={flagsOf.get(line.id) || []}
                   release={releaseOf(line)}
                   gated={gatesRelease}

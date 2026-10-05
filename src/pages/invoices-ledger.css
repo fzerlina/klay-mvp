@@ -538,6 +538,11 @@
 
 .dje-dims{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:10px;padding-top:10px;border-top:1px dashed var(--color-border-subtle)}
 .dje-dims-lbl{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--color-text-tertiary);margin-right:2px}
+/* Payee — only on lines that use a reconcilable account. */
+.dje-payee{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px;padding-top:10px;border-top:1px dashed var(--color-border-subtle)}
+.dje-payee-sel{flex:0 1 280px;min-width:200px}
+.dje-payee-sel:not(.set){border-color:#E2B26A;background:#FFF8EC}
+.dje-payee-hint{font-size:11px;color:var(--color-text-tertiary)}
 .dje-dims-none{font-size:11px;color:var(--color-text-tertiary);font-style:italic}
 .dje-dim-pick{display:inline-flex;align-items:center;gap:5px;padding:3px 8px 3px 7px;border:1px dashed var(--color-border-default);border-radius:9999px;background:var(--color-surface-raised)}
 .dje-dim-pick.set{border-style:solid}

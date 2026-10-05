@@ -110,6 +110,10 @@ export default function RecordPaymentModal({ bill, onConfirm, onClose }) {
     };
   });
 
+  // A journal payable is not a bill, so the wording names what is being paid.
+  const doc = bill.kind === "journal" ? "payable" : "bill";
+  const docCap = doc === "bill" ? "Bill" : "Payable";
+
   const methodMeta = PAYMENT_METHOD_BY_KEY[bd.method];
   const isCash = bd.method === "cash";
 
@@ -127,7 +131,9 @@ export default function RecordPaymentModal({ bill, onConfirm, onClose }) {
         <div className="apa-modal-body pm-pay-split">
           <aside className="pm-pay-side">
             <div className="apa-modal-row"><span>Vendor</span><strong>{bill.vendorName}</strong></div>
-            <div className="apa-modal-row"><span>Invoice</span><strong>{bill.invNo}</strong></div>
+            {bill.kind === "journal"
+              ? <div className="apa-modal-row"><span>Journal entry</span><strong>{bill.je_number}</strong></div>
+              : <div className="apa-modal-row"><span>Invoice</span><strong>{bill.invNo}</strong></div>}
             <div className="apa-modal-row"><span>Open balance</span><strong>{formatRupiah(bill.remaining)}</strong></div>
 
             {/* ── Into which of theirs ────────────────────────────────────── */}
@@ -155,7 +161,7 @@ export default function RecordPaymentModal({ bill, onConfirm, onClose }) {
               )}
             </div>
 
-            <BillSnapshot bill={bill.raw || bill} />
+            {bill.kind === "journal" ? <JournalSnapshot line={bill} /> : <BillSnapshot bill={bill.raw || bill} />}
           </aside>
 
           <div className="pm-pay-form">
@@ -215,7 +221,7 @@ export default function RecordPaymentModal({ bill, onConfirm, onClose }) {
                   onChange={(e) => patch({ giroNumber: e.target.value })}
                 />
                 <div className="pm-sec-hint">
-                  Reconciliation looks for this number when the giro clears, so the bill and the bank line can be matched then.
+                  Reconciliation looks for this number when the giro clears, so the payment and the bank line can be matched then.
                 </div>
               </div>
             )}
@@ -237,7 +243,7 @@ export default function RecordPaymentModal({ bill, onConfirm, onClose }) {
               </div>
               {preset === "custom" && (
                 <div className="pm-amt-custom">
-                  <span>Amount to clear off the bill</span>
+                  <span>Amount to clear off the {doc}</span>
                   <div className="pm-bd-input">
                     <span className="apa-modal-prefix">Rp</span>
                     <input
@@ -290,7 +296,7 @@ export default function RecordPaymentModal({ bill, onConfirm, onClose }) {
 
             <div className="pm-bd-tally">
               <div className="pm-bd-tally-row">
-                <span>Clears off the bill</span>
+                <span>Clears off the {doc}</span>
                 <strong>{formatRupiahExact(allocated)}</strong>
               </div>
               <div className="pm-bd-tally-row">
@@ -298,7 +304,7 @@ export default function RecordPaymentModal({ bill, onConfirm, onClose }) {
                 <strong>{formatRupiahExact(cashOut(bd))}</strong>
               </div>
               <div className={`pm-bd-tally-row${openAfter > 0 ? " open" : " paid"}`}>
-                <span>{openAfter > 0 ? "Still open after this" : "Bill is paid in full"}</span>
+                <span>{openAfter > 0 ? "Still open after this" : `${docCap} is paid in full`}</span>
                 <strong>{openAfter > 0 ? formatRupiahExact(openAfter) : "—"}</strong>
               </div>
             </div>
@@ -308,7 +314,7 @@ export default function RecordPaymentModal({ bill, onConfirm, onClose }) {
               {!check.ok && check.field !== "source" ? check.reason
                 : openAfter > 0
                   ? "A partial payment. The remainder keeps its original aging and re-enters the request queue."
-                  : "Pays the bill in full. Every component above is booked to its own account."}
+                  : `Pays the ${doc} in full. Every component above is booked to its own account.`}
             </div>
           </div>
         </div>
@@ -340,6 +346,46 @@ const AMOUNT_PRESETS = [
 // default split comes from: which lines carry PPN, which carry PPh, and how
 // the total became the amount the vendor is owed. A snapshot of the bill as
 // posted — it does not move with the breakdown below.
+// The journal-payable counterpart of BillSnapshot: the entry the payable came
+// from, every line of it, with the line being paid marked. There is no bill
+// behind it, so the entry IS the document.
+function JournalSnapshot({ line }) {
+  const je = line.raw?.je;
+  if (!je) return null;
+  const paid = Math.max(0, (line.total || 0) - (line.remaining || 0));
+  return (
+    <div className="pm-sec">
+      <div className="pm-sec-lbl">Journal entry</div>
+      <div className="pm-snap">
+        <div className="pm-snap-row pm-snap-memo">
+          <span>{je.memo}</span>
+          <span className="num">{je.je_date}</span>
+        </div>
+        {(je.lines || []).map((l, i) => {
+          const isThis = l === line.raw.line;
+          return (
+            <div key={i} className={`pm-snap-row${isThis ? " pm-snap-this" : ""}`}>
+              <span className="pm-snap-item">
+                <span className="pm-snap-desc">{l.account_code} · {l.account_name}</span>
+                <span className="pm-snap-sub">
+                  {l.description}
+                  {isThis && <span className="pm-snap-tag">Paying this</span>}
+                </span>
+              </span>
+              <span className="num">{l.debit ? `Dr ${formatRupiahExact(l.debit)}` : `Cr ${formatRupiahExact(l.credit)}`}</span>
+            </div>
+          );
+        })}
+        <div className="pm-snap-sum">
+          <div><span>Payable on {line.payableAccount?.code}</span><strong>{formatRupiahExact(line.total)}</strong></div>
+          {paid > 0 && <div><span>Paid so far</span><strong>− {formatRupiahExact(paid)}</strong></div>}
+          <div className="strong"><span>Open</span><strong>{formatRupiahExact(line.remaining)}</strong></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function BillSnapshot({ bill }) {
   const items = bill.items || [];
   if (!items.length) return null;

@@ -153,3 +153,9 @@
 .brs-remove svg{width:10px;height:10px;stroke:currentColor;stroke-width:1.6}
 .brs-add{padding:12px 20px}
 .brs-select{width:100%;max-width:360px;padding:7px 10px;border:1px solid var(--color-border-default);border-radius:var(--radius-sm);background:var(--color-surface);font-family:var(--font-sans);font-size:12.5px;color:var(--color-text-primary)}
+/* Reconcilable switch — journal lines on the account become payables on Payment. */
+.coa-table td.recon-col{width:96px}
+.coa-recon-toggle{position:relative;width:30px;height:17px;border-radius:999px;border:none;padding:0;cursor:pointer;background:var(--color-border-default);transition:background .15s}
+.coa-recon-toggle .knob{position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:left .15s}
+.coa-recon-toggle.on{background:var(--color-action)}
+.coa-recon-toggle.on .knob{left:15px}

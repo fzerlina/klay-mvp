@@ -103,6 +103,16 @@ function seedPayments() {
   }
   m.BILL207 = { request: "requested", requestedBy: "Budi Santoso", requestedAt: isoDaysAgo(1) };
 
+  // Journal payables (lib/journalPayables.js) go round the same cycle. One is
+  // approved and one requested so the Finance Staff and Finance Manager queues
+  // each show a non-bill payment; the rest wait for AP Staff to request them.
+  m["JE-2025-0310"] = {
+    request: "approved",
+    requestedBy: "Budi Santoso", requestedAt: isoDaysAgo(3),
+    approvedBy: "Sari Dewanti", approvedAt: isoDaysAgo(1),
+  };
+  m["JE-2025-0311/1"] = { request: "requested", requestedBy: "Budi Santoso", requestedAt: isoDaysAgo(1) };
+
   payable.forEach((id, i) => {
     if (m[id]) return; // already pinned above
     if (i < 6) {
@@ -199,17 +209,22 @@ export function PaymentsProvider({ children }) {
     const jeNumberAt = (i) => (m ? `JE-${m[1]}-${String(parseInt(m[2], 10) + i).padStart(4, "0")}` : `${base}-${i}`);
 
     const written = eligible.map((e, i) => {
+      // A journal payable (lib/journalPayables.js) is not a bill: it brings its
+      // own payee, reference and the account it is owed on.
       const bill = bills.find((b) => b.id === e.id);
+      const payeeName = e.payeeName || bill?.vendorName;
+      const ref = e.ref ?? bill?.invNo;
       const je_number = jeNumberAt(i);
-      const { lines } = paymentJournalLines(e.breakdown, { vendorName: bill?.vendorName });
+      const { lines } = paymentJournalLines(e.breakdown, { vendorName: payeeName, payableAccount: e.payableAccount || null });
       return {
         id: e.id,
         je_number,
+        payeeName,
         je: {
           je_number,
           je_date: TODAY_ISO,
           status: "posted",
-          memo: `Payment — ${bill?.vendorName || e.id}${bill?.invNo ? ` · ${bill.invNo}` : ""}`,
+          memo: `Payment — ${payeeName || e.id}${ref ? ` · ${ref}` : ""}`,
           reference_type: "payment",
           reference_id: e.id,
           created_by: by,
@@ -231,13 +246,16 @@ export function PaymentsProvider({ children }) {
     });
     written.forEach((w) => addJournalEntry(w.je));
     const jeById = Object.fromEntries(written.map((w) => [w.id, w.je_number]));
+    const payeeById = Object.fromEntries(written.map((w) => [w.id, w.payeeName]));
 
     setPayments((prev) => {
       const next = { ...prev };
       for (const e of eligible) {
         const cur = next[e.id];
         const cleared = breakdownTotal(e.breakdown);
-        const history = [...(cur.history || []), { at: TODAY_ISO, by, breakdown: e.breakdown, cleared, je_number: jeById[e.id] }];
+        // The payee travels with the payment: bank reconciliation names the
+        // counterparty from it, and a journal payable has no bill to look up.
+        const history = [...(cur.history || []), { at: TODAY_ISO, by, breakdown: e.breakdown, cleared, je_number: jeById[e.id], vendorName: payeeById[e.id] }];
         next[e.id] = {
           ...cur,
           request: "notyet",
@@ -258,7 +276,14 @@ export function PaymentsProvider({ children }) {
   // release records where the money actually came out of.
   const markPaid = useCallback((ids, by, linesById = {}, defaults = {}) => {
     recordPayment(
-      ids.map((id) => ({ id, breakdown: defaultBreakdown(linesById[id] || {}, defaults), paysInFull: true })),
+      ids.map((id) => {
+        const l = linesById[id] || {};
+        return {
+          id, breakdown: defaultBreakdown(l, defaults), paysInFull: true,
+          // Set only for a journal payable — see recordPayment.
+          ...(l.payableAccount ? { payableAccount: l.payableAccount, payeeName: l.payeeName, ref: l.ref } : {}),
+        };
+      }),
       by,
     );
   }, [recordPayment]);

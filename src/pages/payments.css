@@ -76,6 +76,11 @@
   color: var(--color-text-secondary);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+/* A journal payable has no vendor invoice; its memo stands in, in plain text. */
+.pm-inv-memo {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  font-size: 12px; line-height: 1.35; color: var(--color-text-secondary);
+}
 .pm-cell-payee { min-width: 0; display: flex; align-items: center; gap: 6px; }
 .pm-cell-total { color: var(--color-text-secondary); }
 .pm-id { font-family: var(--font-mono); font-weight: 700; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -381,3 +386,7 @@
   padding: 10px 12px; border-radius: 10px; background: #FBF1E0; border: 1px solid #EEDCBB; color: #7A5510;
 }
 .pm-export-excluded strong { font-family: var(--font-mono); margin-right: 4px; }
+/* The journal line a payment is settling, inside the entry snapshot. */
+.pm-snap-row.pm-snap-this { background: #F2F6FF; }
+.pm-snap-row.pm-snap-memo { font-weight: 600; color: var(--color-text-primary); background: var(--color-surface-sunken, #F4F1EA); }
+.pm-snap-row.pm-snap-memo .num { font-weight: 500; color: var(--color-text-tertiary); }
