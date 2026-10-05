@@ -6,11 +6,12 @@
 
 .gl-wrap { padding: 0 32px 48px; }
 
-.gl-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; margin-bottom: 14px; }
+.gl-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; margin-bottom: 14px; position: relative; z-index: 5; }
 .gl-field { display: flex; flex-direction: column; gap: 5px; min-width: 170px; }
-.gl-field-grow { flex: 0 1 380px; }
+.gl-field-grow { flex: 0 1 440px; }
 .gl-field > span { font-size: 9.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--color-text-tertiary); }
 .gl-field select {
+  min-height: 52px; border-radius: 12px;
   height: 34px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--color-border-default);
   background: var(--color-surface-raised); font-family: var(--font-sans); font-size: 12.5px; color: var(--color-text-primary);
 }
@@ -50,12 +51,10 @@ button.gl-row { width: 100%; border: none; border-bottom: 1px solid var(--color-
 .gl-tie.ok { color: var(--color-success-text, #1B7A46); }
 .gl-tie.off { color: #B4232A; }
 
-.gl-acct-head { padding: 14px 18px 12px; border-bottom: 1px solid var(--color-border-default); }
+.gl-acct-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 10px 18px; border-bottom: 1px solid var(--color-border-default); }
 .gl-back { border: none; background: none; padding: 0; font-size: 11.5px; color: var(--color-text-tertiary); cursor: pointer; }
 .gl-back:hover { color: var(--color-text-primary); }
-.gl-acct-title { margin-top: 6px; font-size: 16px; font-weight: 700; }
-.gl-acct-title .gl-code { font-size: 13px; margin-right: 4px; }
-.gl-acct-sub { margin-top: 2px; font-size: 11.5px; color: var(--color-text-tertiary); }
+.gl-acct-sub { font-size: 11.5px; color: var(--color-text-tertiary); }
 
 .gl-bal-row { background: #FAFAF7; color: var(--color-text-secondary); }
 .gl-date { font-size: 12px; color: var(--color-text-secondary); white-space: nowrap; }
@@ -67,3 +66,52 @@ button.gl-row { width: 100%; border: none; border-bottom: 1px solid var(--color-
   .gl-wrap { padding: 0 16px 32px; }
   .gl-search { margin-left: 0; flex: 1 1 100%; }
 }
+
+/* ── Account picker ─────────────────────────────────────────────────────
+   The chosen account in a box (like the Bank Reconciliation account cards),
+   opening a searchable list grouped by type. */
+.gl-picker { position: relative; }
+.gl-acct-box {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 52px; padding: 8px 12px;
+  background: var(--color-surface-raised); border: 1px solid var(--color-border-default); border-radius: 12px;
+  text-align: left; cursor: pointer; font-family: var(--font-sans);
+}
+.gl-acct-box:hover { border-color: var(--color-border-strong); }
+.gl-acct-box.open { border-color: var(--color-brand-mid, #C2410C); box-shadow: 0 0 0 3px rgba(184, 61, 8, .08); }
+.gl-acct-badge {
+  width: 30px; height: 30px; border-radius: 7px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  color: #fff; font-family: var(--font-display); font-weight: 900; font-size: 14px;
+}
+.gl-acct-badge.all { background: var(--color-text-primary); }
+.gl-acct-badge.sm { width: 22px; height: 22px; font-size: 11px; border-radius: 6px; }
+.gl-acct-box-id { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.gl-acct-box-name { font-size: 13px; font-weight: 700; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gl-acct-box-meta { font-family: var(--font-mono); font-size: 10.5px; color: var(--color-text-tertiary); }
+.gl-acct-box-amt { display: flex; flex-direction: column; align-items: flex-end; font-family: var(--font-mono); font-size: 12.5px; font-weight: 700; color: var(--color-text-primary); white-space: nowrap; }
+.gl-acct-box-amt-lbl { font-family: var(--font-sans); font-size: 9.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--color-text-tertiary); }
+.gl-acct-chev { width: 12px; height: 12px; flex-shrink: 0; fill: none; stroke: var(--color-text-tertiary); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.gl-acct-box.open .gl-acct-chev { transform: rotate(180deg); }
+
+.gl-acct-pop {
+  position: absolute; top: calc(100% + 6px); left: 0; right: 0; min-width: 340px; z-index: 30;
+  background: var(--color-surface-raised); border: 1px solid var(--color-border-default); border-radius: 12px;
+  box-shadow: var(--shadow-lg, 0 12px 40px rgba(0, 0, 0, .18)); overflow: hidden;
+}
+.gl-acct-pop-search { margin: 10px; height: 34px; flex: none; }
+.gl-acct-pop-list { max-height: 380px; overflow-y: auto; padding: 0 10px 10px; }
+.gl-acct-group { margin-top: 10px; }
+.gl-acct-group-head {
+  display: flex; align-items: center; justify-content: space-between; padding: 0 4px 6px;
+  font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--color-text-tertiary);
+}
+.gl-acct-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+.gl-acct-group-count { font-family: var(--font-mono); font-size: 10.5px; background: var(--color-surface-sunken); padding: 1px 7px; border-radius: 999px; letter-spacing: 0; }
+.gl-acct-item {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 8px; border: none; border-radius: 8px;
+  background: none; text-align: left; cursor: pointer; font-family: var(--font-sans); font-size: 12.5px; color: var(--color-text-primary);
+}
+.gl-acct-item:hover { background: var(--color-surface-sunken, #F4F1EA); }
+.gl-acct-item.selected { background: var(--color-brand-wash, #FFF1E8); }
+.gl-acct-item .gl-code { width: 52px; }
+.gl-acct-item-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gl-acct-item-amt { font-family: var(--font-mono); font-size: 11.5px; color: var(--color-text-secondary); }

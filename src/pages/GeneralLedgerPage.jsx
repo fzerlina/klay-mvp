@@ -18,7 +18,7 @@
 // ledger yet, and showing it here would make the ledger disagree with the
 // trial balance.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useJournalEntries } from "../state/JournalEntriesContext";
 import { COA, COA_BY_CODE } from "../data/seed/coa";
@@ -48,7 +48,127 @@ function accountMeta(code, fallbackName) {
     name: a?.name || fallbackName || code,
     creditNormal: a ? a.normal_balance === "credit" : false,
     inCoa: !!a,
+    group: groupOf(a?.type),
   };
+}
+
+// The account picker groups by what an account is, in statement order.
+// Contra accounts sit with the accounts they reduce.
+const GROUPS = [
+  { k: "asset",     lbl: "Assets",      color: "#2B5FD9" },
+  { k: "liability", lbl: "Liabilities", color: "#B7660B" },
+  { k: "equity",    lbl: "Equity",      color: "#7A4FC4" },
+  { k: "revenue",   lbl: "Revenue",     color: "#1F8A55" },
+  { k: "expense",   lbl: "Expenses",    color: "#C0392B" },
+  { k: "other",     lbl: "Other",       color: "#6B7280" },
+];
+const GROUP_BY_KEY = Object.fromEntries(GROUPS.map((g) => [g.k, g]));
+function groupOf(type) {
+  if (type === "asset" || type === "contra_asset") return "asset";
+  if (type === "revenue" || type === "contra_revenue") return "revenue";
+  if (type === "liability" || type === "equity" || type === "expense") return type;
+  return "other";
+}
+
+// ── Account picker ───────────────────────────────────────────────────────
+// The chosen account sits in a box — what it is, its code and where it
+// closed — and opens a searchable list grouped by type. Same idea as the
+// bank-account cards on Bank Reconciliation, sized for a chart of accounts.
+function AccountPicker({ accounts, value, onChange, periodLbl }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onDoc); document.removeEventListener("keydown", onKey); };
+  }, [open]);
+
+  // An account with no activity in the period is not in the list, but is
+  // still the one chosen.
+  const current = accounts.find((s) => s.meta.code === value) || (value ? { meta: accountMeta(value), closing: null } : null);
+  const needle = q.trim().toLowerCase();
+  const groups = GROUPS
+    .map((g) => ({
+      ...g,
+      items: accounts.filter((s) => s.meta.group === g.k && (!needle || `${s.meta.code} ${s.meta.name}`.toLowerCase().includes(needle))),
+    }))
+    .filter((g) => g.items.length > 0);
+  const pick = (code) => { onChange(code); setOpen(false); setQ(""); };
+
+  return (
+    <div className="gl-picker" ref={ref}>
+      <button type="button" className={`gl-acct-box${open ? " open" : ""}`} onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+        {current ? (
+          <>
+            <span className="gl-acct-badge" style={{ background: GROUP_BY_KEY[current.meta.group].color }}>
+              {GROUP_BY_KEY[current.meta.group].lbl.slice(0, 1)}
+            </span>
+            <span className="gl-acct-box-id">
+              <span className="gl-acct-box-name">{current.meta.name}</span>
+              <span className="gl-acct-box-meta">{current.meta.code} · {GROUP_BY_KEY[current.meta.group].lbl}</span>
+            </span>
+            <span className="gl-acct-box-amt">
+              <span className="gl-acct-box-amt-lbl">Closing · {periodLbl}</span>
+              {current.closing == null ? "No activity" : `Rp ${fmtBal(current.closing)}`}
+            </span>
+          </>
+        ) : (
+          <>
+            <span className="gl-acct-badge all">∑</span>
+            <span className="gl-acct-box-id">
+              <span className="gl-acct-box-name">All accounts</span>
+              <span className="gl-acct-box-meta">{accounts.length} with activity in {periodLbl}</span>
+            </span>
+          </>
+        )}
+        <svg className="gl-acct-chev" viewBox="0 0 12 12" aria-hidden><path d="M3 4.5L6 7.5 9 4.5" /></svg>
+      </button>
+
+      {open && (
+        <div className="gl-acct-pop" role="listbox">
+          <div className="lg-search gl-acct-pop-search">
+            <svg viewBox="0 0 16 16" aria-hidden><circle cx="7" cy="7" r="5" /><path d="M11 11l3 3" /></svg>
+            <input autoFocus placeholder="Search code or name…" value={q} onChange={(e) => setQ(e.target.value)} />
+          </div>
+          <div className="gl-acct-pop-list">
+            {!needle && (
+              <button type="button" className={`gl-acct-item${!current ? " selected" : ""}`} onClick={() => pick("")}>
+                <span className="gl-acct-badge sm all">∑</span>
+                <span className="gl-acct-item-name">All accounts</span>
+              </button>
+            )}
+            {groups.length === 0 && <div className="gl-empty">No account matches “{q}”.</div>}
+            {groups.map((g) => (
+              <div key={g.k} className="gl-acct-group">
+                <div className="gl-acct-group-head">
+                  <span><span className="gl-acct-dot" style={{ background: g.color }} />{g.lbl}</span>
+                  <span className="gl-acct-group-count">{g.items.length}</span>
+                </div>
+                {g.items.map((s) => (
+                  <button
+                    key={s.meta.code}
+                    type="button"
+                    role="option"
+                    aria-selected={value === s.meta.code}
+                    className={`gl-acct-item${value === s.meta.code ? " selected" : ""}`}
+                    onClick={() => pick(s.meta.code)}
+                  >
+                    <span className="gl-code">{s.meta.code}</span>
+                    <span className="gl-acct-item-name">{s.meta.name}</span>
+                    <span className="gl-acct-item-amt">{fmtBal(s.closing)}</span>
+                  </button>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 const signed = (meta, debit, credit) => (meta.creditNormal ? credit - debit : debit - credit);
 
@@ -209,13 +329,15 @@ export default function GeneralLedgerPage() {
                 {periods.map((p) => <option key={p.v} value={p.v}>{p.lbl}</option>)}
               </select>
             </label>
-            <label className="gl-field gl-field-grow">
+            <div className="gl-field gl-field-grow">
               <span>Account</span>
-              <select value={account} onChange={(e) => { setParam("account", e.target.value); setSearch(""); }}>
-                <option value="">All accounts</option>
-                {summary.map((s) => <option key={s.meta.code} value={s.meta.code}>{s.meta.code} · {s.meta.name}</option>)}
-              </select>
-            </label>
+              <AccountPicker
+                accounts={summary}
+                value={account}
+                periodLbl={periodLbl}
+                onChange={(code) => { setParam("account", code); setSearch(""); }}
+              />
+            </div>
             <div className="lg-search gl-search">
               <svg viewBox="0 0 16 16" aria-hidden><circle cx="7" cy="7" r="5" /><path d="M11 11l3 3" /></svg>
               <input
@@ -262,10 +384,9 @@ export default function GeneralLedgerPage() {
           ) : (
             <div className="gl-card">
               <div className="gl-acct-head">
+                {/* The picker above already names the account; this row is
+                    the way back and the direction its balance reads in. */}
                 <button type="button" className="gl-back" onClick={() => setParam("account", "")}>← All accounts</button>
-                <div className="gl-acct-title">
-                  <span className="gl-code">{accountView.meta.code}</span> {accountView.meta.name}
-                </div>
                 <div className="gl-acct-sub">
                   {accountView.meta.creditNormal ? "Credit-normal" : "Debit-normal"} · {periodLbl}
                 </div>
