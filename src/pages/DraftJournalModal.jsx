@@ -38,20 +38,35 @@ function seedLines(initialLines) {
     debit: l.debit ? String(l.debit) : "",
     credit: l.credit ? String(l.credit) : "",
     description: l.description || "",
-    payee: "",
-    dims: {},
+    // Kept when editing an existing draft, so nothing chosen is lost.
+    payee: l.payee ? `${l.payee.kind}:${l.payee.id}` : "",
+    dims: { ...(l.dimensions || {}) },
   }));
 }
 
-export default function DraftJournalModal({ open, intentQuery, initialLines, initialMemo, nextJeNumber, createdBy, onClose, onSave }) {
+// `editing` is an existing draft to change in place; otherwise a new draft is
+// made. `closedThrough` warns about a date in a closed period — a draft can sit
+// there, but it cannot be submitted or posted until it is re-dated.
+export default function DraftJournalModal({ open, intentQuery, initialLines, initialMemo, nextJeNumber, createdBy, editing, closedThrough, onClose, onSave }) {
   const accounts = useMemo(() => {
     return getActiveAccounts().slice().sort((a, b) => a.code.localeCompare(b.code));
   }, []);
 
-  const [jeDate, setJeDate] = useState(TODAY_ISO);
-  const [memo, setMemo] = useState(initialMemo || intentQuery || "");
-  const [lines, setLines] = useState(() => seedLines(initialLines));
+  const [jeDate, setJeDate] = useState(editing?.je_date || TODAY_ISO);
+  const [memo, setMemo] = useState(editing?.memo || initialMemo || intentQuery || "");
+  const [lines, setLines] = useState(() => seedLines(editing?.lines || initialLines));
   const [showErrors, setShowErrors] = useState(false);
+  // An accrual is usually undone on the 1st of next month, when the real
+  // invoice is expected; ticking this schedules that reversal once it posts.
+  const [autoReverse, setAutoReverse] = useState(!!editing?.auto_reverse);
+  // Supporting documents. Kept in memory as object URLs — the prototype has no
+  // file store — so they last for the session.
+  const [attachments, setAttachments] = useState(() => editing?.attachments || []);
+  const addFiles = (files) => setAttachments((prev) => [
+    ...prev,
+    ...[...files].map((f) => ({ name: f.name, size: f.size, type: f.type, url: URL.createObjectURL(f) })),
+  ]);
+  const periodClosed = !!closedThrough && jeDate.slice(0, 7) <= closedThrough;
 
   // A line on a reconcilable account is a payable the Payment list has to
   // settle, so it must say who is owed — without a payee there is nobody to pay
@@ -146,22 +161,27 @@ export default function DraftJournalModal({ open, intentQuery, initialLines, ini
 
   if (!open) return null;
 
-  function handleSave() {
-    if (!canSave) {
+  // `submit` saves and sends for approval in one go; the page runs the same
+  // checks as the Submit action (balanced, open period).
+  function handleSave(submit = false) {
+    if (!canSave || (submit && periodClosed)) {
       setShowErrors(true);
       return;
     }
     const je = {
-      je_number: nextJeNumber,
+      ...(editing || {}),
+      je_number: editing?.je_number || nextJeNumber,
       je_date: jeDate,
       status: "draft",
       memo: memo.trim() || "Manual journal entry",
-      reference_type: "Manual",
-      reference_id: null,
-      created_by: createdBy || "You",
-      created_date: TODAY_ISO,
+      reference_type: editing?.reference_type || "manual",
+      reference_id: editing?.reference_id ?? null,
+      created_by: editing?.created_by || createdBy || "You",
+      created_date: editing?.created_date || TODAY_ISO,
       posted_by: null,
       posted_date: null,
+      auto_reverse: autoReverse,
+      attachments,
       lines: activeLines.map((l) => {
         const acct = COA_BY_CODE[l.account_code];
         return {
@@ -175,7 +195,7 @@ export default function DraftJournalModal({ open, intentQuery, initialLines, ini
         };
       }),
     };
-    onSave(je);
+    onSave(je, { submit, editing: !!editing });
   }
 
   return (
@@ -183,8 +203,8 @@ export default function DraftJournalModal({ open, intentQuery, initialLines, ini
       <div className="dje-modal" onClick={(e) => e.stopPropagation()}>
         <div className="dje-head">
           <div>
-            <div className="dje-title">Draft Journal Entry</div>
-            <div className="dje-sub">{nextJeNumber} · Draft</div>
+            <div className="dje-title">{editing ? "Edit draft" : "Draft Journal Entry"}</div>
+            <div className="dje-sub">{editing?.je_number || nextJeNumber} · Draft</div>
           </div>
           <button className="dje-x" onClick={onClose} aria-label="Close">
             <svg viewBox="0 0 12 12"><line x1="2" y1="2" x2="10" y2="10"/><line x1="10" y1="2" x2="2" y2="10"/></svg>
@@ -207,6 +227,11 @@ export default function DraftJournalModal({ open, intentQuery, initialLines, ini
               />
             </label>
           </div>
+          {periodClosed && (
+            <div className="dje-warn">
+              {jeDate.slice(0, 7)} is closed. You can save this as a draft, but it cannot be submitted or posted until it is dated in an open period.
+            </div>
+          )}
 
           <div className="dje-lines-hdr">
             <span>Lines</span>
@@ -319,6 +344,32 @@ export default function DraftJournalModal({ open, intentQuery, initialLines, ini
           })}
 
           <button className="dje-add-line" onClick={addLine}>+ Add line</button>
+
+          <label className="dje-check">
+            <input type="checkbox" checked={autoReverse} onChange={(e) => setAutoReverse(e.target.checked)} />
+            <span>
+              <strong>Reverse automatically on the 1st of next month</strong>
+              <span className="dje-hint">For accruals: once posted, the reversal is scheduled on the Scheduled tab.</span>
+            </span>
+          </label>
+
+          <div className="dje-attach">
+            <div className="dje-lines-hdr">
+              <span>Attachments</span>
+              <span className="dje-hint">The invoice, calculation or approval behind this entry.</span>
+            </div>
+            {attachments.map((a, i) => (
+              <div key={`${a.name}-${i}`} className="dje-attach-item">
+                <a href={a.url} target="_blank" rel="noreferrer">{a.name}</a>
+                <span className="dje-attach-size">{Math.max(1, Math.round((a.size || 0) / 1024))} KB</span>
+                <button type="button" className="dje-line-del" onClick={() => setAttachments((p) => p.filter((_, j) => j !== i))} aria-label="Remove attachment">×</button>
+              </div>
+            ))}
+            <label className="dje-attach-add">
+              + Attach file
+              <input type="file" multiple onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} />
+            </label>
+          </div>
         </div>
 
         <div className="dje-foot">
@@ -331,8 +382,16 @@ export default function DraftJournalModal({ open, intentQuery, initialLines, ini
           </div>
           <div className="dje-foot-actions">
             <button className="dje-btn" onClick={onClose}>Cancel</button>
-            <button className="dje-btn primary" onClick={handleSave} disabled={!canSave}>
+            <button className="dje-btn" onClick={() => handleSave(false)} disabled={!canSave}>
               Save draft
+            </button>
+            <button
+              className="dje-btn primary"
+              onClick={() => handleSave(true)}
+              disabled={!canSave || periodClosed}
+              title={periodClosed ? "The date is in a closed period" : "Save and send for approval"}
+            >
+              Save &amp; submit
             </button>
           </div>
         </div>

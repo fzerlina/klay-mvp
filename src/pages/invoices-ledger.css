@@ -737,3 +737,50 @@
 .drawer-sched-name{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--color-text-primary)}
 .drawer-sched-amt{font-family:var(--font-mono);font-size:11.5px;color:var(--color-text-secondary)}
 .drawer-sched-warn{margin-top:8px;font-size:11px;color:#8A5A0B}
+/* Draft journal: closed-period warning, auto-reverse, attachments. */
+.dje-warn{margin:10px 0 0;padding:8px 12px;border-radius:8px;background:#FFF8EC;border:1px solid #EEDCBB;font-size:12px;color:#7A5510;line-height:1.45}
+.dje-check{display:flex;align-items:flex-start;gap:10px;margin-top:14px;padding:10px 12px;border:1px solid var(--color-border-subtle);border-radius:10px;cursor:pointer;font-size:12.5px}
+.dje-check input{margin-top:2px}
+.dje-check > span{display:flex;flex-direction:column;gap:2px}
+.dje-attach{margin-top:14px}
+.dje-attach-item{display:flex;align-items:center;gap:10px;padding:6px 0;font-size:12.5px;border-bottom:1px dashed var(--color-border-subtle)}
+.dje-attach-item a{flex:1;min-width:0;color:var(--color-action);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dje-attach-size{font-family:var(--font-mono);font-size:11px;color:var(--color-text-tertiary)}
+.dje-attach-add{display:inline-flex;margin-top:8px;font-size:12px;font-weight:600;color:var(--color-action);cursor:pointer}
+.dje-attach-add input{display:none}
+/* Journal lifecycle dialogs (JeActionDialogs.jsx). */
+.jad-modal{max-width:560px}
+.jad-text{min-height:72px;resize:vertical;padding-top:8px}
+.jad-note{margin:12px 0 0;font-size:12px;line-height:1.5;color:var(--color-text-secondary)}
+.jad-row{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:10px;margin-top:12px}
+.dje-btn.primary.danger{background:#B4232A;border-color:#B4232A}
+.jad-tpl{border:1px solid var(--color-border-default);border-radius:10px;padding:12px;margin-bottom:10px;background:var(--color-surface-raised)}
+.jad-tpl.paused{opacity:.7}
+.jad-tpl-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.jad-tpl-name{font-size:13px;font-weight:700}
+.jad-tpl-meta{font-size:11.5px;color:var(--color-text-tertiary);margin-top:2px}
+.jad-tpl-lines{margin-top:8px;font-size:12px;display:flex;flex-direction:column;gap:3px;color:var(--color-text-secondary)}
+.jad-code{font-family:var(--font-mono);font-size:11px;color:var(--color-action)}
+.jad-amt{float:right;font-family:var(--font-mono);font-size:11.5px}
+.jad-tpl-actions{display:flex;gap:8px;margin-top:10px}
+/* Journal drawer actions: blocked ones stay visible with their reason as a tooltip. */
+.drawer-btn:disabled{opacity:.45;cursor:not-allowed}
+.drawer-btn.ghost.danger-text{color:var(--color-danger-text)}
+.drawer-btn svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;vertical-align:-2px;margin-right:5px}
+.drawer-footer{flex-wrap:wrap}
+/* Journal drawer: source links, attachments, audit trail. */
+.je-link{border:none;background:none;padding:0;font:inherit;color:var(--color-action);cursor:pointer;text-align:left}
+.je-link:hover{text-decoration:underline}
+.je-attach-empty{font-size:12px;color:var(--color-text-tertiary)}
+.je-attach-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 0;font-size:12.5px;border-bottom:1px dashed var(--color-border-subtle)}
+.je-attach-row a{color:var(--color-action);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.je-attach-row span{font-family:var(--font-mono);font-size:11px;color:var(--color-text-tertiary)}
+.je-audit{display:flex;flex-direction:column;gap:12px;margin-bottom:14px;padding-left:4px}
+.je-audit-item{display:flex;gap:10px;align-items:flex-start}
+.je-audit-dot{width:8px;height:8px;border-radius:50%;background:var(--color-action);margin-top:5px;flex-shrink:0}
+.je-audit-head{font-size:12.5px;color:var(--color-text-primary)}
+.je-audit-date{font-size:11px;color:var(--color-text-tertiary)}
+.je-audit-note{margin-top:3px;font-size:12px;color:var(--color-text-secondary);font-style:italic}
+.je-tpl-btn{margin-left:auto;align-self:center;display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:8px;border:1px solid var(--color-border-default);background:var(--color-surface-raised);font-family:var(--font-sans);font-size:11.5px;font-weight:600;color:var(--color-text-secondary);cursor:pointer}
+.je-tpl-btn:hover{border-color:var(--color-border-strong);color:var(--color-text-primary)}
+.je-tpl-btn svg{width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:2}

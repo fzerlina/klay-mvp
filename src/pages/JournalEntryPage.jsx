@@ -4,6 +4,12 @@ import { useJournalEntries } from "../state/JournalEntriesContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
 import { useAssets } from "../state/AssetsContext";
 import { scheduledEntries } from "../lib/scheduledJournals";
+import { nextPeriod } from "../lib/fixedAssets";
+import {
+  canEdit, canSubmit, canApprove as canApproveEntry, canReturn, canVoid, canReverse,
+  isSystemEntry, withEvent, buildReversal, isoOf,
+} from "../lib/journalLifecycle";
+import { ReturnDialog, ReverseDialog, RecurringDialog, TemplatesDrawer } from "./JeActionDialogs";
 import { TODAY } from "../lib/clock";
 import { formatDate } from "../lib/format";
 import AiChatDrawer from "./AiChatDrawer";
@@ -142,7 +148,7 @@ function JeRow({ r, isChecked, onCheck, onClick, onKebab, isSelected, isAlt }) {
             {r.schedule.due
               ? `Due — was to post on ${formatDate(r.schedule.postsOn)}`
               : `Posts on ${formatDate(r.schedule.postsOn)}`}
-            {" · "}from the {r.schedule.source.toLowerCase()}
+            {" · "}{r.schedule.source}
           </div>
         )}
         {isAnomaly && r.anomaly && (
@@ -177,59 +183,51 @@ function JeRow({ r, isChecked, onCheck, onClick, onKebab, isSelected, isAlt }) {
   );
 }
 
-function RowMenu({ je, onClose, onAction, canPost }) {
-  const isScheduled = je.status === "scheduled";
+// The actions an entry offers, built once per entry by the page (actionsFor)
+// and shown here and in the drawer footer, so the two never disagree. A
+// blocked action stays visible, greyed, with the reason as its tooltip —
+// "you prepared this, someone else approves it" is worth seeing.
+const ACTION_ICON = {
+  check: <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>,
+  send: <svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>,
+  edit: <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>,
+  back: <svg viewBox="0 0 24 24"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>,
+  reverse: <svg viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>,
+  repeat: <svg viewBox="0 0 24 24"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>,
+  link: <svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>,
+  void: <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>,
+};
+
+function RowMenu({ je, onClose, onAction, actions }) {
   const ref = useRef(null);
   useEffect(() => {
     const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
   }, [onClose]);
+  const main = actions.filter((a) => !a.danger);
+  const danger = actions.filter((a) => a.danger);
   return (
     <div className="row-menu" ref={ref} onClick={(e) => e.stopPropagation()}>
       <div className="row-menu-item" onClick={() => onAction("view", je)}>
         <svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
         View detail
       </div>
-      {je.status === "draft" && (
-        <div className="row-menu-item" onClick={() => onAction("post", je)}>
-          <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
-          Post to GL
+      {main.map((a) => (
+        <div key={a.key} className={`row-menu-item${a.check.ok ? "" : " disabled"}`} title={a.check.ok ? "" : a.check.reason}
+          onClick={() => a.check.ok && onAction(a.key, je)}>
+          {ACTION_ICON[a.icon]}
+          {a.label}
         </div>
-      )}
-      {je.status === "pending" && (
-        <div className="row-menu-item" onClick={() => onAction("approve", je)}>
-          <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
-          Approve
+      ))}
+      {danger.length > 0 && <div className="row-menu-sep" />}
+      {danger.map((a) => (
+        <div key={a.key} className={`row-menu-item danger${a.check.ok ? "" : " disabled"}`} title={a.check.ok ? "" : a.check.reason}
+          onClick={() => a.check.ok && onAction(a.key, je)}>
+          {ACTION_ICON[a.icon]}
+          {a.label}
         </div>
-      )}
-      {/* A scheduled entry is read-only: it is changed at its source, and it
-          is posted (early, or when it is due) rather than edited or voided. */}
-      {isScheduled && canPost && (
-        <div className="row-menu-item" onClick={() => onAction("post_scheduled", je)}>
-          <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
-          {je.schedule?.due ? "Post now" : "Post early"}
-        </div>
-      )}
-      {isScheduled && (
-        <div className="row-menu-item" onClick={() => onAction("open_source", je)}>
-          <svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-          Open asset register
-        </div>
-      )}
-      {!isScheduled && (
-        <div className="row-menu-item" onClick={() => onAction("edit", je)}>
-          <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-          Edit
-        </div>
-      )}
-      {!isScheduled && <div className="row-menu-sep" />}
-      {je.status !== "void" && !isScheduled && (
-        <div className="row-menu-item danger" onClick={() => onAction("void", je)}>
-          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
-          Void journals
-        </div>
-      )}
+      ))}
     </div>
   );
 }
@@ -422,7 +420,10 @@ function KlayActionModal({ intent, onClose }) {
 }
 
 export default function JournalEntryPage() {
-  const { entries: JOURNAL_ENTRIES, addJournalEntry, peekNextJeNumber, pendingDraft, clearPendingDraft } = useJournalEntries();
+  const {
+    entries: JOURNAL_ENTRIES, addJournalEntry, updateJournalEntry, peekNextJeNumber, pendingDraft, clearPendingDraft,
+    templates, addTemplate, updateTemplate, removeTemplate,
+  } = useJournalEntries();
   const { hasLevel, user } = useCurrentUser();
   const canApprove = hasLevel("gl", "approve+post");
   const canTransact = hasLevel("gl", "transact");
@@ -432,13 +433,15 @@ export default function JournalEntryPage() {
   const allRows = useMemo(() => {
     // Mark the AUTO_PROCESSED_COUNT most-recent pending JEs as auto-processed by Klay AI
     const pendingByDateDesc = JOURNAL_ENTRIES
-      .filter((je) => je.status === "pending")
+      // Seeded entries only (no history yet): an entry someone made or moved
+      // in-app is theirs, not a Klay draft, and must keep its real status.
+      .filter((je) => je.status === "pending" && !je.history)
       .sort((a, b) => (b.je_date || "").localeCompare(a.je_date || ""))
       .slice(0, AUTO_PROCESSED_COUNT);
     const autoIds = new Set(pendingByDateDesc.map((je) => je.je_number));
     // Pick ANOMALY_COUNT anomalies from posted/draft (so the alert is varied)
     const anomalyCandidates = JOURNAL_ENTRIES
-      .filter((je) => !autoIds.has(je.je_number) && (je.status === "posted" || je.status === "draft"))
+      .filter((je) => !autoIds.has(je.je_number) && !je.history && (je.status === "posted" || je.status === "draft"))
       .sort((a, b) => (b.je_date || "").localeCompare(a.je_date || ""));
     const anomalyArr = anomalyCandidates.slice(0, ANOMALY_COUNT);
     const anomalyIndex = new Map(anomalyArr.map((je, i) => [je.je_number, i]));
@@ -455,10 +458,10 @@ export default function JournalEntryPage() {
     // Entries drafted from a schedule and waiting for their date. Derived
     // from the asset register on every render, so they follow the assets;
     // a month drops off once its posted entry exists (lib/scheduledJournals.js).
-    const scheduled = scheduledEntries(assets, { entries: JOURNAL_ENTRIES, closedThrough, today: TODAY })
+    const scheduled = scheduledEntries(assets, { entries: JOURNAL_ENTRIES, templates, closedThrough, today: TODAY })
       .map((je) => ({ ...je, ...lineSums(je) }));
     return [...stored, ...scheduled];
-  }, [JOURNAL_ENTRIES, assets, closedThrough]);
+  }, [JOURNAL_ENTRIES, assets, closedThrough, templates]);
 
   const [searchParams] = useSearchParams();
   const initialTab = (() => {
@@ -499,6 +502,11 @@ export default function JournalEntryPage() {
   }
 
   const [selectedId, setSelectedId] = useState(null);
+  // Lifecycle dialogs (send back, reverse, make recurring) and the templates
+  // drawer; `editingJe` is the draft open in the editor, if any.
+  const [dialog, setDialog] = useState(null);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [editingJe, setEditingJe] = useState(null);
   const [drawerTab, setDrawerTab] = useState("detail");
   // A line this page was sent to, as an index into the open entry's lines.
   const [focusLine, setFocusLine] = useState(null);
@@ -559,12 +567,39 @@ export default function JournalEntryPage() {
     setDraftOpen(true);
     clearPendingDraft();
   }, [pendingDraft, clearPendingDraft]);
-  function handleSaveDraft(je) {
-    addJournalEntry(je);
-    setDraftOpen(false);
+  function openEdit(je) {
+    const check = canEdit(je);
+    if (!check.ok) { showToast(check.reason); return; }
+    setKlayAction(null);
+    setEditingJe(je);
     setDraftSeedMemo("");
+    setDraftInitialLines(null);
+    setDraftKey((k) => k + 1);
+    setDraftOpen(true);
+  }
+  function handleSaveDraft(je, { submit = false, editing = false } = {}) {
+    const by = user?.name || "You";
+    const saved = withEvent(je, editing ? "edited" : "created", by);
+    if (editing) updateJournalEntry(je.je_number, () => saved);
+    else addJournalEntry(saved);
+    setDraftOpen(false);
+    setEditingJe(null);
+    setDraftSeedMemo("");
+    if (submit) {
+      // The same checks as the Submit action; the entry stays a draft if one fails.
+      const check = canSubmit(saved, { closedThrough });
+      if (check.ok) {
+        updateJournalEntry(je.je_number, (cur) => withEvent({ ...cur, status: "pending" }, "submitted", by));
+        selectTab("pending");
+        showToast(`${je.je_number} submitted for approval`);
+        return;
+      }
+      showToast(`${je.je_number} saved as draft — ${check.reason}`);
+      selectTab("draft");
+      return;
+    }
     selectTab("draft");
-    showToast(`${je.je_number} saved as draft`);
+    showToast(`${je.je_number} ${editing ? "updated" : "saved as draft"}`);
   }
 
   const tasks = useMemo(() => computeJournalTasks(allRows, insightsRole), [allRows, insightsRole]);
@@ -951,49 +986,183 @@ export default function JournalEntryPage() {
     showToast(`${rowsToExport.length} journals exported to CSV`);
   }
 
-  function onRowAction(action, je) {
-    setMenuOpenFor(null);
-    if (action === "view") setSelectedId(je.je_number);
-    else if (action === "post") showToast(`${je.je_number} posted to GL`);
-    else if (action === "approve") showToast(`${je.je_number} di-approve`);
-    else if (action === "edit") showToast(`Edit ${je.je_number} (demo)`);
-    else if (action === "void") showToast(`${je.je_number} voided`);
-    else if (action === "post_scheduled") postScheduled(je);
-    else if (action === "open_source") navigate("/assets");
+  // ── Lifecycle ──────────────────────────────────────────────────────────
+  // Rows can carry a display status (Auto, Anomaly) over the stored one, so
+  // every check and every write goes through the stored entry.
+  const actor = user?.name || "You";
+  const todayIso = isoOf(TODAY);
+  const storedOf = (r) => JOURNAL_ENTRIES.find((j) => j.je_number === r.je_number) || r;
+  const ctx = { user: actor, closedThrough, canPost: canApprove };
+
+  // Where an entry came from, for the drawer's Source row and "Open source".
+  function sourceOf(je) {
+    const id = je.reference_id;
+    if (je.status === "scheduled" && je.schedule) {
+      if (je.schedule.kind === "template") return { label: je.schedule.source, open: () => setTemplatesOpen(true) };
+      if (je.schedule.kind === "reversal") return { label: `Entry ${je.schedule.reverses}`, open: () => { setSelectedId(je.schedule.reverses); setDrawerTab("detail"); } };
+      return { label: "Fixed asset register", open: () => navigate("/assets") };
+    }
+    if (["bill", "ap_bill", "bill_payment"].includes(je.reference_type) && id) return { label: `Bill ${id}`, open: () => navigate(`/bills/${id}`) };
+    if (je.reference_type === "payment" && id) {
+      return /^BILL/.test(id)
+        ? { label: `Payment on bill ${id}`, open: () => navigate(`/bills/${id}`) }
+        : { label: `Payment on ${id}`, open: () => navigate("/payments") };
+    }
+    if (["invoice", "invoice_payment"].includes(je.reference_type)) return { label: `Invoice ${id || ""}`.trim(), open: () => navigate("/invoices") };
+    if (je.reference_type === "bank_reconciliation") return { label: "Bank reconciliation", open: () => navigate("/bank-reconciliation") };
+    if (je.reference_type === "inventory_movement") return { label: "Stock movement", open: () => navigate("/inventory") };
+    if (je.reference_type === "schedule") return { label: "Fixed asset register", open: () => navigate("/assets") };
+    if (je.reference_type === "recurring") return { label: "Recurring template", open: () => setTemplatesOpen(true) };
+    if (je.reversal_of) return { label: `Reverses ${je.reversal_of}`, open: () => { setSelectedId(je.reversal_of); setDrawerTab("detail"); } };
+    return null;
   }
+
+  function actionsFor(row) {
+    if (row.status === "scheduled") {
+      const src = sourceOf(row);
+      return [
+        ...(canApprove ? [{ key: "post_scheduled", label: row.schedule?.due ? "Post now" : "Post early", icon: "check", primary: true, check: { ok: true } }] : []),
+        ...(src ? [{ key: "open_source", label: `Open ${src.label.replace(/^Recurring template.*/, "recurring templates").replace(/^Fixed/, "fixed").replace(/^Entry/, "entry")}`, icon: "link", check: { ok: true } }] : []),
+      ];
+    }
+    const je = storedOf(row);
+    const sys = isSystemEntry(je);
+    const out = [];
+    if (je.status === "draft" && !sys) {
+      out.push({ key: "submit", label: "Submit for approval", icon: "send", primary: true, check: canTransact ? canSubmit(je, ctx) : { ok: false, reason: "Your role cannot prepare journal entries." } });
+      out.push({ key: "edit", label: "Edit", icon: "edit", check: canTransact ? canEdit(je) : { ok: false, reason: "Your role cannot prepare journal entries." } });
+    }
+    if (je.status === "pending") {
+      out.push({ key: "approve", label: "Approve & post", icon: "check", primary: true, check: canApproveEntry(je, ctx) });
+      out.push({ key: "return", label: "Send back", icon: "back", check: canReturn(je, ctx) });
+    }
+    if (je.status === "posted" && !sys) out.push({ key: "reverse", label: "Reverse", icon: "reverse", check: canReverse(je, ctx) });
+    if (!sys && !je.reversal_of && ["draft", "posted"].includes(je.status) && canTransact) {
+      out.push({ key: "recurring", label: "Make recurring", icon: "repeat", check: { ok: true } });
+    }
+    const src = sourceOf(je);
+    if (src) out.push({ key: "open_source", label: "Open source", icon: "link", check: { ok: true } });
+    if ((je.status === "draft" || je.status === "pending") && !sys) out.push({ key: "void", label: "Void", icon: "void", danger: true, check: canVoid(je) });
+    return out;
+  }
+
+  function submitEntry(je) {
+    const check = canSubmit(je, ctx);
+    if (!check.ok) { showToast(check.reason); return false; }
+    updateJournalEntry(je.je_number, (cur) => withEvent({ ...cur, status: "pending" }, "submitted", actor));
+    return true;
+  }
+  function approveEntry(je) {
+    const check = canApproveEntry(je, ctx);
+    if (!check.ok) { showToast(check.reason); return false; }
+    updateJournalEntry(je.je_number, (cur) => withEvent({ ...cur, status: "posted", posted_by: actor, posted_date: todayIso }, "approved and posted", actor));
+    return true;
+  }
+
+  function onRowAction(action, row) {
+    setMenuOpenFor(null);
+    if (action === "view") { setSelectedId(row.je_number); setDrawerTab("detail"); return; }
+    if (action === "post_scheduled") { postScheduled(row); return; }
+    if (action === "open_source") { sourceOf(row.status === "scheduled" ? row : storedOf(row))?.open(); return; }
+    const je = storedOf(row);
+    if (action === "submit" && submitEntry(je)) showToast(`${je.je_number} submitted for approval`);
+    else if (action === "approve" && approveEntry(je)) showToast(`${je.je_number} approved and posted`);
+    else if (action === "edit") openEdit(je);
+    else if (action === "return") setDialog({ kind: "return", je });
+    else if (action === "reverse") setDialog({ kind: "reverse", je });
+    else if (action === "recurring") setDialog({ kind: "recurring", je });
+    else if (action === "void") {
+      const check = canVoid(je);
+      if (!check.ok) { showToast(check.reason); return; }
+      updateJournalEntry(je.je_number, (cur) => withEvent({ ...cur, status: "void" }, "voided", actor));
+      showToast(`${je.je_number} voided`);
+    }
+  }
+
+  function confirmReturn(je, reason) {
+    updateJournalEntry(je.je_number, (cur) => withEvent({ ...cur, status: "draft" }, "sent back", actor, reason));
+    setDialog(null);
+    showToast(`${je.je_number} sent back to ${je.created_by}`);
+  }
+
+  function confirmReverse(je, date) {
+    const check = canReverse(je, ctx);
+    if (!check.ok) { showToast(check.reason); return; }
+    const jeNumber = peekNextJeNumber();
+    addJournalEntry(buildReversal(je, { jeNumber, date, by: actor, today: todayIso }));
+    updateJournalEntry(je.je_number, (cur) => withEvent({ ...cur, reversed_by: jeNumber }, "reversed", actor, `By ${jeNumber}`));
+    setDialog(null);
+    showToast(`${je.je_number} reversed by ${jeNumber}`);
+  }
+
+  function confirmRecurring(je, cfg) {
+    const id = `TPL-${String(templates.length + 1 + Math.floor(Math.random() * 900)).padStart(3, "0")}`;
+    addTemplate({
+      id, ...cfg, memo: cfg.name, active: true, created_by: actor, created_date: todayIso,
+      lines: je.lines.map(({ account_code, account_name, debit, credit, description, dimensions, payee }) => ({ account_code, account_name, debit, credit, description, dimensions, payee })),
+    });
+    setDialog(null);
+    selectTab("scheduled");
+    showToast(`Template “${cfg.name}” created — its months are on the Scheduled tab`);
+  }
+
   // Posting a scheduled entry writes a real, numbered entry dated on its
   // schedule date and carrying its schedule_key, which is what takes the
-  // scheduled one off the list (lib/scheduledJournals.js).
+  // scheduled one off the list (lib/scheduledJournals.js). A template's
+  // auto-reverse flag travels with it; a scheduled reversal marks the entry
+  // it reverses.
   function postScheduled(je) {
     const jeNumber = peekNextJeNumber();
-    const today = `${TODAY.getFullYear()}-${String(TODAY.getMonth() + 1).padStart(2, "0")}-${String(TODAY.getDate()).padStart(2, "0")}`;
-    const by = user?.name || "Finance Manager";
-    addJournalEntry({
+    const kind = je.schedule?.kind;
+    addJournalEntry(withEvent({
       je_number: jeNumber,
       je_date: je.je_date,
       status: "posted",
       memo: je.memo,
-      reference_type: "schedule",
-      reference_id: null,
+      reference_type: kind === "template" ? "recurring" : kind === "reversal" ? "reversal" : "schedule",
+      reference_id: je.reference_id,
       schedule_key: je.schedule_key,
+      ...(je.auto_reverse ? { auto_reverse: true } : {}),
+      ...(je.reversal_of ? { reversal_of: je.reversal_of } : {}),
       created_by: "Klay schedule",
-      created_date: today,
-      posted_by: by,
-      posted_date: today,
+      created_date: todayIso,
+      posted_by: actor,
+      posted_date: todayIso,
       lines: je.lines.map(({ account_code, account_name, debit, credit, description }) => ({ account_code, account_name, debit, credit, description })),
-    });
+    }, "posted from schedule", actor, je.schedule?.source));
+    if (je.reversal_of) {
+      updateJournalEntry(je.reversal_of, (cur) => withEvent({ ...cur, reversed_by: jeNumber }, "reversed", actor, `By ${jeNumber}`));
+    }
     if (selectedId === je.je_number) setSelectedId(jeNumber);
     showToast(`${je.memo} posted as ${jeNumber}`);
   }
+
   function onAutoAction(action, je) {
     if (action === "confirm") showToast(`${je.je_number} confirmed and posted to GL`);
     else if (action === "reject") showToast(`${je.je_number} rejected — Klay will re-learn`);
   }
+  // Bulk runs each selected entry through the same checks as one at a time,
+  // and says how many it skipped and why rather than failing silently.
   function onBulk(action) {
-    const count = checked.size;
-    if (action === "post") showToast(`${count} journals posted to GL`);
-    else if (action === "approve") showToast(`${count} journals di-approve`);
+    const picked = [...checked].map((n) => JOURNAL_ENTRIES.find((j) => j.je_number === n)).filter(Boolean);
+    const run = action === "submit" ? submitEntryQuiet : approveEntryQuiet;
+    let done = 0;
+    const skipped = [];
+    for (const je of picked) { const r = run(je); if (r.ok) done += 1; else skipped.push(r.reason); }
+    const verb = action === "submit" ? "submitted" : "approved and posted";
+    const why = skipped.length ? ` · ${skipped.length} skipped (${[...new Set(skipped)][0]})` : "";
+    showToast(`${done} ${verb}${why}`);
     clearChecks();
+  }
+  function submitEntryQuiet(je) {
+    const check = canSubmit(je, ctx);
+    if (check.ok) updateJournalEntry(je.je_number, (cur) => withEvent({ ...cur, status: "pending" }, "submitted", actor));
+    return check;
+  }
+  function approveEntryQuiet(je) {
+    const check = canApproveEntry(je, ctx);
+    if (check.ok) updateJournalEntry(je.je_number, (cur) => withEvent({ ...cur, status: "posted", posted_by: actor, posted_date: todayIso }, "approved and posted", actor));
+    return check;
   }
 
   return (
@@ -1031,6 +1200,13 @@ export default function JournalEntryPage() {
                   <span className="bp-tab-count">{t.count}</span>
                 </button>
               ))}
+              {/* The templates feeding the Scheduled tab live next to it. */}
+              {isTabActive("scheduled") && (
+                <button type="button" className="je-tpl-btn" onClick={() => setTemplatesOpen(true)}>
+                  {ACTION_ICON.repeat}
+                  Recurring templates · {templates.length}
+                </button>
+              )}
             </div>
 
             <div className="lg-filter-row">
@@ -1115,7 +1291,7 @@ export default function JournalEntryPage() {
                           />
                           {menuOpenFor === r.je_number && (
                             <div style={{ position: "absolute", right: 32, top: 32, zIndex: 5 }}>
-                              <RowMenu je={r} canPost={canApprove} onClose={() => setMenuOpenFor(null)} onAction={onRowAction} />
+                              <RowMenu je={r} actions={actionsFor(r)} onClose={() => setMenuOpenFor(null)} onAction={onRowAction} />
                             </div>
                           )}
                         </div>
@@ -1139,7 +1315,7 @@ export default function JournalEntryPage() {
                       />
                       {menuOpenFor === r.je_number && (
                         <div style={{ position: "absolute", right: 32, top: 32, zIndex: 5 }}>
-                          <RowMenu je={r} canPost={canApprove} onClose={() => setMenuOpenFor(null)} onAction={onRowAction} />
+                          <RowMenu je={r} actions={actionsFor(r)} onClose={() => setMenuOpenFor(null)} onAction={onRowAction} />
                         </div>
                       )}
                     </div>
@@ -1157,8 +1333,8 @@ export default function JournalEntryPage() {
           <span><span className="lg-footer-num">{checked.size}</span> selected</span>
           {checked.size > 0 ? (
             <>
-              <button className="lg-footer-bulk-btn" onClick={() => onBulk("post")}>Post to GL</button>
-              <button className="lg-footer-bulk-btn" onClick={() => onBulk("approve")}>Approve</button>
+              <button className="lg-footer-bulk-btn" onClick={() => onBulk("submit")}>Submit for approval</button>
+              {canApprove && <button className="lg-footer-bulk-btn" onClick={() => onBulk("approve")}>Approve &amp; post</button>}
               <button className="lg-footer-clear" onClick={clearChecks}>Clear selection</button>
             </>
           ) : (
@@ -1235,8 +1411,13 @@ export default function JournalEntryPage() {
                         {selected.schedule.due ? "Due — not posted yet" : `Scheduled · posts on ${formatDate(selected.schedule.postsOn)}`}
                       </div>
                       <p className="drawer-sched-text">
-                        Drafted from the {selected.schedule.source.toLowerCase()} for {selected.schedule.periodLabel}. It is
-                        read-only — change an asset and this entry follows. It gets its journal number when it posts.
+                        {selected.schedule.kind === "template"
+                          ? <>Drafted from {selected.schedule.source} for {selected.schedule.periodLabel}. It is read-only — change or pause the template and this entry follows. It posts without a second approval; the template was the approval.</>
+                          : selected.schedule.kind === "reversal"
+                            ? <>Undoes {selected.schedule.reverses} on {formatDate(selected.schedule.postsOn)}, the 1st of the month after it was booked — every debit and credit swapped.</>
+                            : <>Drafted from the fixed asset register for {selected.schedule.periodLabel}. It is read-only — change an asset and this entry follows.</>}
+                        {" "}It gets its journal number when it posts.
+                        {selected.schedule.note && <> {selected.schedule.note}</>}
                       </p>
                       <div className="drawer-sched-list">
                         {selected.schedule.sources.map((s, i) => (
@@ -1281,7 +1462,67 @@ export default function JournalEntryPage() {
                         <div className="drawer-value">{value}</div>
                       </div>
                     ))}
+                    {/* Where the entry came from, one click away — the bill,
+                        payment, asset or template that wrote it. */}
+                    {(() => {
+                      const src = sourceOf(selected.status === "scheduled" ? selected : storedOf(selected));
+                      const stored = storedOf(selected);
+                      return (
+                        <>
+                          <div className="drawer-row">
+                            <div className="drawer-label">Source</div>
+                            <div className="drawer-value">
+                              {src ? <button type="button" className="je-link" onClick={src.open}>{src.label} →</button> : "Manual entry"}
+                            </div>
+                          </div>
+                          {stored.reversed_by && (
+                            <div className="drawer-row">
+                              <div className="drawer-label">Reversed by</div>
+                              <div className="drawer-value">
+                                <button type="button" className="je-link" onClick={() => setSelectedId(stored.reversed_by)}>{stored.reversed_by} →</button>
+                              </div>
+                            </div>
+                          )}
+                          {stored.auto_reverse && !stored.reversed_by && stored.status !== "scheduled" && (
+                            <div className="drawer-row">
+                              <div className="drawer-label">Auto-reverse</div>
+                              <div className="drawer-value">On the 1st of the month after it posts</div>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
+                  {selected.status !== "scheduled" && (() => {
+                    const stored = storedOf(selected);
+                    const files = stored.attachments || [];
+                    return (
+                      <div className="drawer-section">
+                        <div className="drawer-section-title">Attachments · {files.length}</div>
+                        {files.length === 0 && <div className="je-attach-empty">Nothing attached.</div>}
+                        {files.map((a, i) => (
+                          <div key={`${a.name}-${i}`} className="je-attach-row">
+                            <a href={a.url} target="_blank" rel="noreferrer">{a.name}</a>
+                            <span>{Math.max(1, Math.round((a.size || 0) / 1024))} KB</span>
+                          </div>
+                        ))}
+                        {/* Evidence can be added at any stage, posted included —
+                            it changes nothing in the ledger. */}
+                        {stored.status !== "void" && canTransact && (
+                          <label className="dje-attach-add">
+                            + Attach file
+                            <input type="file" multiple onChange={(e) => {
+                              const added = [...e.target.files].map((f) => ({ name: f.name, size: f.size, type: f.type, url: URL.createObjectURL(f) }));
+                              e.target.value = "";
+                              if (!added.length) return;
+                              updateJournalEntry(stored.je_number, (cur) => withEvent({ ...cur, attachments: [...(cur.attachments || []), ...added] }, "attached", actor, added.map((a) => a.name).join(", ")));
+                              showToast(`${added.length} file${added.length === 1 ? "" : "s"} attached to ${stored.je_number}`);
+                            }} />
+                          </label>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </>
               )}
               {drawerTab === "lines" && (
@@ -1333,27 +1574,41 @@ export default function JournalEntryPage() {
                   ))}
                 </div>
               )}
-              {drawerTab === "audit" && (
-                <div className="drawer-section">
-                  <div className="drawer-section-title">Audit Trail</div>
-                  <div className="drawer-row">
-                    <div className="drawer-label">Dibuat</div>
-                    <div className="drawer-value">{selected.created_by} · {formatDate(selected.created_date)}</div>
-                  </div>
-                  {selected.posted_by && (
+              {drawerTab === "audit" && (() => {
+                const stored = storedOf(selected);
+                // Every lifecycle move appends to `history` (lib/journalLifecycle.js).
+                // Seeded entries predate it, so their creation and posting are
+                // read off the record itself.
+                const events = stored.history?.length
+                  ? stored.history
+                  : [
+                    { at: stored.created_date, action: "created", by: stored.created_by },
+                    ...(stored.posted_by ? [{ at: stored.posted_date, action: "posted", by: stored.posted_by }] : []),
+                  ];
+                return (
+                  <div className="drawer-section">
+                    <div className="drawer-section-title">Audit trail</div>
+                    <div className="je-audit">
+                      {events.map((ev, i) => (
+                        <div key={i} className="je-audit-item">
+                          <span className="je-audit-dot" />
+                          <div>
+                            <div className="je-audit-head"><strong>{ev.action.charAt(0).toUpperCase() + ev.action.slice(1)}</strong> · {ev.by}</div>
+                            <div className="je-audit-date">{formatDate(ev.at)}</div>
+                            {ev.note && <div className="je-audit-note">{ev.note}</div>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                     <div className="drawer-row">
-                      <div className="drawer-label">Posted</div>
-                      <div className="drawer-value">{selected.posted_by} · {formatDate(selected.posted_date)}</div>
-                    </div>
-                  )}
-                  <div className="drawer-row">
-                    <div className="drawer-label">Status sekarang</div>
-                    <div className="drawer-value">
-                      <span className={`badge badge-${STATUS_BADGE_CLASS[selected.status]}`}>{STATUS_LABEL[selected.status]}</span>
+                      <div className="drawer-label">Current status</div>
+                      <div className="drawer-value">
+                        <span className={`badge badge-${STATUS_BADGE_CLASS[selected.status]}`}>{STATUS_LABEL[selected.status]}</span>
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
               {drawerTab === "ai" && (
                 <div className="drawer-section">
                   <div className="drawer-section-title">AI Insight</div>
@@ -1383,37 +1638,36 @@ export default function JournalEntryPage() {
               )}
             </div>
             <div className="drawer-footer">
-              {selected.status === "scheduled" ? (
-                <>
-                  <button className="drawer-btn ghost" onClick={() => navigate("/assets")}>
-                    <svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                    Open asset register
-                  </button>
-                  {canApprove && (
-                    <button className="drawer-btn primary" onClick={() => postScheduled(selected)}>
-                      <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
-                      {selected.schedule?.due ? "Post now" : "Post early"}
-                    </button>
-                  )}
-                </>
-              ) : (
-                <button className="drawer-btn ghost">
-                  <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                  Edit
-                </button>
-              )}
-              {selected.status === "draft" && (
-                <button className="drawer-btn primary">
-                  <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
-                  Post to GL
-                </button>
-              )}
-              {selected.status === "pending" && (
-                <button className="drawer-btn primary">
-                  <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
-                  Approve
-                </button>
-              )}
+              {/* Auto and Anomaly keep their own review buttons below; every
+                  other status offers the same actions as its row menu. */}
+              {selected.status !== "auto" && selected.status !== "anomaly" && (() => {
+                const acts = actionsFor(selected);
+                const secondary = acts.filter((a) => !a.primary && !a.danger);
+                const primary = acts.filter((a) => a.primary);
+                const danger = acts.filter((a) => a.danger);
+                return (
+                  <>
+                    {danger.map((a) => (
+                      <button key={a.key} className="drawer-btn ghost danger-text" disabled={!a.check.ok} title={a.check.ok ? "" : a.check.reason}
+                        onClick={() => onRowAction(a.key, selected)}>
+                        {ACTION_ICON[a.icon]}{a.label}
+                      </button>
+                    ))}
+                    {secondary.map((a) => (
+                      <button key={a.key} className="drawer-btn ghost" disabled={!a.check.ok} title={a.check.ok ? "" : a.check.reason}
+                        onClick={() => onRowAction(a.key, selected)}>
+                        {ACTION_ICON[a.icon]}{a.label}
+                      </button>
+                    ))}
+                    {primary.map((a) => (
+                      <button key={a.key} className="drawer-btn primary" disabled={!a.check.ok} title={a.check.ok ? "" : a.check.reason}
+                        onClick={() => onRowAction(a.key, selected)}>
+                        {ACTION_ICON[a.icon]}{a.label}
+                      </button>
+                    ))}
+                  </>
+                );
+              })()}
               {selected.status === "auto" && (
                 <>
                   <button
@@ -1489,9 +1743,34 @@ export default function JournalEntryPage() {
         initialLines={draftInitialLines}
         nextJeNumber={peekNextJeNumber()}
         createdBy={user?.name}
-        onClose={() => { setDraftOpen(false); setDraftSeedMemo(""); setDraftInitialLines(null); }}
+        editing={editingJe}
+        closedThrough={closedThrough}
+        onClose={() => { setDraftOpen(false); setEditingJe(null); setDraftSeedMemo(""); setDraftInitialLines(null); }}
         onSave={handleSaveDraft}
       />
+
+      {dialog?.kind === "return" && (
+        <ReturnDialog je={dialog.je} onClose={() => setDialog(null)} onConfirm={(reason) => confirmReturn(dialog.je, reason)} />
+      )}
+      {dialog?.kind === "reverse" && (
+        <ReverseDialog je={dialog.je} closedThrough={closedThrough} onClose={() => setDialog(null)} onConfirm={(date) => confirmReverse(dialog.je, date)} />
+      )}
+      {dialog?.kind === "recurring" && (
+        <RecurringDialog
+          je={dialog.je}
+          firstOpen={closedThrough ? nextPeriod(closedThrough) : null}
+          onClose={() => setDialog(null)}
+          onConfirm={(cfg) => confirmRecurring(dialog.je, cfg)}
+        />
+      )}
+      {templatesOpen && (
+        <TemplatesDrawer
+          templates={templates}
+          onClose={() => setTemplatesOpen(false)}
+          onToggle={(t) => { updateTemplate(t.id, { active: !t.active }); showToast(`${t.name} ${t.active ? "paused" : "resumed"}`); }}
+          onRemove={(t) => { removeTemplate(t.id); showToast(`${t.name} deleted — posted entries stay in the ledger`); }}
+        />
+      )}
 
       <ReconReviewModal
         open={reconReviewOpen}

@@ -315,6 +315,8 @@
 .row-kebab svg{width:14px;height:14px;fill:currentColor}
 .row-menu{position:absolute;top:calc(100% + 4px);right:0;background:var(--color-surface-raised);border:1px solid var(--color-border-default);border-radius:var(--radius-md);box-shadow:0 12px 32px rgba(8,7,6,.16);min-width:170px;z-index:30;padding:5px;overflow:hidden}
 .row-menu-item{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:var(--radius-sm);font-size:12px;color:var(--color-text-primary);cursor:pointer;transition:background var(--transition-fast);white-space:nowrap}
+.row-menu-item.disabled{color:var(--color-text-tertiary);cursor:not-allowed}
+.row-menu-item.disabled:hover{background:none}
 .row-menu-item:hover{background:var(--color-surface-sunken)}
 .row-menu-item.danger{color:var(--danger-text)}
 .row-menu-item.danger:hover{background:var(--danger-surface)}
