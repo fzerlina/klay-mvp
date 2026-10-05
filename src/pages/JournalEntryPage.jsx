@@ -1,7 +1,9 @@
 import { useState, useMemo, useEffect, useRef } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useJournalEntries } from "../state/JournalEntriesContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
+import { useAssets } from "../state/AssetsContext";
+import { scheduledEntries } from "../lib/scheduledJournals";
 import { TODAY } from "../lib/clock";
 import { formatDate } from "../lib/format";
 import AiChatDrawer from "./AiChatDrawer";
@@ -28,8 +30,8 @@ function lineSums(je) {
   return { debit, credit };
 }
 
-const STATUS_LABEL = { posted: "Posted", draft: "Draft", pending: "Pending", void: "Void", auto: "Auto", anomaly: "Anomaly" };
-const STATUS_BADGE_CLASS = { posted: "approved", draft: "draft", pending: "review", void: "rejected", auto: "auto", anomaly: "anomaly" };
+const STATUS_LABEL = { posted: "Posted", draft: "Draft", pending: "Pending", void: "Void", auto: "Auto", anomaly: "Anomaly", scheduled: "Scheduled" };
+const STATUS_BADGE_CLASS = { posted: "approved", draft: "draft", pending: "review", void: "rejected", auto: "auto", anomaly: "anomaly", scheduled: "scheduled" };
 
 const AUTO_PROCESSED_COUNT = 8;
 const ANOMALY_COUNT = 4;
@@ -135,6 +137,14 @@ function JeRow({ r, isChecked, onCheck, onClick, onKebab, isSelected, isAlt }) {
             <span className="je-desc-ai-text">{r.ai_summary}</span>
           </div>
         )}
+        {r.status === "scheduled" && r.schedule && (
+          <div className={`je-desc-sched${r.schedule.due ? " due" : ""}`}>
+            {r.schedule.due
+              ? `Due — was to post on ${formatDate(r.schedule.postsOn)}`
+              : `Posts on ${formatDate(r.schedule.postsOn)}`}
+            {" · "}from the {r.schedule.source.toLowerCase()}
+          </div>
+        )}
         {isAnomaly && r.anomaly && (
           <div className="je-desc-anomaly">
             <svg viewBox="0 0 12 12"><path d="M6 1.5l5 8.5h-10z" fill="currentColor" stroke="none"/><line x1="6" y1="5" x2="6" y2="7.5" stroke="#fff" strokeWidth="1.4"/><circle cx="6" cy="8.8" r="0.6" fill="#fff" stroke="none"/></svg>
@@ -167,7 +177,8 @@ function JeRow({ r, isChecked, onCheck, onClick, onKebab, isSelected, isAlt }) {
   );
 }
 
-function RowMenu({ je, onClose, onAction }) {
+function RowMenu({ je, onClose, onAction, canPost }) {
+  const isScheduled = je.status === "scheduled";
   const ref = useRef(null);
   useEffect(() => {
     const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
@@ -192,12 +203,28 @@ function RowMenu({ je, onClose, onAction }) {
           Approve
         </div>
       )}
-      <div className="row-menu-item" onClick={() => onAction("edit", je)}>
-        <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-        Edit
-      </div>
-      <div className="row-menu-sep" />
-      {je.status !== "void" && (
+      {/* A scheduled entry is read-only: it is changed at its source, and it
+          is posted (early, or when it is due) rather than edited or voided. */}
+      {isScheduled && canPost && (
+        <div className="row-menu-item" onClick={() => onAction("post_scheduled", je)}>
+          <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+          {je.schedule?.due ? "Post now" : "Post early"}
+        </div>
+      )}
+      {isScheduled && (
+        <div className="row-menu-item" onClick={() => onAction("open_source", je)}>
+          <svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          Open asset register
+        </div>
+      )}
+      {!isScheduled && (
+        <div className="row-menu-item" onClick={() => onAction("edit", je)}>
+          <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          Edit
+        </div>
+      )}
+      {!isScheduled && <div className="row-menu-sep" />}
+      {je.status !== "void" && !isScheduled && (
         <div className="row-menu-item danger" onClick={() => onAction("void", je)}>
           <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
           Void journals
@@ -400,6 +427,8 @@ export default function JournalEntryPage() {
   const canApprove = hasLevel("gl", "approve+post");
   const canTransact = hasLevel("gl", "transact");
   const insightsRole = canApprove ? "operator" : canTransact ? "preparer" : "viewer";
+  const { assets, closedThrough } = useAssets();
+  const navigate = useNavigate();
   const allRows = useMemo(() => {
     // Mark the AUTO_PROCESSED_COUNT most-recent pending JEs as auto-processed by Klay AI
     const pendingByDateDesc = JOURNAL_ENTRIES
@@ -413,7 +442,7 @@ export default function JournalEntryPage() {
       .sort((a, b) => (b.je_date || "").localeCompare(a.je_date || ""));
     const anomalyArr = anomalyCandidates.slice(0, ANOMALY_COUNT);
     const anomalyIndex = new Map(anomalyArr.map((je, i) => [je.je_number, i]));
-    return JOURNAL_ENTRIES.map((je) => {
+    const stored = JOURNAL_ENTRIES.map((je) => {
       const { debit, credit } = lineSums(je);
       if (autoIds.has(je.je_number)) {
         return { ...je, debit, credit, status: "auto", ai_summary: generateAiSummary(je) };
@@ -423,12 +452,18 @@ export default function JournalEntryPage() {
       }
       return { ...je, debit, credit };
     });
-  }, [JOURNAL_ENTRIES]);
+    // Entries drafted from a schedule and waiting for their date. Derived
+    // from the asset register on every render, so they follow the assets;
+    // a month drops off once its posted entry exists (lib/scheduledJournals.js).
+    const scheduled = scheduledEntries(assets, { entries: JOURNAL_ENTRIES, closedThrough, today: TODAY })
+      .map((je) => ({ ...je, ...lineSums(je) }));
+    return [...stored, ...scheduled];
+  }, [JOURNAL_ENTRIES, assets, closedThrough]);
 
   const [searchParams] = useSearchParams();
   const initialTab = (() => {
     const t = searchParams.get("tab");
-    const valid = ["semua", "anomaly", "auto", "pending", "draft", "posted", "void"];
+    const valid = ["semua", "anomaly", "auto", "scheduled", "pending", "draft", "posted", "void"];
     return t && valid.includes(t) ? t : "semua";
   })();
   const [filter, setFilter] = useState({ kind: "tab", value: initialTab });
@@ -436,7 +471,7 @@ export default function JournalEntryPage() {
   // Respond to deep-link tab changes (e.g. navigating from Close → JE with ?tab=anomaly)
   useEffect(() => {
     const t = searchParams.get("tab");
-    const valid = ["semua", "anomaly", "auto", "pending", "draft", "posted", "void"];
+    const valid = ["semua", "anomaly", "auto", "scheduled", "pending", "draft", "posted", "void"];
     if (t && valid.includes(t)) setFilter({ kind: "tab", value: t });
   }, [searchParams]);
   const [sortChoice, setSortChoice] = useState(null);
@@ -563,7 +598,7 @@ export default function JournalEntryPage() {
 
   // ── KPIs ───────────────────────────────────────────────────────────────
   const counts = useMemo(() => {
-    const c = { posted: 0, draft: 0, pending: 0, void: 0, auto: 0, anomaly: 0 };
+    const c = { posted: 0, draft: 0, pending: 0, void: 0, auto: 0, anomaly: 0, scheduled: 0 };
     allRows.forEach((r) => { c[r.status] = (c[r.status] || 0) + 1; });
     return c;
   }, [allRows]);
@@ -578,6 +613,7 @@ export default function JournalEntryPage() {
     semua:   allRows.length,
     anomaly: counts.anomaly,
     auto:    counts.auto,
+    scheduled: counts.scheduled,
     pending: counts.pending,
     draft:   counts.draft,
     posted:  counts.posted,
@@ -587,6 +623,7 @@ export default function JournalEntryPage() {
     { k: "semua",   lbl: "All",     count: tabCounts.semua },
     { k: "anomaly", lbl: "Anomaly", count: tabCounts.anomaly },
     { k: "auto",    lbl: "Auto",    count: tabCounts.auto },
+    { k: "scheduled", lbl: "Scheduled", count: tabCounts.scheduled },
     { k: "pending", lbl: "Pending", count: tabCounts.pending },
     { k: "draft",   lbl: "Draft",   count: tabCounts.draft },
     { k: "posted",  lbl: "Posted",  count: tabCounts.posted },
@@ -921,6 +958,32 @@ export default function JournalEntryPage() {
     else if (action === "approve") showToast(`${je.je_number} di-approve`);
     else if (action === "edit") showToast(`Edit ${je.je_number} (demo)`);
     else if (action === "void") showToast(`${je.je_number} voided`);
+    else if (action === "post_scheduled") postScheduled(je);
+    else if (action === "open_source") navigate("/assets");
+  }
+  // Posting a scheduled entry writes a real, numbered entry dated on its
+  // schedule date and carrying its schedule_key, which is what takes the
+  // scheduled one off the list (lib/scheduledJournals.js).
+  function postScheduled(je) {
+    const jeNumber = peekNextJeNumber();
+    const today = `${TODAY.getFullYear()}-${String(TODAY.getMonth() + 1).padStart(2, "0")}-${String(TODAY.getDate()).padStart(2, "0")}`;
+    const by = user?.name || "Finance Manager";
+    addJournalEntry({
+      je_number: jeNumber,
+      je_date: je.je_date,
+      status: "posted",
+      memo: je.memo,
+      reference_type: "schedule",
+      reference_id: null,
+      schedule_key: je.schedule_key,
+      created_by: "Klay schedule",
+      created_date: today,
+      posted_by: by,
+      posted_date: today,
+      lines: je.lines.map(({ account_code, account_name, debit, credit, description }) => ({ account_code, account_name, debit, credit, description })),
+    });
+    if (selectedId === je.je_number) setSelectedId(jeNumber);
+    showToast(`${je.memo} posted as ${jeNumber}`);
   }
   function onAutoAction(action, je) {
     if (action === "confirm") showToast(`${je.je_number} confirmed and posted to GL`);
@@ -1052,7 +1115,7 @@ export default function JournalEntryPage() {
                           />
                           {menuOpenFor === r.je_number && (
                             <div style={{ position: "absolute", right: 32, top: 32, zIndex: 5 }}>
-                              <RowMenu je={r} onClose={() => setMenuOpenFor(null)} onAction={onRowAction} />
+                              <RowMenu je={r} canPost={canApprove} onClose={() => setMenuOpenFor(null)} onAction={onRowAction} />
                             </div>
                           )}
                         </div>
@@ -1076,7 +1139,7 @@ export default function JournalEntryPage() {
                       />
                       {menuOpenFor === r.je_number && (
                         <div style={{ position: "absolute", right: 32, top: 32, zIndex: 5 }}>
-                          <RowMenu je={r} onClose={() => setMenuOpenFor(null)} onAction={onRowAction} />
+                          <RowMenu je={r} canPost={canApprove} onClose={() => setMenuOpenFor(null)} onAction={onRowAction} />
                         </div>
                       )}
                     </div>
@@ -1166,6 +1229,31 @@ export default function JournalEntryPage() {
                       <div className="drawer-anomaly-meta">Needs your review before period close</div>
                     </div>
                   )}
+                  {selected.status === "scheduled" && selected.schedule && (
+                    <div className={`drawer-sched-callout${selected.schedule.due ? " due" : ""}`}>
+                      <div className="drawer-sched-eyebrow">
+                        {selected.schedule.due ? "Due — not posted yet" : `Scheduled · posts on ${formatDate(selected.schedule.postsOn)}`}
+                      </div>
+                      <p className="drawer-sched-text">
+                        Drafted from the {selected.schedule.source.toLowerCase()} for {selected.schedule.periodLabel}. It is
+                        read-only — change an asset and this entry follows. It gets its journal number when it posts.
+                      </p>
+                      <div className="drawer-sched-list">
+                        {selected.schedule.sources.map((s, i) => (
+                          <div key={`${s.id}-${i}`} className="drawer-sched-item">
+                            <span className="drawer-sched-tag">{s.tag}</span>
+                            <span className="drawer-sched-name">{s.name}</span>
+                            <span className="drawer-sched-amt">Rp {fmtRp(s.amount)}</span>
+                          </div>
+                        ))}
+                      </div>
+                      {selected.schedule.unmapped.length > 0 && (
+                        <div className="drawer-sched-warn">
+                          Left out — no account mapped for {selected.schedule.unmapped.join(", ")}. Set the accounts on the asset category.
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <div className="drawer-stat-row">
                     <div className="drawer-stat-card">
                       <div className="drawer-stat-lbl">Total Debit</div>
@@ -1179,14 +1267,14 @@ export default function JournalEntryPage() {
                   <div className="drawer-section">
                     <div className="drawer-section-title">Journal Information</div>
                     {[
-                      ["Journal No.", selected.je_number],
+                      ["Journal No.", selected.status === "scheduled" ? "Assigned on posting" : selected.je_number],
                       ["Date", formatDate(selected.je_date)],
                       ["Description", selected.memo],
-                      ["Type Reference", selected.reference_type || "—"],
-                      ["Dibuat oleh", selected.created_by],
-                      ["Date Dibuat", formatDate(selected.created_date)],
-                      ["Posted oleh", selected.posted_by || "—"],
-                      ["Date Posted", selected.posted_date ? formatDate(selected.posted_date) : "—"],
+                      ["Reference type", selected.reference_type || "—"],
+                      ["Created by", selected.created_by],
+                      ["Created on", formatDate(selected.created_date)],
+                      ["Posted by", selected.posted_by || "—"],
+                      ["Posted on", selected.posted_date ? formatDate(selected.posted_date) : "—"],
                     ].map(([label, value]) => (
                       <div key={label} className="drawer-row">
                         <div className="drawer-label">{label}</div>
@@ -1295,10 +1383,25 @@ export default function JournalEntryPage() {
               )}
             </div>
             <div className="drawer-footer">
-              <button className="drawer-btn ghost">
-                <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                Edit
-              </button>
+              {selected.status === "scheduled" ? (
+                <>
+                  <button className="drawer-btn ghost" onClick={() => navigate("/assets")}>
+                    <svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                    Open asset register
+                  </button>
+                  {canApprove && (
+                    <button className="drawer-btn primary" onClick={() => postScheduled(selected)}>
+                      <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+                      {selected.schedule?.due ? "Post now" : "Post early"}
+                    </button>
+                  )}
+                </>
+              ) : (
+                <button className="drawer-btn ghost">
+                  <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                  Edit
+                </button>
+              )}
               {selected.status === "draft" && (
                 <button className="drawer-btn primary">
                   <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>

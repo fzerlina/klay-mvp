@@ -721,3 +721,19 @@
   0%   { box-shadow: 0 0 0 4px var(--color-action-bg, rgba(43, 108, 176, .28)); }
   100% { box-shadow: 0 0 0 2px var(--color-action-bg, rgba(43, 108, 176, .12)); }
 }
+/* Scheduled — drafted from a schedule, waiting for its date. Blue reads as
+   "nothing to do yet"; a due one turns amber. */
+.badge-scheduled{background:#EEF3FF;color:#2B4FB3;border-color:#C9D6FA}
+.je-desc-sched{font-size:11px;color:#2B4FB3;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.je-desc-sched.due{color:var(--color-warning-text,#8A5A0B);font-weight:600}
+.drawer-sched-callout{background:#F5F8FF;border:1px solid #C9D6FA;border-radius:var(--radius-md);padding:12px 14px;margin-bottom:14px}
+.drawer-sched-callout.due{background:#FFF8EC;border-color:#EEDCBB}
+.drawer-sched-eyebrow{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#2B4FB3}
+.drawer-sched-callout.due .drawer-sched-eyebrow{color:#8A5A0B}
+.drawer-sched-text{margin:6px 0 10px;font-size:12px;line-height:1.5;color:var(--color-text-secondary)}
+.drawer-sched-list{display:flex;flex-direction:column;gap:4px;max-height:220px;overflow-y:auto}
+.drawer-sched-item{display:flex;align-items:center;gap:8px;font-size:12px}
+.drawer-sched-tag{font-family:var(--font-mono);font-size:10.5px;color:var(--color-action);flex-shrink:0}
+.drawer-sched-name{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--color-text-primary)}
+.drawer-sched-amt{font-family:var(--font-mono);font-size:11.5px;color:var(--color-text-secondary)}
+.drawer-sched-warn{margin-top:8px;font-size:11px;color:#8A5A0B}
