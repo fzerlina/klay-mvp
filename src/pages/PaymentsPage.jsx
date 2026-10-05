@@ -306,10 +306,23 @@ export default function PaymentsPage() {
   const rows = useMemo(() => {
     let list = searchBase.filter((l) => tabOf(l) === tab);
     if (filter.request !== "any") list = list.filter((l) => reqOf(l) === filter.request);
-    // Most overdue first.
-    return [...list].sort((a, b) => (b.daysOverdue || 0) - (a.daysOverdue || 0) || b.remaining - a.remaining);
+    // What needs this person comes first: rows they can act on now, then rows
+    // waiting on them but held by a blocking flag (the flag is the thing to
+    // clear), then everything else. Within each, most overdue first, then the
+    // larger balance.
+    const attention = (l) => {
+      if (canActOn(l)) return 0;
+      if (roleCfg && roleCfg.actsOn(reqOf(l))) return 1;
+      return 2;
+    };
+    return list
+      .map((l) => ({ l, rank: attention(l) }))
+      .sort((a, b) => a.rank - b.rank
+        || (b.l.daysOverdue || 0) - (a.l.daysOverdue || 0)
+        || b.l.remaining - a.l.remaining)
+      .map((x) => x.l);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchBase, tab, filter, requestStatusOf]);
+  }, [searchBase, tab, filter, requestStatusOf, roleCfg, gatesRelease, flagsOf, acksOf]);
 
   const tabs = [
     { k: "unpaid", lbl: "Unpaid", count: counts.unpaid },
