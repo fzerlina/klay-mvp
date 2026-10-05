@@ -24,16 +24,13 @@ export function formatNumber(n) {
   return n.toLocaleString("id-ID");
 }
 
-// "15 Apr 2025" — uses Indonesian short month names from the locale
-// (Jan/Feb/Mar/Apr/Mei/Jun/Jul/Agu/Sep/Okt/Nov/Des).
+// "15 Apr 2025" — English short month names. The UI is English throughout, so
+// this no longer uses the id-ID locale's Mei/Agu/Okt/Des. Same output as
+// formatDateEn, but parsed with parseDate (local time).
 export function formatDate(input) {
   const date = parseDate(input);
   if (!date) return DASH;
-  return date.toLocaleDateString("id-ID", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
+  return `${date.getDate()} ${MONTHS_EN_SHORT[date.getMonth()]} ${date.getFullYear()}`;
 }
 
 // "15 Apr 2025" — English short month names. Use on surfaces that prefer
