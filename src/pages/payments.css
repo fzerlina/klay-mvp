@@ -186,8 +186,28 @@
 /* Wider than a plain confirm dialog: the payment now answers four questions
    (method, our account, their account, the split) and a 520px column turned
    the account lines into three-line wraps. */
-.pm-pay-modal { max-width: 580px; }
-.pm-pay-modal .apa-modal-body { max-height: 70vh; overflow-y: auto; }
+.pm-pay-modal { max-width: 1040px; }
+.pm-pay-modal .apa-modal-body { max-height: 74vh; overflow-y: auto; }
+
+/* Bill on the left, payment on the right. Each column scrolls on its own so
+   the bill stays in view while the form below the fold is filled in. */
+.pm-pay-modal .pm-pay-split {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+  gap: 0; padding: 0; overflow: hidden;
+}
+.pm-pay-side, .pm-pay-form {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 16px 18px; max-height: 74vh; overflow-y: auto;
+}
+.pm-pay-side { background: var(--color-surface-sunken, #F4F1EA); border-right: 1px solid var(--color-border-subtle); }
+.pm-pay-side .pm-snap { background: var(--color-surface-raised, #fff); }
+.pm-pay-form > .pm-sec:first-child { margin-top: 0; }
+.pm-pay-form .pm-bd-row { grid-template-columns: 1fr 136px 22px; }
+@media (max-width: 860px) {
+  .pm-pay-modal .pm-pay-split { display: flex; flex-direction: column; overflow-y: auto; }
+  .pm-pay-side, .pm-pay-form { max-height: none; overflow: visible; }
+  .pm-pay-side { border-right: none; border-bottom: 1px solid var(--color-border-subtle); }
+}
 
 /* ── Method / account sections ─────────────────────────────────────────── */
 .pm-sec { margin-top: 14px; }
@@ -299,14 +319,43 @@
 .pm-bd-tally-row.open span, .pm-bd-tally-row.open strong { color: #BA7517; }
 .pm-bd-tally-row.paid span, .pm-bd-tally-row.paid strong { color: var(--color-success-text, #1B7A46); }
 
-/* Withholding is a legal event at the moment of payment, not a line item —
-   it gets its own sentence rather than another number in the table. */
-.pm-bd-tax {
-  font-size: 11.5px; line-height: 1.5; padding: 10px 12px; border-radius: 10px;
-  background: #FBF1E0; border: 1px solid #EEDCBB; color: #7A5510;
-}
-.pm-bd-tax strong { font-family: var(--font-mono); font-weight: 700; color: #5E410C; }
-
 @media (max-width: 560px) {
   .pm-bd-row { grid-template-columns: 1fr 130px 22px; }
+}
+
+/* ── Bill snapshot (Record payment) ──────────────────────────────────────
+   Read-only copy of the bill's lines, so the default split can be traced
+   back to the document. */
+.pm-snap {
+  border: 1px solid var(--color-border-subtle); border-radius: 10px;
+  overflow: hidden; font-size: 12px;
+}
+.pm-snap-row {
+  display: grid; grid-template-columns: 1fr 120px; gap: 10px; align-items: start;
+  padding: 8px 12px; border-bottom: 1px solid var(--color-border-subtle);
+}
+.pm-snap-row.ppn { grid-template-columns: 1fr 112px 100px; }
+.pm-snap-row.head {
+  padding: 6px 12px; font-size: 10.5px; font-weight: 600; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--color-text-tertiary);
+  background: var(--color-surface-sunken, #F4F1EA);
+}
+.pm-snap-row .num { text-align: right; font-family: var(--font-mono); color: var(--color-text-primary); }
+.pm-snap-row.head .num { font-family: inherit; color: inherit; }
+.pm-snap-item { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pm-snap-desc { color: var(--color-text-primary); font-weight: 500; }
+.pm-snap-sub { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 11px; color: var(--color-text-tertiary); font-family: var(--font-mono); }
+.pm-snap-tag {
+  font-family: inherit; font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 999px;
+  color: #8A5A0B; background: #FBF0DC;
+}
+.pm-snap-sum { display: flex; flex-direction: column; gap: 4px; padding: 9px 12px; }
+.pm-snap-sum > div { display: flex; justify-content: space-between; color: var(--color-text-secondary); }
+.pm-snap-sum strong { font-family: var(--font-mono); font-weight: 600; color: var(--color-text-primary); }
+.pm-snap-sum > div.strong span { color: var(--color-text-primary); font-weight: 600; }
+.pm-snap-sum > div.strong strong { font-weight: 700; }
+
+@media (max-width: 560px) {
+  .pm-snap-row, .pm-snap-row.ppn { grid-template-columns: 1fr 96px; }
+  .pm-snap-row.ppn > :nth-child(3) { display: none; }
 }

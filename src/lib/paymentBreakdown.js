@@ -147,7 +147,7 @@ export function validateBreakdown(b, remaining) {
   // does — the exception is a payment made entirely of deductions, where no
   // money moves at all.
   if (cashOut(b) > 0 && !b?.sourceAccountId) {
-    return { ok: false, reason: "Choose the account this payment comes out of." };
+    return { ok: false, field: "source", reason: "Choose the account this payment comes out of." };
   }
   if (b?.method === "giro" && !String(b?.giroNumber || "").trim()) {
     return { ok: false, reason: "A giro payment needs its giro number for the trail." };

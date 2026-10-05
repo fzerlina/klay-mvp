@@ -13,10 +13,9 @@ import { useEffect, useMemo, useState } from "react";
 import {
   COMMON_DEDUCTION_ACCOUNTS, DEDUCTION_ACCOUNTS, PAYMENT_METHODS, PAYMENT_METHOD_BY_KEY,
   accountByCode, breakdownTotal, cashOut, defaultBreakdown, deductionsOf, newDeduction,
-  validateBreakdown, withheldTax,
+  validateBreakdown,
 } from "../lib/paymentBreakdown";
 import { accountsForMethod, maskOf } from "../data/seed/bankAccounts";
-import { RAIL_OPTIONS } from "../lib/paymentRails";
 import { useVendors } from "../state/VendorsContext";
 import { formatRupiah, formatRupiahExact } from "../lib/format";
 import "../pages/ap-aging.css";
@@ -54,9 +53,10 @@ export default function RecordPaymentModal({ bill, onConfirm, onClose }) {
 
   const deductions = deductionsOf(bd);
   const check = validateBreakdown(bd, bill.remaining);
+  // A missing source account is already asked for by the "Paid from" picker
+  // and keeps the button disabled, so it is not repeated as a sentence here.
   const allocated = breakdownTotal(bd);
   const openAfter = Math.max(0, bill.remaining - allocated);
-  const withheld = withheldTax(bd);
 
   const patch = (p) => setBd((prev) => ({ ...prev, ...p }));
 
@@ -97,183 +97,166 @@ export default function RecordPaymentModal({ bill, onConfirm, onClose }) {
           <button type="button" className="apa-modal-x" onClick={onClose} aria-label="Close">×</button>
         </div>
 
-        <div className="apa-modal-body">
-          <div className="apa-modal-row"><span>Vendor</span><strong>{bill.vendorName}</strong></div>
-          <div className="apa-modal-row"><span>Invoice</span><strong>{bill.invNo}</strong></div>
-          <div className="apa-modal-row"><span>Open balance</span><strong>{formatRupiah(bill.remaining)}</strong></div>
+        {/* Two columns: the bill as posted on the left, the payment on the
+            right, so the split can be checked against the document without
+            scrolling between them. They stack on a narrow screen. */}
+        <div className="apa-modal-body pm-pay-split">
+          <aside className="pm-pay-side">
+            <div className="apa-modal-row"><span>Vendor</span><strong>{bill.vendorName}</strong></div>
+            <div className="apa-modal-row"><span>Invoice</span><strong>{bill.invNo}</strong></div>
+            <div className="apa-modal-row"><span>Open balance</span><strong>{formatRupiah(bill.remaining)}</strong></div>
 
-          {/* ── How ─────────────────────────────────────────────────────── */}
-          <div className="pm-sec">
-            <div className="pm-sec-lbl">Payment method</div>
-            <div className="pm-method-row">
-              {PAYMENT_METHODS.map((m) => (
-                <button
-                  key={m.key}
-                  type="button"
-                  className={`pm-method${bd.method === m.key ? " on" : ""}`}
-                  onClick={() => patch({ method: m.key })}
-                >
-                  {m.label}
-                </button>
-              ))}
-            </div>
-            {methodMeta && <div className="pm-sec-hint">{methodMeta.hint}</div>}
-          </div>
+            <BillSnapshot bill={bill.raw || bill} />
+          </aside>
 
-          {/* ── Out of which of our accounts ────────────────────────────── */}
-          <div className="pm-sec">
-            <div className="pm-sec-lbl">{isCash ? "Paid from (cash float)" : "Paid from"}</div>
-            {sourceOptions.length === 0 ? (
-              <div className="pm-acct-empty">
-                No {isCash ? "petty cash" : "bank"} account is set up for this. Add one in Settings → Bank Accounts.
-              </div>
-            ) : sourceOptions.length === 1 ? (
-              <AccountCard account={sourceOptions[0]} note="The only account available for this method." />
-            ) : (
-              <>
-                <select
-                  className="pm-select"
-                  value={bd.sourceAccountId || ""}
-                  onChange={(e) => patch({ sourceAccountId: e.target.value || null })}
-                >
-                  <option value="">Choose an account…</option>
-                  {sourceOptions.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name} · {maskOf(a)} · {a.currency}
-                    </option>
-                  ))}
-                </select>
-                {source && <AccountCard account={source} />}
-              </>
-            )}
-          </div>
+          <div className="pm-pay-form">
 
-          {bd.method === "bank" && (
+            {/* ── How ─────────────────────────────────────────────────────── */}
             <div className="pm-sec">
-              <div className="pm-sec-lbl">Sent via</div>
+              <div className="pm-sec-lbl">Payment method</div>
               <div className="pm-method-row">
-                {RAIL_OPTIONS.map((r) => (
+                {PAYMENT_METHODS.map((m) => (
                   <button
-                    key={r.key || "unknown"}
+                    key={m.key}
                     type="button"
-                    className={`pm-method${(bd.rail || "") === r.key ? " on" : ""}`}
-                    onClick={() => patch({ rail: r.key })}
+                    className={`pm-method${bd.method === m.key ? " on" : ""}`}
+                    onClick={() => patch({ method: m.key })}
                   >
-                    {r.label}
+                    {m.label}
                   </button>
                 ))}
               </div>
-              <div className="pm-sec-hint">
-                The bank statement won't say how the money travelled. Reconciliation uses this to know when to expect it on the statement.
-              </div>
+              {methodMeta && <div className="pm-sec-hint">{methodMeta.hint}</div>}
             </div>
-          )}
 
-          {bd.method === "giro" && (
+            {/* ── Out of which of our accounts ────────────────────────────── */}
             <div className="pm-sec">
-              <div className="pm-sec-lbl">Giro number</div>
-              <input
-                className="pm-text-input"
-                value={bd.giroNumber}
-                placeholder="e.g. GR-0042817"
-                onChange={(e) => patch({ giroNumber: e.target.value })}
-              />
-              <div className="pm-sec-hint">
-                Reconciliation looks for this number when the giro clears, so the bill and the bank line can be matched then.
-              </div>
+              <div className="pm-sec-lbl">{isCash ? "Paid from (cash float)" : "Paid from"}</div>
+              {sourceOptions.length === 0 ? (
+                <div className="pm-acct-empty">
+                  No {isCash ? "petty cash" : "bank"} account is set up for this. Add one in Settings → Bank Accounts.
+                </div>
+              ) : sourceOptions.length === 1 ? (
+                <AccountCard account={sourceOptions[0]} note="The only account available for this method." />
+              ) : (
+                <>
+                  <select
+                    className="pm-select"
+                    value={bd.sourceAccountId || ""}
+                    onChange={(e) => patch({ sourceAccountId: e.target.value || null })}
+                  >
+                    <option value="">Choose an account…</option>
+                    {sourceOptions.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name} · {maskOf(a)} · {a.currency}
+                      </option>
+                    ))}
+                  </select>
+                  {source && <AccountCard account={source} />}
+                </>
+              )}
             </div>
-          )}
 
-          {/* ── Into which of theirs ────────────────────────────────────── */}
-          <div className="pm-sec">
-            <div className="pm-sec-lbl">Paid to</div>
-            {vendorBank ? (
-              <div className={`pm-acct-card readonly${isCash ? " muted" : ""}`}>
-                <div className="pm-acct-main">
-                  <span className="pm-acct-name">{vendorBank.holder || bill.vendorName}</span>
-                  <span className="pm-acct-lock" title="Set in Vendor Master">Read-only</span>
+            {bd.method === "giro" && (
+              <div className="pm-sec">
+                <div className="pm-sec-lbl">Giro number</div>
+                <input
+                  className="pm-text-input"
+                  value={bd.giroNumber}
+                  placeholder="e.g. GR-0042817"
+                  onChange={(e) => patch({ giroNumber: e.target.value })}
+                />
+                <div className="pm-sec-hint">
+                  Reconciliation looks for this number when the giro clears, so the bill and the bank line can be matched then.
                 </div>
-                <div className="pm-acct-sub">
-                  {vendorBank.name}{vendorBank.branch ? ` · ${vendorBank.branch}` : ""} · {vendorBank.acc}
-                </div>
-                <div className="pm-acct-note">
-                  {isCash
-                    ? "Not used — this is a cash payment. Kept visible so the vendor on file is still the vendor being paid."
-                    : "From Vendor Master. Change it there, where the change is reviewed."}
-                </div>
-              </div>
-            ) : (
-              <div className="pm-acct-empty">
-                No bank account on file for this vendor. Add one in Vendor Master before paying by transfer.
               </div>
             )}
-          </div>
 
-          {/* ── How much, and booked where ──────────────────────────────── */}
-          <div className="pm-sec">
-            <div className="pm-sec-lbl">Breakdown</div>
-            <div className="pm-bd-list">
-              <div className="pm-bd-row cash">
-                <div className="pm-bd-lbl">
-                  <span className="pm-bd-name">To vendor</span>
-                  <span className="pm-bd-hint">
-                    {isCash ? "Cash handed over from the float." : "Cash that actually leaves the account above."}
-                  </span>
+            {/* ── Into which of theirs ────────────────────────────────────── */}
+            <div className="pm-sec">
+              <div className="pm-sec-lbl">Paid to</div>
+              {vendorBank ? (
+                <div className={`pm-acct-card readonly${isCash ? " muted" : ""}`}>
+                  <div className="pm-acct-main">
+                    <span className="pm-acct-name">{vendorBank.holder || bill.vendorName}</span>
+                    <span className="pm-acct-lock" title="Set in Vendor Master">Read-only</span>
+                  </div>
+                  <div className="pm-acct-sub">
+                    {vendorBank.name}{vendorBank.branch ? ` · ${vendorBank.branch}` : ""} · {vendorBank.acc}
+                  </div>
+                  <div className="pm-acct-note">
+                    {isCash
+                      ? "Not used — this is a cash payment. Kept visible so the vendor on file is still the vendor being paid."
+                      : "From Vendor Master. Change it there, where the change is reviewed."}
+                  </div>
                 </div>
-                <div className="pm-bd-input">
-                  <span className="apa-modal-prefix">Rp</span>
-                  <input
-                    inputMode="numeric"
-                    autoFocus
-                    value={bd.to_vendor ? bd.to_vendor.toLocaleString("id-ID") : ""}
-                    placeholder="0"
-                    onChange={(e) => patch({ to_vendor: digits(e.target.value) })}
+              ) : (
+                <div className="pm-acct-empty">
+                  No bank account on file for this vendor. Add one in Vendor Master before paying by transfer.
+                </div>
+              )}
+            </div>
+
+            {/* ── How much, and booked where ──────────────────────────────── */}
+            <div className="pm-sec">
+              <div className="pm-sec-lbl">Breakdown</div>
+              <div className="pm-bd-list">
+                <div className="pm-bd-row cash">
+                  <div className="pm-bd-lbl">
+                    <span className="pm-bd-name">To vendor</span>
+                    <span className="pm-bd-hint">
+                      {isCash ? "Cash handed over from the float." : "Cash that actually leaves the account above."}
+                    </span>
+                  </div>
+                  <div className="pm-bd-input">
+                    <span className="apa-modal-prefix">Rp</span>
+                    <input
+                      inputMode="numeric"
+                      autoFocus
+                      value={bd.to_vendor ? bd.to_vendor.toLocaleString("id-ID") : ""}
+                      placeholder="0"
+                      onChange={(e) => patch({ to_vendor: digits(e.target.value) })}
+                    />
+                  </div>
+                  <span aria-hidden className="pm-bd-x-spacer" />
+                </div>
+
+                {deductions.map((d) => (
+                  <DeductionRow
+                    key={d.id}
+                    row={d}
+                    onAmount={(v) => setDeductionAmount(d.id, v)}
+                    onAccount={(v) => setDeductionAccount(d.id, v)}
+                    onRemove={() => dropDeduction(d.id)}
                   />
-                </div>
-                <span aria-hidden className="pm-bd-x-spacer" />
+                ))}
               </div>
 
-              {deductions.map((d) => (
-                <DeductionRow
-                  key={d.id}
-                  row={d}
-                  onAmount={(v) => setDeductionAmount(d.id, v)}
-                  onAccount={(v) => setDeductionAccount(d.id, v)}
-                  onRemove={() => dropDeduction(d.id)}
-                />
-              ))}
+              <button type="button" className="pm-bd-add-btn" onClick={addDeduction}>+ Add a deduction</button>
             </div>
 
-            <button type="button" className="pm-bd-add-btn" onClick={addDeduction}>+ Add a deduction</button>
-          </div>
+            <div className="pm-bd-tally">
+              <div className="pm-bd-tally-row">
+                <span>Clears off the bill</span>
+                <strong>{formatRupiahExact(allocated)}</strong>
+              </div>
+              <div className="pm-bd-tally-row">
+                <span>{isCash ? "Leaves the cash float" : bd.method === "giro" ? "Leaves the bank when the giro clears" : "Leaves the bank"}</span>
+                <strong>{formatRupiahExact(cashOut(bd))}</strong>
+              </div>
+              <div className={`pm-bd-tally-row${openAfter > 0 ? " open" : " paid"}`}>
+                <span>{openAfter > 0 ? "Still open after this" : "Bill is paid in full"}</span>
+                <strong>{openAfter > 0 ? formatRupiahExact(openAfter) : "—"}</strong>
+              </div>
+            </div>
 
-          <div className="pm-bd-tally">
-            <div className="pm-bd-tally-row">
-              <span>Clears off the bill</span>
-              <strong>{formatRupiahExact(allocated)}</strong>
-            </div>
-            <div className="pm-bd-tally-row">
-              <span>{isCash ? "Leaves the cash float" : bd.method === "giro" ? "Leaves the bank when the giro clears" : "Leaves the bank"}</span>
-              <strong>{formatRupiahExact(cashOut(bd))}</strong>
-            </div>
-            <div className={`pm-bd-tally-row${openAfter > 0 ? " open" : " paid"}`}>
-              <span>{openAfter > 0 ? "Still open after this" : "Bill is paid in full"}</span>
-              <strong>{openAfter > 0 ? formatRupiahExact(openAfter) : "—"}</strong>
-            </div>
-          </div>
 
-          {withheld > 0 && (
-            <div className="pm-bd-tax">
-              {bill.vendorName} receives <strong>{formatRupiahExact(cashOut(bd))}</strong>, the tax office is owed{" "}
-              <strong>{formatRupiahExact(withheld)}</strong> — a bukti potong obligation is created for that amount.
+            <div className="apa-modal-note">
+              {!check.ok && check.field !== "source" ? check.reason
+                : openAfter > 0
+                  ? "A partial payment. The remainder keeps its original aging and re-enters the request queue."
+                  : "Pays the bill in full. Every component above is booked to its own account."}
             </div>
-          )}
-
-          <div className="apa-modal-note">
-            {!check.ok ? check.reason
-              : openAfter > 0
-                ? "A partial payment. The remainder keeps its original aging and re-enters the request queue."
-                : "Pays the bill in full. Every component above is booked to its own account."}
           </div>
         </div>
 
@@ -293,6 +276,52 @@ export default function RecordPaymentModal({ bill, onConfirm, onClose }) {
 }
 
 const digits = (s) => Number(String(s).replace(/[^\d]/g, "")) || 0;
+
+// What the bill itself says, read-only, so the person paying can see where the
+// default split comes from: which lines carry PPN, which carry PPh, and how
+// the total became the amount the vendor is owed. A snapshot of the bill as
+// posted — it does not move with the breakdown below.
+function BillSnapshot({ bill }) {
+  const items = bill.items || [];
+  if (!items.length) return null;
+  const dpp = bill.dpp ?? items.reduce((s, i) => s + (i.subtotal || 0), 0);
+  const ppn = bill.ppn || 0;
+  const total = bill.total ?? dpp + ppn;
+  const pph = bill.pph23 || 0;
+  const hasPpn = ppn > 0 || items.some((i) => i.ppn > 0);
+  return (
+    <div className="pm-sec">
+      <div className="pm-sec-lbl">Bill items</div>
+      <div className="pm-snap">
+        <div className={`pm-snap-row head${hasPpn ? " ppn" : ""}`}>
+          <span>Item</span>
+          <span className="num">DPP</span>
+          {hasPpn && <span className="num">PPN</span>}
+        </div>
+        {items.map((it, i) => (
+          <div key={i} className={`pm-snap-row${hasPpn ? " ppn" : ""}`}>
+            <span className="pm-snap-item">
+              <span className="pm-snap-desc">{it.desc}</span>
+              <span className="pm-snap-sub">
+                {Number(it.qty || 0).toLocaleString("id-ID")} × {formatRupiahExact(it.price)}
+                {it.pph > 0 && <span className="pm-snap-tag">PPh {Math.round((it.pphRate || 0) * 100)}%</span>}
+              </span>
+            </span>
+            <span className="num">{formatRupiahExact(it.subtotal)}</span>
+            {hasPpn && <span className="num">{it.ppn ? formatRupiahExact(it.ppn) : "—"}</span>}
+          </div>
+        ))}
+        <div className="pm-snap-sum">
+          <div><span>DPP</span><strong>{formatRupiahExact(dpp)}</strong></div>
+          {hasPpn && <div><span>PPN {Math.round((bill.ppnRate || 0.11) * 100)}%</span><strong>{formatRupiahExact(ppn)}</strong></div>}
+          <div className="strong"><span>Total bill</span><strong>{formatRupiahExact(total)}</strong></div>
+          {pph > 0 && <div><span>PPh 23 withheld</span><strong>− {formatRupiahExact(pph)}</strong></div>}
+          {pph > 0 && <div className="strong"><span>Net to vendor</span><strong>{formatRupiahExact(total - pph)}</strong></div>}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // One deduction: an amount and the account it is booked to. Both are the
 // user's to set — the account is the classification, so there is no separate

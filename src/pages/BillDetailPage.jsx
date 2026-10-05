@@ -2046,6 +2046,7 @@ export default function BillDetailPage() {
             invNo: bill.invNo,
             remaining: paymentOpenBalance,
             pph23: bill.pph23 || 0,
+            items: bill.items, dpp: bill.dpp, ppn: bill.ppn, ppnRate: bill.ppnRate, total: bill.total,
           }}
           onConfirm={confirmPayment}
           onClose={() => setPaying(false)}
