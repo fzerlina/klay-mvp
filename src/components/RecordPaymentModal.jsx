@@ -130,11 +130,35 @@ export default function RecordPaymentModal({ bill, onConfirm, onClose }) {
             <div className="apa-modal-row"><span>Invoice</span><strong>{bill.invNo}</strong></div>
             <div className="apa-modal-row"><span>Open balance</span><strong>{formatRupiah(bill.remaining)}</strong></div>
 
+            {/* ── Into which of theirs ────────────────────────────────────── */}
+            <div className="pm-sec">
+              <div className="pm-sec-lbl">Paid to</div>
+              {vendorBank ? (
+                <div className={`pm-acct-card readonly${isCash ? " muted" : ""}`}>
+                  <div className="pm-acct-main">
+                    <span className="pm-acct-name">{vendorBank.holder || bill.vendorName}</span>
+                    <span className="pm-acct-lock" title="Set in Vendor Master">Read-only</span>
+                  </div>
+                  <div className="pm-acct-sub">
+                    {vendorBank.name}{vendorBank.branch ? ` · ${vendorBank.branch}` : ""} · {vendorBank.acc}
+                  </div>
+                  <div className="pm-acct-note">
+                    {isCash
+                      ? "Not used — this is a cash payment. Kept visible so the vendor on file is still the vendor being paid."
+                      : "From Vendor Master. Change it there, where the change is reviewed."}
+                  </div>
+                </div>
+              ) : (
+                <div className="pm-acct-empty">
+                  No bank account on file for this vendor. Add one in Vendor Master before paying by transfer.
+                </div>
+              )}
+            </div>
+
             <BillSnapshot bill={bill.raw || bill} />
           </aside>
 
           <div className="pm-pay-form">
-
             {/* ── How ─────────────────────────────────────────────────────── */}
             <div className="pm-sec">
               <div className="pm-sec-lbl">Payment method</div>
@@ -195,31 +219,6 @@ export default function RecordPaymentModal({ bill, onConfirm, onClose }) {
                 </div>
               </div>
             )}
-
-            {/* ── Into which of theirs ────────────────────────────────────── */}
-            <div className="pm-sec">
-              <div className="pm-sec-lbl">Paid to</div>
-              {vendorBank ? (
-                <div className={`pm-acct-card readonly${isCash ? " muted" : ""}`}>
-                  <div className="pm-acct-main">
-                    <span className="pm-acct-name">{vendorBank.holder || bill.vendorName}</span>
-                    <span className="pm-acct-lock" title="Set in Vendor Master">Read-only</span>
-                  </div>
-                  <div className="pm-acct-sub">
-                    {vendorBank.name}{vendorBank.branch ? ` · ${vendorBank.branch}` : ""} · {vendorBank.acc}
-                  </div>
-                  <div className="pm-acct-note">
-                    {isCash
-                      ? "Not used — this is a cash payment. Kept visible so the vendor on file is still the vendor being paid."
-                      : "From Vendor Master. Change it there, where the change is reviewed."}
-                  </div>
-                </div>
-              ) : (
-                <div className="pm-acct-empty">
-                  No bank account on file for this vendor. Add one in Vendor Master before paying by transfer.
-                </div>
-              )}
-            </div>
 
             {/* ── How much, and booked where ──────────────────────────────── */}
             <div className="pm-sec">
