@@ -24,7 +24,7 @@ import "./bank-reconciliation.css";
 import { COMPANY_BANK_ACCOUNTS, bankAccountById, maskOf } from "../data/seed/bankAccounts";
 import { periodLabel, CURRENT_PERIOD } from "../data/seed/bankStatement";
 import { PERIODS } from "../lib/bankReconHistory";
-import { EXCEPTION_TYPES, STRENGTHS, isOpen, countOf, paysInFull, subtotalOf } from "../lib/bankMatching";
+import { EXCEPTION_TYPES, isOpen, countOf, paysInFull, subtotalOf } from "../lib/bankMatching";
 import { runReconciliation, stateOf, reconcilable } from "../lib/bankRecon";
 import { draftEntry, draftProblem, postedEntry, postedNote, differenceEntry } from "../lib/reconJournal";
 import { useJournalEntries } from "../state/JournalEntriesContext";
@@ -122,21 +122,16 @@ const TABS = [
 
 // Need confirmation is grouped by how strong the match is (STRENGTHS in
 // lib/bankMatching.js), strongest first. Every line still needs a yes; the
-// grouping says where to look hardest. Strong matches can be confirmed in one
-// tap.
-const CONFIRM_SECTIONS = [
-  { k: "strong", lbl: STRENGTHS.strong.label, blurb: "Exact amount and nothing else fits.",
-    batch: { action: "primary", label: (n) => (n === 1 ? "Confirm" : `Confirm all ${n}`) } },
-  { k: "likely", lbl: STRENGTHS.likely.label, blurb: "One fact is missing — check the detail before confirming." },
-  { k: "weak",   lbl: STRENGTHS.weak.label,   blurb: "Only the amount is close. Look at these before confirming." },
-].map((sec) => ({ ...sec, test: (e) => (e.strength || "weak") === sec.k }));
+// grouping says where to look hardest. Groups are not named; each row's
+// basis line says why it sits where it does. Strong matches can be confirmed in
+// one tap from beside the search bar.
+const CONFIRM_SECTIONS = ["strong", "likely", "weak"].map((k) => ({ k, test: (e) => (e.strength || "weak") === k }));
 
-// Review journals is grouped by what the journal is for; both kinds come in
-// bulk, so each can be posted in one tap.
+// Review journals: fees, then interest.
 const JOURNAL_SECTIONS = [
-  { k: "fee",      lbl: "Bank fees",     test: (e) => e.detector === "FEE_PATTERN" },
-  { k: "interest", lbl: "Bank interest", test: (e) => e.detector === "INTEREST_CREDIT" },
-].map((sec) => ({ ...sec, batch: { action: "post-journal", label: (n) => (n === 1 ? "Post" : `Post all ${n}`) } }));
+  { k: "fee",      test: (e) => e.detector === "FEE_PATTERN" },
+  { k: "interest", test: (e) => e.detector === "INTEREST_CREDIT" },
+];
 
 // ── Account card ─────────────────────────────────────────────────────────────
 
@@ -400,25 +395,11 @@ function ReconciledRow({ ex, onAction }) {
   );
 }
 
-function Section({ title, blurb, items, batch, onBatch, render }) {
+// A run of rows of one kind. Unnamed: the order says strongest first, and each
+// row says why it is where it is.
+function Section({ items, render }) {
   if (!items.length) return null;
-  return (
-    <div className="recon-section">
-      {title && (
-        <div className="recon-section-head">
-          <span className="recon-section-title">{title}</span>
-          <span className="recon-group-count">{items.length}</span>
-          {blurb && <span className="recon-section-blurb">{blurb}</span>}
-          {batch && (
-            <button type="button" className="recon-group-batch" onClick={() => onBatch(batch.action, items)}>
-              {batch.label(items.length)}
-            </button>
-          )}
-        </div>
-      )}
-      {items.map(render)}
-    </div>
-  );
+  return <div className="recon-section">{items.map(render)}</div>;
 }
 
 // ── Upload ───────────────────────────────────────────────────────────────────
@@ -764,6 +745,15 @@ export default function BankReconciliationPage() {
   const tabMoney = Object.fromEntries(TABS.map((t) => [t.k, 0]));
   for (const e of run?.exceptions || []) tabMoney[tabOf(e)] += Math.abs(e.amount);
 
+  // The tab's one-tap action, named for exactly what it covers.
+  const strong = byTab.confirm.filter((e) => e.strength === "strong");
+  const bulk =
+    activeTab === "journals" && byTab.journals.length > 1
+      ? { action: "post-journal", items: byTab.journals, label: `Post all ${byTab.journals.length} journals` }
+      : activeTab === "confirm" && strong.length > 0
+        ? { action: "primary", items: strong, label: `Confirm ${strong.length} strong match${strong.length === 1 ? "" : "es"}` }
+        : null;
+
   const openRow = (ex) => <OpenRow key={ex.id} ex={ex} onAction={onAction} draftOf={draftOf} />;
 
   return (
@@ -905,6 +895,11 @@ export default function BankReconciliationPage() {
                   <button type="button" className="lg-klay-chips-clear" onClick={() => setSearch("")}>Clear</button>
                 )}
               </div>
+              {bulk && (
+                <button type="button" className="recon-group-batch" onClick={() => onBatch(bulk.action, bulk.items)}>
+                  {bulk.label}
+                </button>
+              )}
             </div>
 
             {!run?.statement.loaded ? (
@@ -921,10 +916,10 @@ export default function BankReconciliationPage() {
               <div className="recon-groups" role="table">
                 {tabCount[activeTab] > 0 && (activeTab === "journals" ? <JournalHead /> : <TableHead />)}
                 {activeTab === "confirm" && CONFIRM_SECTIONS.map((sec) => (
-                  <Section key={sec.k} title={sec.lbl} blurb={sec.blurb} items={byTab.confirm.filter(sec.test)} batch={sec.batch} onBatch={onBatch} render={openRow} />
+                  <Section key={sec.k} items={byTab.confirm.filter(sec.test)} render={openRow} />
                 ))}
                 {activeTab === "journals" && JOURNAL_SECTIONS.map((sec) => (
-                  <Section key={sec.k} title={sec.lbl} items={byTab.journals.filter(sec.test)} batch={sec.batch} onBatch={onBatch}
+                  <Section key={sec.k} items={byTab.journals.filter(sec.test)}
                     render={(ex) => <JournalRow key={ex.id} ex={ex} onAction={onAction} draftOf={draftOf} />} />
                 ))}
                 {activeTab === "unreconciled" && (

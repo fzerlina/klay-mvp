@@ -482,6 +482,13 @@
 .bank-month-pop{min-width:260px;left:0;right:auto}
 .bank-month-state{margin-left:auto;font-size:11px;color:var(--color-text-tertiary);white-space:nowrap}
 .bank-month-state.done{color:var(--color-success-text);font-weight:700}
+/* Unnamed groups: a heavier rule between them is the only separator. */
+.recon-section + .recon-section{border-top:2px solid var(--color-border-default)}
+.recon-card .lg-filter-row{display:flex;align-items:center;gap:12px}
+.recon-card .lg-filter-row .lg-klay-bar{flex:1;min-width:0}
+.recon-card .lg-filter-row .recon-group-batch{flex:none;white-space:nowrap}
+@container (max-width:1180px){.recon-trow:not(.recon-jrow){grid-template-columns:48px minmax(140px,1fr) 96px minmax(160px,1fr) 108px 272px}}
+@container (min-width:961px){.recon-td-acts{flex-wrap:nowrap}}
 /* Reconcile manually — booking the difference. */
 .mm-diff{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:10px 18px;border-top:1px solid var(--color-border-default);background:var(--color-surface-sunken);font-size:12px;color:var(--color-text-secondary)}
 .mm-diff-lbl{white-space:nowrap}
