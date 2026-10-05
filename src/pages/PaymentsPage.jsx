@@ -118,7 +118,6 @@ function PaymentRow({
   // request too would mean the flag is only ever seen by the person who raised
   // the payment — the release gate exists precisely so a second person sees it.
   const blocked = gated && release.blocked;
-  const withheld = Math.min(line.pph23 || 0, line.remaining || 0);
   const isPaid = payKey === "paid";
   const counts = tierCounts(flags);
   return (
@@ -177,15 +176,10 @@ function PaymentRow({
       <div className="pm-num pm-cell-total">{formatRupiah(line.total)}</div>
 
       {/* Payable is what is still owed on this bill — the amount a payment
-          would clear. The withheld split sits under it because that is the part
-          of the payable that never reaches the vendor. */}
+          would clear. How it splits between vendor and tax office is shown when
+          the payment is recorded, not on every row. */}
       <div className="pm-cell-amt">
         <div className="pm-num pm-amt-main">{isPaid ? "—" : formatRupiah(line.remaining)}</div>
-        {withheld > 0 && !isPaid && (
-          <div className="pm-num pm-amt-split">
-            {formatRupiah(line.remaining - withheld)} to vendor · {formatRupiah(withheld)} withheld
-          </div>
-        )}
       </div>
 
       <div className="pm-cell-action" onClick={(e) => e.stopPropagation()}>
