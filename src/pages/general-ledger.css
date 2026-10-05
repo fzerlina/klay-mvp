@@ -1,0 +1,69 @@
+/* ── General Ledger (per-account) ─────────────────────────────────────── */
+.gl-sub { margin: 6px 0 0; font-size: 13px; font-weight: 300; line-height: 1.55; color: var(--color-text-secondary); max-width: 640px; }
+.gl-link { border: none; background: none; padding: 0; font: inherit; color: var(--color-action); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.gl-link.mono { font-family: var(--font-mono); font-size: 11.5px; text-decoration: none; }
+.gl-link.mono:hover { text-decoration: underline; }
+
+.gl-wrap { padding: 0 32px 48px; }
+
+.gl-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; margin-bottom: 14px; }
+.gl-field { display: flex; flex-direction: column; gap: 5px; min-width: 170px; }
+.gl-field-grow { flex: 0 1 380px; }
+.gl-field > span { font-size: 9.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--color-text-tertiary); }
+.gl-field select {
+  height: 34px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--color-border-default);
+  background: var(--color-surface-raised); font-family: var(--font-sans); font-size: 12.5px; color: var(--color-text-primary);
+}
+.gl-search { height: 34px; margin-left: auto; }
+
+.gl-card {
+  background: var(--color-surface-raised); border: 1px solid var(--color-border-default);
+  border-radius: 12px; overflow-x: auto;
+}
+.gl-row {
+  display: grid; gap: 12px; align-items: center; padding: 10px 18px;
+  border-bottom: 1px solid var(--color-border-subtle); font-size: 12.5px; color: var(--color-text-primary);
+}
+.gl-row:last-child { border-bottom: none; }
+.gl-sum-row { grid-template-columns: minmax(200px, 1fr) 128px 128px 128px 140px; min-width: 720px; }
+.gl-line-row { grid-template-columns: 88px 112px minmax(150px, 1fr) 118px 118px 132px; min-width: 760px; }
+.gl-row .num { text-align: right; font-family: var(--font-mono); font-size: 12px; }
+.gl-row .strong { font-weight: 700; }
+
+.gl-head {
+  padding: 8px 18px; background: var(--color-surface-sunken, #F4F1EA);
+  font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--color-text-tertiary);
+}
+.gl-head .num { font-family: inherit; font-size: inherit; }
+
+button.gl-row { width: 100%; border: none; border-bottom: 1px solid var(--color-border-subtle); background: none; text-align: left; font-family: inherit; }
+.gl-click { cursor: pointer; }
+.gl-click:hover { background: #F7F9FF; }
+
+.gl-acct { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.gl-code { font-family: var(--font-mono); font-size: 11.5px; color: var(--color-action); flex-shrink: 0; }
+.gl-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gl-tag { font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 999px; color: #8A5A0B; background: #FBF0DC; flex-shrink: 0; }
+
+.gl-total { background: var(--color-surface-sunken, #F4F1EA); font-weight: 600; }
+.gl-tie { font-family: var(--font-sans) !important; font-size: 11.5px !important; }
+.gl-tie.ok { color: var(--color-success-text, #1B7A46); }
+.gl-tie.off { color: #B4232A; }
+
+.gl-acct-head { padding: 14px 18px 12px; border-bottom: 1px solid var(--color-border-default); }
+.gl-back { border: none; background: none; padding: 0; font-size: 11.5px; color: var(--color-text-tertiary); cursor: pointer; }
+.gl-back:hover { color: var(--color-text-primary); }
+.gl-acct-title { margin-top: 6px; font-size: 16px; font-weight: 700; }
+.gl-acct-title .gl-code { font-size: 13px; margin-right: 4px; }
+.gl-acct-sub { margin-top: 2px; font-size: 11.5px; color: var(--color-text-tertiary); }
+
+.gl-bal-row { background: #FAFAF7; color: var(--color-text-secondary); }
+.gl-date { font-size: 12px; color: var(--color-text-secondary); white-space: nowrap; }
+.gl-desc { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gl-empty { padding: 28px 18px; text-align: center; font-size: 12.5px; color: var(--color-text-tertiary); }
+/* Narrow screens: tighter gutters, and search takes its own line. The tables
+   already scroll sideways inside the card (.gl-card) when space runs out. */
+@media (max-width: 900px) {
+  .gl-wrap { padding: 0 16px 32px; }
+  .gl-search { margin-left: 0; flex: 1 1 100%; }
+}

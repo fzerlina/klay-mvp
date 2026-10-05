@@ -117,61 +117,6 @@ function klayChipLabel(key, val) {
   return String(val);
 }
 
-function JournalTasksCard({ tasks, onOpenSummary, onAction, summaryActive, eyebrow = "Your Tasks" }) {
-  // Manual pager (no auto-rotate) — match Bills/Invoices: the user reads each
-  // task at their own pace and steps through with the numbered pager.
-  const [idx, setIdx] = useState(0);
-  useEffect(() => { if (idx >= tasks.length) setIdx(0); }, [tasks.length, idx]);
-  const current = tasks[idx] || tasks[0];
-  const total = tasks.length;
-  const actionLabel = current?.cta || "View";
-  function prev() { setIdx((i) => (i - 1 + total) % total); }
-  function next() { setIdx((i) => (i + 1) % total); }
-  return (
-    <div className="bp-kpi-card bp-kpi-summary">
-      <div className="bp-kpi-summary-top">
-        <div className="bp-kpi-summary-eyebrow"><KlaySparkleIcon /> {eyebrow.toUpperCase()}</div>
-        <button
-          type="button"
-          className={`bp-kpi-summary-seeall${summaryActive ? " active" : ""}`}
-          onClick={onOpenSummary}
-        >
-          See all
-        </button>
-      </div>
-      <div className="bp-kpi-summary-body">{current?.node}</div>
-      <div className="bp-kpi-summary-asof">as of {formatDate(TODAY.toISOString().slice(0, 10))}</div>
-      <div className="bp-kpi-summary-foot">
-        {total > 1 ? (
-          <div className="bp-kpi-summary-pager" aria-label="Task pager">
-            <button type="button" className="bp-kpi-summary-pager-chev" onClick={prev} aria-label="Previous task">
-              <svg viewBox="0 0 9 9" aria-hidden><path d="M6 2L3 4.5L6 7" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
-            </button>
-            {tasks.map((_, i) => (
-              <button
-                key={i}
-                type="button"
-                className={`bp-kpi-summary-pager-num${i === idx ? " on" : ""}`}
-                onClick={() => setIdx(i)}
-                aria-label={`Task ${i + 1}`}
-                aria-current={i === idx ? "true" : undefined}
-              >
-                {i + 1}
-              </button>
-            ))}
-            <button type="button" className="bp-kpi-summary-pager-chev" onClick={next} aria-label="Next task">
-              <svg viewBox="0 0 9 9" aria-hidden><path d="M3 2L6 4.5L3 7" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
-            </button>
-          </div>
-        ) : <span />}
-        <button type="button" className="bp-kpi-cta bp-kpi-cta-action" onClick={() => onAction(current)}>
-          {actionLabel} →
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function JeRow({ r, isChecked, onCheck, onClick, onKebab, isSelected, isAlt }) {
   const isAuto = r.status === "auto";
   const isAnomaly = r.status === "anomaly";
@@ -992,7 +937,9 @@ export default function JournalEntryPage() {
     <div className="lg-page">
       <div className="lg-scroll-container">
         {/* ── Editorial header ──────────────────────────────────────── */}
-        <div className="lg-head">
+        {/* No summary strip for MVP: the status tabs below already carry the
+            counts, and the list is where the work happens. */}
+        <div className="lg-head lg-head-plain">
           <div className="lg-head-top">
             <div style={{ flex: 1, minWidth: 0 }}>
               <h1 className="lg-title">Journal Entry</h1>
@@ -1007,52 +954,6 @@ export default function JournalEntryPage() {
                 <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                 New Journal Entry
               </button>
-            </div>
-          </div>
-
-          <div className="bp-kpi-wrap">
-            <div className="bp-kpi-row">
-              <JournalTasksCard
-                tasks={tasks}
-                onOpenSummary={() => setSummaryOpen(true)}
-                onAction={handleTaskAction}
-                summaryActive={summaryOpen}
-                eyebrow={insightsRole === "viewer" ? "GL Insights" : "Your Tasks"}
-              />
-
-              {canApprove && (
-                <div className="bp-kpi-card">
-                  <div className="bp-kpi-lbl">Pending Approval</div>
-                  <div className="bp-kpi-val">{counts.pending} · Rp {fmtRp(jeStats.pendingSum)}</div>
-                  <div className="bp-kpi-sub">Review and approve</div>
-                  <button type="button" className="bp-kpi-cta" onClick={() => selectTab("pending")}>View →</button>
-                </div>
-              )}
-
-              {canTransact && (
-                <div className="bp-kpi-card">
-                  <div className="bp-kpi-lbl">Ready to Post</div>
-                  <div className="bp-kpi-val">{counts.draft} · Rp {fmtRp(jeStats.draftSum)}</div>
-                  <div className="bp-kpi-sub">Post to GL</div>
-                  <button type="button" className="bp-kpi-cta" onClick={() => selectTab("draft")}>View →</button>
-                </div>
-              )}
-
-              {canTransact && (
-                <div className="bp-kpi-card">
-                  <div className="bp-kpi-lbl">Needs Confirm</div>
-                  <div className="bp-kpi-val">{counts.auto}</div>
-                  <div className="bp-kpi-sub">Klay auto-prepared</div>
-                  <button type="button" className="bp-kpi-cta" onClick={() => selectTab("auto")}>View →</button>
-                </div>
-              )}
-
-              <div className="bp-kpi-card">
-                <div className="bp-kpi-lbl">Total Journals</div>
-                <div className="bp-kpi-val">{allRows.length}</div>
-                <div className="bp-kpi-sub">{counts.posted} posted</div>
-                <button type="button" className="bp-kpi-cta" onClick={() => selectCard("all")}>View →</button>
-              </div>
             </div>
           </div>
         </div>
@@ -1206,11 +1107,6 @@ export default function JournalEntryPage() {
                 {Math.abs(pageDebit - pageCredit) < 1 ? "✓ Balanced" : `Variance Rp ${fmtRp(Math.abs(pageDebit - pageCredit))}`}
               </span>
             </>
-                          {l.payee && (
-                            <div style={{ fontSize: 11, marginTop: 4, color: "var(--color-text-secondary)" }}>
-                              Payee: <strong>{l.payee.name}</strong> <span style={{ color: "var(--color-text-tertiary)" }}>· {l.payee.kind === "customer" ? "customer" : "vendor"}</span>
-                            </div>
-                          )}
           )}
         </div>
         <div className="lg-footer-right">
@@ -1310,6 +1206,11 @@ export default function JournalEntryPage() {
                           <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-action)" }}>{l.account_code}</div>
                           <div style={{ fontSize: 12, fontWeight: 600, marginTop: 2 }}>{l.account_name}</div>
                           {l.description && <div style={{ fontSize: 11, color: "var(--color-text-tertiary)", marginTop: 2 }}>{l.description}</div>}
+                          {l.payee && (
+                            <div style={{ fontSize: 11, marginTop: 4, color: "var(--color-text-secondary)" }}>
+                              Payee: <strong>{l.payee.name}</strong> <span style={{ color: "var(--color-text-tertiary)" }}>· {l.payee.kind === "customer" ? "customer" : "vendor"}</span>
+                            </div>
+                          )}
                         </div>
                         <div style={{ textAlign: "right", flexShrink: 0 }}>
                           {l.debit > 0 && <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 700 }}>Dr {fmtRp(l.debit)}</div>}
