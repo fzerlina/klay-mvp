@@ -6,8 +6,13 @@
 // Derivation rules (Indonesian AP standard):
 //   DR  per line item     →  item.acct, item.subtotal           (cost / asset)
 //   DR  VAT Input         →  bill.ppn  (1-5100)                  (creditable PPN)
-//   CR  AP Trade          →  total − pph23  (2-1100)             (vendor payable)
-//   CR  PPh withholding   →  bill.pph23  (2-2300 or 2-2400)      (tax payable to DJP)
+//   CR  AP Trade          →  bill.total  (2-1100)                (gross payable)
+//
+// PPh is NOT booked here. It is recognised when the bill is paid: Record
+// payment splits the gross payable into cash to the vendor and a withholding
+// deduction to 2-2300, which is also the moment the bukti potong obligation
+// arises (lib/paymentJournal.js). Booking it at posting as well counted the
+// tax twice — once here, once at payment (decided 2026-10-05).
 //
 // Each line carries a `rule` explaining why the entry was generated. Lines
 // that the rule engine generated with low confidence get a `flag` (PRD:
@@ -15,20 +20,13 @@
 // yellow indicator"). The preview is read-only — FM edits the bill fields
 // above and the preview updates.
 
-import { ruleExplanation } from "./billConfidence";
+import { TODAY } from "./clock";
 
 // Canonical AP account codes — kept here as constants so the preview wires
 // up to the same chart the existing journal-entry seeds use. In production
 // these would come from a CoA mapping table per entity.
 const ACCT_AP_TRADE    = { code: "2-1100", name: "Accounts Payable — Trade" };
-const ACCT_PPH23       = { code: "2-2300", name: "PPh 23 Payable" };
-const ACCT_PPH4_FINAL  = { code: "2-2400", name: "PPh 4(2) Payable" };
 const ACCT_VAT_INPUT   = { code: "1-5100", name: "VAT Input (PPN Masukan)" };
-
-function pphAccount(vendor) {
-  if (vendor?.pph === "pph4_final") return ACCT_PPH4_FINAL;
-  return ACCT_PPH23;
-}
 
 export function previewJournalLines(bill, vendor) {
   const lines = [];
@@ -63,34 +61,19 @@ export function previewJournalLines(bill, vendor) {
     });
   }
 
-  // 3) AP Trade CR — what's actually owed to the vendor (total − pph23).
-  //    The vendor invoices the gross; we withhold PPh and pay them the net.
-  const apAmount = bill.total - (bill.pph23 || 0);
+  // 3) AP Trade CR — the gross the vendor invoiced. Any PPh is withheld out
+  //    of this at payment, not here (see the header).
   lines.push({
     side:         "CR",
     account_code: ACCT_AP_TRADE.code,
     account_name: ACCT_AP_TRADE.name,
-    amount:       apAmount,
+    amount:       bill.total,
     description:  `Trade payable to ${vendor?.name || bill.vendorName}`,
-    rule:         "AP control rule: gross invoice less withholding = vendor payable",
+    rule:         bill.pph23 > 0
+      ? "AP control rule: the gross invoice is payable; PPh is withheld from it when the bill is paid"
+      : "AP control rule: the gross invoice is payable",
     flag:         null,
   });
-
-  // 4) PPh withholding CR — when applicable. Account routes by article
-  //    (PPh 23 → 2-2300, PPh 4(2) → 2-2400). PPh 21 is out-of-scope for MVP
-  //    per the latest PRD revision.
-  if (bill.pph23 > 0) {
-    const acct = pphAccount(vendor);
-    lines.push({
-      side:         "CR",
-      account_code: acct.code,
-      account_name: acct.name,
-      amount:       bill.pph23,
-      description:  "Withholding payable to DJP",
-      rule:         ruleExplanation("pph23", vendor),
-      flag:         null,
-    });
-  }
 
   const totalDr = lines.filter((l) => l.side === "DR").reduce((s, l) => s + l.amount, 0);
   const totalCr = lines.filter((l) => l.side === "CR").reduce((s, l) => s + l.amount, 0);
@@ -109,7 +92,9 @@ export function previewJournalLines(bill, vendor) {
 // pages.
 export function buildJournalEntry(bill, vendor, jeNumber, postedBy) {
   const { lines } = previewJournalLines(bill, vendor);
-  const today = new Date().toISOString().slice(0, 10);
+  // The demo clock, not the wall clock: every date in the prototype is 2025.
+  // Local parts, not toISOString(), which shifts a midnight date back a day.
+  const today = `${TODAY.getFullYear()}-${String(TODAY.getMonth() + 1).padStart(2, "0")}-${String(TODAY.getDate()).padStart(2, "0")}`;
   return {
     je_number:      jeNumber,
     je_date:        today,
