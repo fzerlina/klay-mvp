@@ -1,6 +1,10 @@
 /* ── Settings page chrome (CoA + Dimensions) ─────────────────────────── */
 
-.settings-page{padding:28px 32px;max-width:1100px;margin:0 auto}
+/* The page is its own scroll container: .main clips overflow, so a page that
+   does not scroll itself cannot be scrolled at all. Side padding grows to keep
+   the content at 1036px (1100 less the 32px gutters) and centred, while the
+   scrollbar stays at the window edge. */
+.settings-page{flex:1;min-height:0;overflow-y:auto;padding:28px max(32px, calc((100% - 1036px) / 2)) 48px}
 .settings-page .lg-title{margin-bottom:6px}
 .settings-sub{font-size:13px;color:var(--color-text-secondary);font-weight:300;margin-top:4px;line-height:1.55;max-width:640px}
 
