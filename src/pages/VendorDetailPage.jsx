@@ -8,6 +8,9 @@ import { billReconOf } from "../lib/bankRecon";
 import { useBankRecon } from "../state/BankReconContext";
 import { paymentStatusOf } from "../lib/paymentStage";
 import { workflowStatus, STATUS_LABEL } from "../lib/billStatus";
+import { journalPayableLines } from "../lib/journalPayables";
+import { useJournalEntries } from "../state/JournalEntriesContext";
+import { useAccountingSettings } from "../state/AccountingSettingsContext";
 import { withholdingLabel, ACCT_LABELS } from "../data/labels";
 import { formatRupiah, formatDate, termLabel } from "../lib/format";
 import RelationshipTierControl, { TIER_LABEL } from "../components/RelationshipTier";
@@ -65,7 +68,9 @@ export default function VendorDetailPage() {
   // provides the control (SoD: proposer ≠ approver). The company (paying)
   // account has no approval flow, so it stays manager-only.
   const canEditBank = hasCapability("vendor.edit_bank");
-  const { detailOf } = usePayments();
+  const { detailOf, payments } = usePayments();
+  const { entries: journalEntries } = useJournalEntries();
+  const { reconcilableAccounts } = useAccountingSettings();
   const { resolutions: reconResolutions } = useBankRecon();
   // The LIVE bills, not the static seed. Payment status is derived from the
   // ledger balance, and the seed record never moves — so a bill paid in the
@@ -88,7 +93,21 @@ export default function VendorDetailPage() {
     if (!vendor) return [];
     return bills.filter((b) => b.vendor === vendor.id).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
   }, [vendor, bills]);
-  const outstanding = useMemo(() => txns.filter((b) => b.pay !== "paid").reduce((s, b) => s + (b.sisa || 0), 0), [txns]);
+  // Journal payables owed to this vendor (a reimbursement, a bonus — see
+  // lib/journalPayables.js) belong in the same history: the payee comes from
+  // the vendor master, so the vendor's record is where its payments are seen
+  // (Payment discussion, 2026-10-07).
+  const journalTxns = useMemo(() => {
+    if (!vendor) return [];
+    return journalPayableLines(journalEntries, reconcilableAccounts, (id) => payments[id]?.paidSoFar || 0)
+      .filter((l) => l.vendorId === vendor.id)
+      .sort((a, b) => (b.invoiceDate || "").localeCompare(a.invoiceDate || ""));
+  }, [vendor, journalEntries, reconcilableAccounts, payments]);
+  const outstanding = useMemo(
+    () => txns.filter((b) => b.pay !== "paid").reduce((s, b) => s + (b.sisa || 0), 0)
+      + journalTxns.reduce((s, l) => s + (l.remaining || 0), 0),
+    [txns, journalTxns],
+  );
   const log = (vendor && changeLog[vendor.id]) || [];
   const vlist = vendor ? versionsOf(vendor.id) : [];
 
@@ -347,7 +366,7 @@ export default function VendorDetailPage() {
                   <div className="vd-tx-out">{formatRupiah(outstanding)}</div>
                 </div>
               </div>
-              {txns.length === 0 ? (
+              {txns.length === 0 && journalTxns.length === 0 ? (
                 <div className="vd-empty">No transactions yet for this vendor.</div>
               ) : (
                 <div className="vd-tx-tablewrap">
@@ -375,6 +394,28 @@ export default function VendorDetailPage() {
                             <td>{formatDate(b.due)}</td>
                             <td className="num">{formatRupiah(b.total)}</td>
                             <td><span className={`vd-badge ${journalTone(ws)}`}>{journalLabel}</span></td>
+                            <td><span className={`vd-badge ${pm.tone}`}>{pm.label}</span></td>
+                            <td><span className={`vd-badge ${recon.tone}`} title={recon.why}>{recon.label}</span></td>
+                            <td style={{ textAlign: "right", color: "var(--color-action)" }}>→</td>
+                          </tr>
+                        );
+                      })}
+                      {/* Journal payables: the entry number stands in for the
+                          invoice, with its Reference beneath when one was given. */}
+                      {journalTxns.map((l) => {
+                        const ps = paymentStatusOf(l.raw);
+                        const pm = PAYMENT_STATUS_META[ps] || PAYMENT_STATUS_META.unpaid;
+                        const recon = billReconOf(l.id, detailOf(l.id)?.history || [], reconResolutions);
+                        return (
+                          <tr key={l.id} className="vd-tx-row" onClick={() => navigate(`/journal-entry?je=${l.je_number}`)}>
+                            <td style={{ fontFamily: "var(--font-mono)" }}>
+                              {l.id}
+                              <div className="vd-tx-sub">{l.reference || l.memo}</div>
+                            </td>
+                            <td>{formatDate(l.invoiceDate)}</td>
+                            <td>{formatDate(l.dueDate)}</td>
+                            <td className="num">{formatRupiah(l.total)}</td>
+                            <td><span className="vd-badge success">Journal · Posted</span></td>
                             <td><span className={`vd-badge ${pm.tone}`}>{pm.label}</span></td>
                             <td><span className={`vd-badge ${recon.tone}`} title={recon.why}>{recon.label}</span></td>
                             <td style={{ textAlign: "right", color: "var(--color-action)" }}>→</td>
