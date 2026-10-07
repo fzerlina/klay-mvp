@@ -53,6 +53,9 @@ export default function DraftJournalModal({ open, intentQuery, initialLines, ini
 
   const [jeDate, setJeDate] = useState(editing?.je_date || TODAY_ISO);
   const [memo, setMemo] = useState(editing?.memo || initialMemo || intentQuery || "");
+  // The document behind the entry (an invoice or receipt number). Payment shows
+  // it as the Reference of a journal payable; blank reads as "—".
+  const [reference, setReference] = useState(editing?.reference || "");
   const [lines, setLines] = useState(() => seedLines(editing?.lines || initialLines));
   const [showErrors, setShowErrors] = useState(false);
   // An accrual is usually undone on the 1st of next month, when the real
@@ -170,6 +173,7 @@ export default function DraftJournalModal({ open, intentQuery, initialLines, ini
       je_date: jeDate,
       status: "draft",
       memo: memo.trim() || "Manual journal entry",
+      reference: reference.trim() || null,
       reference_type: editing?.reference_type || "manual",
       reference_id: editing?.reference_id ?? null,
       created_by: editing?.created_by || createdBy || "You",
@@ -220,6 +224,15 @@ export default function DraftJournalModal({ open, intentQuery, initialLines, ini
                 placeholder="What is this entry for?"
                 value={memo}
                 onChange={(e) => setMemo(e.target.value)}
+              />
+            </label>
+            <label className="dje-field dje-field-ref">
+              <span className="dje-field-lbl">Reference</span>
+              <input
+                className="dje-input"
+                placeholder="Document no. (optional)"
+                value={reference}
+                onChange={(e) => setReference(e.target.value)}
               />
             </label>
           </div>

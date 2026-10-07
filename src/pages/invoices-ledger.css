@@ -519,6 +519,7 @@
 .dje-meta{display:flex;gap:12px;margin-bottom:18px}
 .dje-field{display:flex;flex-direction:column;gap:4px}
 .dje-field-grow{flex:1}
+.dje-field-ref{flex:0 0 170px}
 .dje-field-lbl{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--color-text-tertiary)}
 .dje-input{font-family:var(--font-sans);font-size:12.5px;padding:7px 10px;border:1px solid var(--color-border-default);border-radius:var(--radius-sm);background:var(--color-surface-raised);color:var(--color-text-primary);outline:none}
 .dje-input:focus{border-color:var(--color-action);box-shadow:0 0 0 2px var(--color-action-wash)}

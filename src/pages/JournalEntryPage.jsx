@@ -1451,6 +1451,7 @@ export default function JournalEntryPage() {
                       ["Journal No.", selected.status === "scheduled" ? "Assigned on posting" : selected.je_number],
                       ["Date", formatDate(selected.je_date)],
                       ["Description", selected.memo],
+                      ["Reference", selected.reference || "—"],
                       ["Reference type", selected.reference_type || "—"],
                       ["Created by", selected.created_by],
                       ["Created on", formatDate(selected.created_date)],
