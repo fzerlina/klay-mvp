@@ -23,12 +23,15 @@ export const COSTING_METHOD_LABELS = {
 // settles it. Such a line must name a payee, because a payment needs someone
 // to go to. Set per account in Settings → Chart of Accounts.
 //
-// PLACEHOLDER LIST. Fidya is going through the chart to decide which accounts
-// belong here (Slack, 2026-10-01); these are the obvious non-trade payables in
-// the meantime. Trade AP (2-1100) is deliberately absent — bills already carry
-// it, and listing it here would put every bill on the Payment list twice.
+// In the product every account starts OFF: the user switches on what they need
+// after migrating their chart (Payment discussion, 2026-10-07). The DEMO seeds
+// three on so the prototype has non-bill payables to show. Salary (2-4100) is
+// not among them — salary is booked straight to the bank by a manual entry and
+// matched in bank reconciliation, never paid through Payment. Trade AP (2-1100)
+// is never here: bills already carry it, and listing it would put every bill on
+// the Payment list twice.
 export const ACCOUNTING_SETTINGS = {
   inventory_costing_method: "average_cost",
   recon_difference_accounts: ["7-1500", "4-2300"],
-  reconcilable_accounts: ["2-4100", "2-4400", "2-4500", "2-4600"],
+  reconcilable_accounts: ["2-4400", "2-4500", "2-4600"],
 };
