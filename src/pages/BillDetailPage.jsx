@@ -29,7 +29,7 @@ import RecordPaymentModal from "../components/RecordPaymentModal";
 import { buildAgingLines } from "../lib/apAging";
 import { makeFlagger, releaseState, FLAG_TIERS } from "../lib/paymentFlags";
 import { REQ_META, gatesRelease, payModeFor, paymentActionFor, paymentStatusOf } from "../lib/paymentStage";
-import { PAYMENT_METHOD_BY_KEY, auditTextFor, breakdownTotal, describeBreakdown, withheldTax, WITHHOLDING_ACCOUNT } from "../lib/paymentBreakdown";
+import { PAYMENT_METHOD_BY_KEY, auditTextFor, breakdownTotal, describeBreakdown, remainingWithholding, withheldTax, WITHHOLDING_ACCOUNT } from "../lib/paymentBreakdown";
 import { bankAccountById } from "../data/seed/bankAccounts";
 import { paymentJournalLines } from "../lib/paymentJournal";
 import { reconOf, billReconOf } from "../lib/bankRecon";
@@ -2045,7 +2045,8 @@ export default function BillDetailPage() {
             vendorName: bill.vendorName,
             invNo: bill.invNo,
             remaining: paymentOpenBalance,
-            pph23: bill.pph23 || 0,
+            // Only the PPh still to withhold: earlier part-payments may have taken it.
+            pph23: remainingWithholding(bill.pph23, paymentDetailOf(bill.id)?.history),
             items: bill.items, dpp: bill.dpp, ppn: bill.ppn, ppnRate: bill.ppnRate, total: bill.total,
           }}
           onConfirm={confirmPayment}

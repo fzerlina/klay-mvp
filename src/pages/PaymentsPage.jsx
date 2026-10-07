@@ -11,7 +11,7 @@ import { buildAgingLines } from "../lib/apAging";
 import { journalPayableLines, isJournalPayable } from "../lib/journalPayables";
 import { useJournalEntries } from "../state/JournalEntriesContext";
 import { useAccountingSettings } from "../state/AccountingSettingsContext";
-import { auditTextFor, breakdownTotal, defaultBreakdown } from "../lib/paymentBreakdown";
+import { auditTextFor, breakdownTotal, defaultBreakdown, remainingWithholding } from "../lib/paymentBreakdown";
 import { accountsForMethod, bankAccountById } from "../data/seed/bankAccounts";
 import { FLAG_TIERS, makeFlagger, releaseState, tierCounts } from "../lib/paymentFlags";
 import {
@@ -144,7 +144,9 @@ function PaymentRow({
       </div>
 
       <div className="pm-cell-bill">
-        <span className="pm-id">{line.id}</span>
+        {/* The posting journal for a bill, the entry itself for a journal
+            payable — one numbering, one place to look it up. */}
+        <span className="pm-id">{line.journalNumber || line.id}</span>
         {flags.length > 0 && (
           <button
             type="button"
@@ -161,7 +163,9 @@ function PaymentRow({
       </div>
 
       <div className="pm-cell-inv">
-        <span className={isJournalPayable(line) ? "pm-inv-memo" : "pm-inv-no"} title={line.invNo}>{line.invNo}</span>
+        {/* The vendor invoice for a bill; the entry's Reference field for a
+            journal payable, or "—" when none was entered. */}
+        <span className="pm-inv-no" title={line.reference || ""}>{line.reference || "—"}</span>
       </div>
 
       <div className="pm-cell-payee">
@@ -185,13 +189,13 @@ function PaymentRow({
         <span className={`pm-req-pill tone-${req.tone}`}>{req.label}</span>
       </div>
 
-      <div className="pm-num pm-cell-total">{formatRupiah(line.total)}</div>
+      <div className="pm-num pm-cell-total">{formatRupiah(line.totalNet)}</div>
 
-      {/* Payable is what is still owed on this bill — the amount a payment
-          would clear. How it splits between vendor and tax office is shown when
-          the payment is recorded, not on every row. */}
+      {/* Both amounts are net of PPh 23. Payable is what is still to transfer:
+          the open balance less the PPh still to withhold. The split between
+          vendor and tax office is shown when the payment is recorded. */}
       <div className="pm-cell-amt">
-        <div className="pm-num pm-amt-main">{isPaid ? "—" : formatRupiah(line.remaining)}</div>
+        <div className="pm-num pm-amt-main">{isPaid ? "—" : formatRupiah(line.payableNet)}</div>
       </div>
 
       <div className="pm-cell-action" onClick={(e) => e.stopPropagation()}>
@@ -271,10 +275,29 @@ export default function PaymentsPage() {
   // The payable universe: posted, non-accrual bills, plus journal lines on a
   // reconcilable account that name a payee (lib/journalPayables.js). A journal
   // payable's open balance is its amount less what has been paid against it.
+  //
+  // Amounts on the list are NET of PPh 23 (Payment discussion, 2026-10-07):
+  // Total net payable = total − PPh, Payable = what is still to transfer. The
+  // PPh still to withhold is what the bill carries less what earlier payments
+  // actually withheld, so `pph23` on a line is that remainder and every
+  // consumer (Record payment, bulk pay, the bank file) withholds the right
+  // amount; `pph23Total` keeps the bill's own figure for the release checks.
   const postedLines = useMemo(
     () => [
-      ...buildAgingLines(TODAY, bills).filter((l) => !l.is_accrual && l.raw.je_number),
-      ...journalPayableLines(journalEntries, reconcilableAccounts, (id) => payments[id]?.paidSoFar || 0, { vendorById }),
+      ...buildAgingLines(TODAY, bills).filter((l) => !l.is_accrual && l.raw.je_number).map((l) => {
+        const pphLeft = remainingWithholding(l.pph23, payments[l.id]?.history);
+        return {
+          ...l,
+          pph23Total: l.pph23,
+          pph23: Math.min(pphLeft, l.remaining || 0),
+          journalNumber: l.raw.je_number,
+          reference: l.invNo,
+          totalNet: l.total - (l.pph23 || 0),
+          payableNet: Math.max(0, (l.remaining || 0) - Math.min(pphLeft, l.remaining || 0)),
+        };
+      }),
+      ...journalPayableLines(journalEntries, reconcilableAccounts, (id) => payments[id]?.paidSoFar || 0, { vendorById })
+        .map((l) => ({ ...l, journalNumber: l.id, totalNet: l.total, payableNet: l.remaining })),
     ],
     [bills, journalEntries, reconcilableAccounts, payments, vendorById],
   );
@@ -312,7 +335,7 @@ export default function PaymentsPage() {
     const q = search.trim().toLowerCase();
     if (!q) return postedLines;
     return postedLines.filter((l) =>
-      l.id.toLowerCase().includes(q) || l.vendorName.toLowerCase().includes(q) || (l.invNo || "").toLowerCase().includes(q));
+      [l.id, l.journalNumber, l.vendorName, l.reference, l.invNo].some((v) => String(v || "").toLowerCase().includes(q)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [postedLines, search]);
 
@@ -364,7 +387,8 @@ export default function PaymentsPage() {
   const toggleSelectAll = () => setSelected(allSelected ? new Set() : new Set(actionable.map((l) => l.id)));
 
   const totalOpen = useMemo(
-    () => postedLines.filter((l) => payStatusOf(l) !== "paid").reduce((s, l) => s + (l.remaining || 0), 0),
+    // Net of PPh, like the Payable column it sums.
+    () => postedLines.filter((l) => payStatusOf(l) !== "paid").reduce((s, l) => s + (l.payableNet || 0), 0),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [postedLines],
   );
@@ -479,7 +503,7 @@ export default function PaymentsPage() {
             <div style={{ flex: 1, minWidth: 0 }}>
               <h1 className="lg-title">Payment</h1>
               <p className="pm-lede">
-                Posted bills and journal payables by <strong>payment status</strong> — <strong>{formatRupiah(totalOpen)}</strong> still open.
+                Posted bills and journal payables by <strong>payment status</strong> — <strong>{formatRupiah(totalOpen)}</strong> still to pay, net of PPh.
                 {roleCfg && <> You're working the <strong>{roleCfg.stage}</strong> stage.</>}
                 {withholding.count > 0 && (
                   <> Of that, <strong>{formatRupiah(withholding.sum)}</strong> is withheld for the tax office across{" "}
@@ -505,7 +529,7 @@ export default function PaymentsPage() {
             <div className="lg-filter-row pm-filter-row">
               <div className="apa-search">
                 <svg viewBox="0 0 16 16" aria-hidden><circle cx="7" cy="7" r="5" /><path d="M11 11l3 3" /></svg>
-                <input className="apa-search-input" placeholder="Search bill, vendor or invoice…" value={search} onChange={(e) => setSearch(e.target.value)} />
+                <input className="apa-search-input" placeholder="Search journal no., bill, vendor or reference…" value={search} onChange={(e) => setSearch(e.target.value)} />
                 {search && <button type="button" className="apa-search-clear" onClick={() => setSearch("")} aria-label="Clear search">×</button>}
               </div>
               <div className="lg-filter-meta">
@@ -559,13 +583,13 @@ export default function PaymentsPage() {
                   </span>
                 )}
               </div>
-              <div>Document</div>
-              <div>Invoice no. / memo</div>
+              <div>Journal Number</div>
+              <div>Reference</div>
               <div>Payment to</div>
               <div>Due date</div>
               <div>Payment status</div>
               <div>Request status</div>
-              <div className="pm-num">Total</div>
+              <div className="pm-num">Total net payable</div>
               <div className="pm-num">Payable</div>
               <div />
             </div>

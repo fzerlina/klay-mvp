@@ -128,9 +128,12 @@ export function makeFlagger({ lines = [], versionsOf = () => [], returnedOf = ()
     // vendor invoice, so there is no PPh to withhold and no faktur to expect.
     const isBill = line.kind !== "journal";
     const expectsPph = typeof v?.pph === "string" && v.pph.startsWith("pph23");
-    if (isBill && expectsPph && !(line.pph23 > 0)) {
+    // pph23Total is the bill's own PPh; pph23 on a Payment line is only what
+    // is still to withhold, which is legitimately 0 once a part-payment took it.
+    const billPph = line.pph23Total ?? line.pph23;
+    if (isBill && expectsPph && !(billPph > 0)) {
       add("withholding_mismatch", `${v.name} is set up for PPh 23, but this bill withholds nothing. Release it as-is and the vendor is overpaid and never gets a bukti potong.`);
-    } else if (isBill && !expectsPph && line.pph23 > 0) {
+    } else if (isBill && !expectsPph && billPph > 0) {
       add("withholding_mismatch", "PPh is being withheld from a vendor whose master record says no withholding applies. One of the two is wrong.");
     }
 

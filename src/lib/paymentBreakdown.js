@@ -110,6 +110,15 @@ export const activeDeductions = (b) => deductionsOf(b).filter((d) => num(d.amoun
 export const withheldTax = (b) =>
   deductionsOf(b).filter((d) => d.account === WITHHOLDING_ACCOUNT).reduce((s, d) => s + num(d.amount), 0);
 
+// The PPh still to withhold on a bill: what it carries less what earlier
+// payments actually withheld (Payment discussion, 2026-10-07). Not a
+// proportional share — if the first payment withheld all of it, nothing is
+// left; if it withheld none, all of it is.
+export function remainingWithholding(pph23, history = []) {
+  const done = (history || []).reduce((s, h) => s + withheldTax(h.breakdown), 0);
+  return Math.max(0, (Number(pph23) || 0) - done);
+}
+
 // Roll several payments into one set of totals, merging deductions by account
 // so a bill paid in three instalments reports one line per account, not nine.
 export function sumBreakdowns(list = []) {

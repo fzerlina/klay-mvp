@@ -46,6 +46,9 @@ export function journalPayableLines(entries, reconcilableCodes, paidSoFarOf = ()
         // The list's invoice column carries the entry's memo — there is no
         // vendor invoice behind a journal payable.
         invNo: l.description || je.memo,
+        // The entry's Reference field (its document number), shown in
+        // Payment's Reference column; null reads as "—".
+        reference: je.reference || null,
         memo: je.memo,
         invoiceDate: je.je_date,
         dueDate: due,
