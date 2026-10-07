@@ -17,6 +17,9 @@ import {
 } from "../lib/paymentBreakdown";
 import { accountsForMethod, maskOf } from "../data/seed/bankAccounts";
 import { useVendors } from "../state/VendorsContext";
+import { useClosePeriod } from "../state/ClosePeriodContext";
+import { paymentJournalLines } from "../lib/paymentJournal";
+import { TODAY } from "../lib/clock";
 import { formatRupiah, formatRupiahExact } from "../lib/format";
 import "../pages/ap-aging.css";
 import "../pages/payments.css";
@@ -51,8 +54,25 @@ export default function RecordPaymentModal({ bill, onConfirm, onClose }) {
     });
   }, [sourceOptions]);
 
+  // The payment date. A payment is recorded once the money has gone — there is
+  // no "in transit" (Payment discussion, 2026-10-07) — so it cannot be in the
+  // future, and it cannot fall in a closed period or before the bill itself.
+  const { closedThrough } = useClosePeriod();
+  const todayIso = `${TODAY.getFullYear()}-${String(TODAY.getMonth() + 1).padStart(2, "0")}-${String(TODAY.getDate()).padStart(2, "0")}`;
+  const [payDate, setPayDate] = useState(todayIso);
+  const billDate = bill.invoiceDate || bill.raw?.date || bill.date || null;
+  const dateCheck = !payDate ? { ok: false, reason: "Pick the payment date." }
+    : payDate > todayIso ? { ok: false, reason: "A payment is recorded once the money has gone — the date can't be in the future." }
+      : closedThrough && payDate.slice(0, 7) <= closedThrough ? { ok: false, reason: `${payDate.slice(0, 7)} is closed — date the payment in an open period.` }
+        : billDate && payDate < billDate ? { ok: false, reason: "The payment can't be dated before the bill." }
+          : { ok: true, reason: null };
+
   const deductions = deductionsOf(bd);
-  const check = validateBreakdown(bd, bill.remaining);
+  const breakdownCheck = validateBreakdown(bd, bill.remaining);
+  const check = !dateCheck.ok ? dateCheck : breakdownCheck;
+  // The entry this payment posts — automatically, no approval step — shown
+  // before it is recorded. A journal payable relieves its own account.
+  const preview = paymentJournalLines(bd, { vendorName: bill.vendorName, payableAccount: bill.payableAccount || null });
   // A missing source account is already asked for by the "Paid from" picker
   // and keeps the button disabled, so it is not repeated as a sentence here.
   const allocated = breakdownTotal(bd);
@@ -165,6 +185,19 @@ export default function RecordPaymentModal({ bill, onConfirm, onClose }) {
           </aside>
 
           <div className="pm-pay-form">
+            {/* ── When ────────────────────────────────────────────────────── */}
+            <div className="pm-sec">
+              <div className="pm-sec-lbl">Payment date</div>
+              <input
+                type="date"
+                className="pm-text-input pm-date-input"
+                value={payDate}
+                max={todayIso}
+                onChange={(e) => setPayDate(e.target.value)}
+              />
+              <div className="pm-sec-hint">The day the money left. The journal entry is dated on it.</div>
+            </div>
+
             {/* ── How ─────────────────────────────────────────────────────── */}
             <div className="pm-sec">
               <div className="pm-sec-lbl">Payment method</div>
@@ -310,6 +343,31 @@ export default function RecordPaymentModal({ bill, onConfirm, onClose }) {
             </div>
 
 
+            {/* ── The entry it posts ──────────────────────────────────────── */}
+            {preview.lines.length > 0 && (
+              <div className="pm-sec">
+                <div className="pm-sec-lbl">Journal entry · posts automatically</div>
+                <div className="pm-snap pm-je-preview">
+                  {preview.lines.map((l, i) => (
+                    <div key={i} className="pm-snap-row pm-je-row">
+                      <span className="pm-snap-item">
+                        <span className="pm-snap-desc">{l.account_code} · {l.account_name}</span>
+                        <span className="pm-snap-sub">{l.description}</span>
+                        {l.flag && <span className="pm-je-flag">{l.flag}</span>}
+                      </span>
+                      <span className="num">{l.side === "DR" ? formatRupiahExact(l.amount) : ""}</span>
+                      <span className="num">{l.side === "CR" ? formatRupiahExact(l.amount) : ""}</span>
+                    </div>
+                  ))}
+                  <div className="pm-snap-row pm-je-row pm-je-total">
+                    <span>Dated {payDate || "—"}</span>
+                    <span className="num">{formatRupiahExact(preview.totalDr)}</span>
+                    <span className="num">{formatRupiahExact(preview.totalCr)}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="apa-modal-note">
               {!check.ok && check.field !== "source" ? check.reason
                 : openAfter > 0
@@ -325,7 +383,7 @@ export default function RecordPaymentModal({ bill, onConfirm, onClose }) {
               form is still incomplete the button is disabled anyway, and
               calling a full payment "partial" just because a source account is
               missing tells the user the wrong thing about their own numbers. */}
-          <button type="button" className="apa-modal-btn primary" disabled={!check.ok} onClick={() => onConfirm(bill.id, bd)}>
+          <button type="button" className="apa-modal-btn primary" disabled={!check.ok} onClick={() => onConfirm(bill.id, bd, payDate)}>
             {openAfter > 0 ? "Record partial payment" : "Record full payment"}
           </button>
         </div>

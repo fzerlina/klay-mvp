@@ -35,7 +35,9 @@ import { useJournalEntries } from "./JournalEntriesContext";
 
 const PaymentsContext = createContext(null);
 
-const TODAY_ISO = TODAY.toISOString().slice(0, 10);
+// Local date parts, not toISOString(): that converts to UTC and, east of
+// Greenwich, dates the demo day as the day before.
+const TODAY_ISO = `${TODAY.getFullYear()}-${String(TODAY.getMonth() + 1).padStart(2, "0")}-${String(TODAY.getDate()).padStart(2, "0")}`;
 
 // ISO date N days before the demo clock — used to stagger request/approval
 // timestamps so the role-scoped urgency sorts (FM "oldest waiting first",
@@ -187,7 +189,8 @@ export function PaymentsProvider({ children }) {
   // request status returns to "notyet" so a remaining balance can be requested
   // again, and the payment status advances.
   //
-  //   entries: [{ id, breakdown, paysInFull }]
+  //   entries: [{ id, breakdown, paysInFull, date? }] — `date` is the payment
+  //   date (defaults to today); the journal entry and the history are dated by it.
   const recordPayment = useCallback((entries, by) => {
     // Nobody executes a payment that was never approved. The guard runs here,
     // against the current state, rather than inside the updater below: the
@@ -222,7 +225,7 @@ export function PaymentsProvider({ children }) {
         payeeName,
         je: {
           je_number,
-          je_date: TODAY_ISO,
+          je_date: e.date || TODAY_ISO,
           status: "posted",
           memo: `Payment — ${payeeName || e.id}${ref ? ` · ${ref}` : ""}`,
           reference_type: "payment",
@@ -255,7 +258,9 @@ export function PaymentsProvider({ children }) {
         const cleared = breakdownTotal(e.breakdown);
         // The payee travels with the payment: bank reconciliation names the
         // counterparty from it, and a journal payable has no bill to look up.
-        const history = [...(cur.history || []), { at: TODAY_ISO, by, breakdown: e.breakdown, cleared, je_number: jeById[e.id], vendorName: payeeById[e.id] }];
+        // Dated by the payment date the user entered (Record payment), not the
+        // day it was keyed in.
+        const history = [...(cur.history || []), { at: e.date || TODAY_ISO, by, breakdown: e.breakdown, cleared, je_number: jeById[e.id], vendorName: payeeById[e.id] }];
         next[e.id] = {
           ...cur,
           request: "notyet",

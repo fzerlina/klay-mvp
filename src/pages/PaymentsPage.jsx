@@ -421,7 +421,7 @@ export default function PaymentsPage() {
     else if (payMode === "approve") approvePayment(ids, user?.name || "Finance Manager");
     else if (payMode === "execute") {
       const by = user?.name || "Finance Staff";
-      const dateISO = TODAY.toISOString().slice(0, 10);
+      const dateISO = `${TODAY.getFullYear()}-${String(TODAY.getMonth() + 1).padStart(2, "0")}-${String(TODAY.getDate()).padStart(2, "0")}`;
       const linesById = {};
       for (const id of ids) {
         const l = rows.find((r) => r.id === id);
@@ -457,14 +457,14 @@ export default function PaymentsPage() {
   // Only the releaser can clear a review flag — that is the acknowledgement the
   // trail records against their name.
   const onAcknowledge = (id, flagKey) => acknowledgeFlag(id, flagKey, user?.name || "Finance Manager");
-  const confirmPayment = (id, breakdown) => {
+  const confirmPayment = (id, breakdown, payDate) => {
     const line = rows.find((r) => r.id === id);
     const by = user?.name || "Finance Staff";
-    const dateISO = TODAY.toISOString().slice(0, 10);
+    const dateISO = payDate || `${TODAY.getFullYear()}-${String(TODAY.getMonth() + 1).padStart(2, "0")}-${String(TODAY.getDate()).padStart(2, "0")}`;
     if (line) {
       const total = breakdownTotal(breakdown);
       const full = total >= line.remaining;
-      recordPayment([{ id, breakdown, paysInFull: full, ...journalExtras(line) }], by);
+      recordPayment([{ id, breakdown, paysInFull: full, date: dateISO, ...journalExtras(line) }], by);
       if (!isJournalPayable(line)) {
         updateBill(
           id,

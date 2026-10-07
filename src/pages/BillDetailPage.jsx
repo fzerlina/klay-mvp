@@ -1401,11 +1401,11 @@ export default function BillDetailPage() {
 
   // Same write the Payment list performs, so a payment recorded from either
   // surface lands in the ledger and the trail identically.
-  function confirmPayment(id, breakdown) {
+  function confirmPayment(id, breakdown, payDate) {
     const by = user?.name || "Finance Staff";
     const total = breakdownTotal(breakdown);
     const full = total >= paymentOpenBalance;
-    recordPayment([{ id, breakdown, paysInFull: full }], by);
+    recordPayment([{ id, breakdown, paysInFull: full, date: payDate }], by);
     updateBill(
       id,
       full ? { pay: "paid", sisa: 0 } : { sisa: paymentOpenBalance - total },
@@ -1413,7 +1413,7 @@ export default function BillDetailPage() {
         type: "paid",
         by,
         action: auditTextFor(breakdown, full, { sourceName: bankAccountById(breakdown.sourceAccountId)?.name }),
-        date: TODAY.toISOString().slice(0, 10),
+        date: payDate || `${TODAY.getFullYear()}-${String(TODAY.getMonth() + 1).padStart(2, "0")}-${String(TODAY.getDate()).padStart(2, "0")}`,
         time: "",
       },
     );

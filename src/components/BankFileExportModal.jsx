@@ -30,7 +30,7 @@ export default function BankFileExportModal({ lines, onClose }) {
   );
   const total = transfers.reduce((s, t) => s + t.amount, 0);
   const withheld = transfers.reduce((s, t) => s + t.withheld, 0);
-  const date = TODAY.toISOString().slice(0, 10);
+  const date = `${TODAY.getFullYear()}-${String(TODAY.getMonth() + 1).padStart(2, "0")}-${String(TODAY.getDate()).padStart(2, "0")}`;
   const fmt = formatForAccount(source);
 
   const download = () => {
