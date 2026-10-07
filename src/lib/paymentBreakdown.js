@@ -71,6 +71,7 @@ export const COMMON_DEDUCTION_ACCOUNTS = [
   { code: "4-2300", hint: "A discount the vendor agreed to, or a small rounding difference so the bill closes cleanly." },
   { code: "1-2300", hint: "Netted against an invoice this counterparty owes us." },
   { code: "6-4000", hint: "A balance we have decided not to pay and not to chase." },
+  { code: "6-3000", hint: "A transfer fee the bank took out of what the vendor received — the usual payment difference." },
 ].filter((s) => accountByCode(s.code));
 
 let seq = 0;

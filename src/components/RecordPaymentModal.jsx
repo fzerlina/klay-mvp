@@ -97,12 +97,53 @@ export default function RecordPaymentModal({ bill, onConfirm, onClose }) {
   });
   const pickPreset = (key) => {
     setPreset(key);
+    // A preset rebuilds the split from scratch, difference lines included.
+    setDiffMode("open");
     if (key === "full") applyAmount(bill.remaining);
     else if (key === "half") applyAmount(Math.round(bill.remaining / 2));
     else if (key === "custom") { setCustomAmt(allocated); applyAmount(allocated); }
   };
   const onCustomAmount = (v) => { const amt = Math.min(v, bill.remaining || 0); setCustomAmt(amt); applyAmount(amt); };
   const editedByHand = () => setPreset(null);
+
+  // Payment difference (Payment discussion, 2026-10-07). When what is paid and
+  // deducted does not cover the open balance — typically the bank took a fee
+  // out of what the vendor received — the user either keeps the bill open
+  // (partially paid) or marks it fully paid and books the difference. Unlike
+  // Odoo's single write-off line, the difference can be split across several
+  // accounts. Difference rows are ordinary deductions flagged `diff`, so they
+  // land in the journal entry like any other.
+  const DIFF_ACCOUNT = "6-3000"; // Bank Charges — the usual cause
+  const [diffMode, setDiffMode] = useState("open");
+  const isDiff = (d) => !!d.diff;
+  const gapOf = (b) => Math.max(0, (bill.remaining || 0) - cashOut(b) - deductionsOf(b).filter((d) => !isDiff(d)).reduce((s, d) => s + (Number(d.amount) || 0), 0));
+  const chooseDiff = (mode) => {
+    setDiffMode(mode);
+    setBd((prev) => {
+      const kept = deductionsOf(prev).filter((d) => !isDiff(d));
+      return mode === "full"
+        ? { ...prev, deductions: [...kept, newDeduction({ account: DIFF_ACCOUNT, amount: gapOf(prev), diff: true })] }
+        : { ...prev, deductions: kept };
+    });
+  };
+  const patchDiff = (id, p) => setBd((prev) => ({ ...prev, deductions: deductionsOf(prev).map((d) => (d.id === id ? { ...d, ...p } : d)) }));
+  const addDiffRow = () => setBd((prev) => {
+    const left = Math.max(0, (bill.remaining || 0) - breakdownTotal(prev));
+    return { ...prev, deductions: [...deductionsOf(prev), newDeduction({ account: "", amount: left, diff: true })] };
+  });
+  const dropDiffRow = (id) => setBd((prev) => {
+    const deductions = deductionsOf(prev).filter((d) => d.id !== id);
+    if (!deductions.some(isDiff)) setDiffMode("open");
+    return { ...prev, deductions };
+  });
+  const diffRows = deductionsOf(bd).filter(isDiff);
+  const regularDeductions = deductionsOf(bd).filter((d) => !isDiff(d));
+  const unallocated = Math.max(0, (bill.remaining || 0) - allocated);
+  // Marked fully paid means the difference must close the bill exactly.
+  const finalCheck = !check.ok ? check
+    : diffMode === "full" && unallocated > 0
+      ? { ok: false, reason: `Rp ${unallocated.toLocaleString("id-ID")} of the difference is not booked yet — add it to a line, or keep the bill open.` }
+      : check;
 
   // Moving a deduction takes the difference out of the vendor's cash, so the
   // total allocated stays where it was and the bill stays fully covered until
@@ -313,7 +354,7 @@ export default function RecordPaymentModal({ bill, onConfirm, onClose }) {
                   <span aria-hidden className="pm-bd-x-spacer" />
                 </div>
 
-                {deductions.map((d) => (
+                {regularDeductions.map((d) => (
                   <DeductionRow
                     key={d.id}
                     row={d}
@@ -325,6 +366,46 @@ export default function RecordPaymentModal({ bill, onConfirm, onClose }) {
               </div>
 
               <button type="button" className="pm-bd-add-btn" onClick={addDeduction}>+ Add a deduction</button>
+
+              {/* ── Payment difference ───────────────────────────────────── */}
+              {(diffMode === "full" || openAfter > 0) && (
+                <div className="pm-diff">
+                  <div className="pm-diff-head">
+                    {diffMode === "full"
+                      ? <>Difference booked so the {doc} closes</>
+                      : <><strong>Rp {openAfter.toLocaleString("id-ID")}</strong> is not covered by this payment</>}
+                  </div>
+                  <div className="pm-diff-choice">
+                    <label className={`pm-diff-opt${diffMode === "open" ? " on" : ""}`}>
+                      <input type="radio" name="pm-diff" checked={diffMode === "open"} onChange={() => chooseDiff("open")} />
+                      <span><strong>Keep open</strong><span className="pm-diff-sub">The {doc} stays partially paid for the rest.</span></span>
+                    </label>
+                    <label className={`pm-diff-opt${diffMode === "full" ? " on" : ""}`}>
+                      <input type="radio" name="pm-diff" checked={diffMode === "full"} onChange={() => chooseDiff("full")} />
+                      <span><strong>Mark as fully paid</strong><span className="pm-diff-sub">Book the difference — a bank fee, rounding — to one or more accounts.</span></span>
+                    </label>
+                  </div>
+                  {diffMode === "full" && (
+                    <>
+                      <div className="pm-bd-list">
+                        {diffRows.map((d) => (
+                          <DeductionRow
+                            key={d.id}
+                            row={d}
+                            onAmount={(v) => patchDiff(d.id, { amount: v })}
+                            onAccount={(v) => patchDiff(d.id, { account: v })}
+                            onRemove={() => dropDiffRow(d.id)}
+                          />
+                        ))}
+                      </div>
+                      <div className="pm-diff-foot">
+                        <button type="button" className="pm-bd-add-btn" onClick={addDiffRow}>+ Split across another account</button>
+                        {unallocated > 0 && <span className="pm-diff-left">Rp {unallocated.toLocaleString("id-ID")} still to book</span>}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="pm-bd-tally">
@@ -369,7 +450,7 @@ export default function RecordPaymentModal({ bill, onConfirm, onClose }) {
             )}
 
             <div className="apa-modal-note">
-              {!check.ok && check.field !== "source" ? check.reason
+              {!finalCheck.ok && finalCheck.field !== "source" ? finalCheck.reason
                 : openAfter > 0
                   ? "A partial payment. The remainder keeps its original aging and re-enters the request queue."
                   : `Pays the ${doc} in full. Every component above is booked to its own account.`}
@@ -383,7 +464,7 @@ export default function RecordPaymentModal({ bill, onConfirm, onClose }) {
               form is still incomplete the button is disabled anyway, and
               calling a full payment "partial" just because a source account is
               missing tells the user the wrong thing about their own numbers. */}
-          <button type="button" className="apa-modal-btn primary" disabled={!check.ok} onClick={() => onConfirm(bill.id, bd, payDate)}>
+          <button type="button" className="apa-modal-btn primary" disabled={!finalCheck.ok} onClick={() => onConfirm(bill.id, bd, payDate)}>
             {openAfter > 0 ? "Record partial payment" : "Record full payment"}
           </button>
         </div>

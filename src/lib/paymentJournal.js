@@ -113,7 +113,7 @@ export function paymentJournalLines(breakdown, { vendorName, payableAccount = nu
       // reducing what the vendor gets.
       description: d.account === WITHHOLDING_ACCOUNT
         ? "Withheld — owed to the tax office"
-        : "Deducted from the vendor's share",
+        : d.diff ? "Payment difference — booked so the bill closes" : "Deducted from the vendor's share",
       rule: a
         ? `Booked to ${a.code} as chosen on the payment (${a.fs === "BS" ? "balance sheet" : "profit & loss"})`
         : "Account chosen on the payment is not in the chart of accounts",
