@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { COA } from "../data/seed/coa";
 import { useAccountingSettings } from "../state/AccountingSettingsContext";
-import { DEFAULT_FEE_CEILING, FEE_CEILING_BY_BANK } from "../data/seed/bankFees";
 import "./modules.css";
 import "./invoices-ledger.css";
 import "./settings-pages.css";
@@ -84,35 +83,7 @@ export default function BankReconSettingsPage() {
             </select>
           </div>
         </div>
-
-        {/* What each bank's charges top out at. A debit the bank describes as
-            a fee, at or under its bank's ceiling, is drafted as a bank charge;
-            anything larger has to be matched. Placeholders until confirmed
-            against each bank's published fee schedule (data/seed/bankFees.js). */}
-        <div className="pp-setting-card">
-          <div className="pp-setting-main">
-            <div className="pp-setting-text">
-              <div className="pp-setting-title">Bank fee ceilings</div>
-              <p className="pp-setting-desc">
-                A debit the bank describes as a fee, up to this amount, is drafted as a bank charge in Review &amp; post
-                journals. Anything larger is treated as a payment and has to be matched. Banks not listed use
-                Rp {DEFAULT_FEE_CEILING.toLocaleString("id-ID")}.
-              </p>
-            </div>
-          </div>
-          <div className="brs-list">
-            {Object.entries(FEE_CEILING_BY_BANK).map(([bank, ceiling]) => (
-              <div key={bank} className="brs-row">
-                <span className="brs-code">{BANK_NAMES[bank] || bank}</span>
-                <span className="brs-name">Up to Rp {ceiling.toLocaleString("id-ID")}</span>
-              </div>
-            ))}
-          </div>
-        </div>
       </div>
     </div>
   );
 }
-
-// The master stores Mandiri as "MDR" for its card logo.
-const BANK_NAMES = { MDR: "Mandiri", PERMATA: "Permata" };
