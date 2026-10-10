@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { useAccountingSettings } from "../state/AccountingSettingsContext";
 import "./modules.css";
 import "./invoices-ledger.css";
 import "./settings-pages.css";
@@ -10,7 +11,8 @@ import "./access-policy.css";
 // One setting per entity: ENFORCED (default) or RELAXED. This is a separate lever
 // from the role matrix and the role-assignment SoD check on the Users page — it
 // governs the runtime submitter-≠-poster control at *posting* time, not who may
-// hold which roles. Prototype: local state, no backend.
+// hold which roles. The mode lives in AccountingSettingsContext so the screens
+// that post (bank reconciliation's Review & post journals) can enforce it.
 
 const ENTITY = { name: "PT Sejahtera Makmur", id: "ENT-001" };
 
@@ -48,7 +50,7 @@ function fmtDate(iso) {
 }
 
 export default function AccessPolicyPage() {
-  const [mode, setMode] = useState("ENFORCED");
+  const { sodMode: mode, setSodMode: setMode } = useAccountingSettings();
   const [pendingRelax, setPendingRelax] = useState(false); // RELAXED selected, awaiting confirm
   const [ack, setAck] = useState(false);
   const [log, setLog] = useState([

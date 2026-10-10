@@ -19,6 +19,10 @@ export function AccountingSettingsProvider({ children }) {
   const [reconcilableAccounts, setReconcilableAccounts] = useState(
     ACCOUNTING_SETTINGS.reconcilable_accounts,
   );
+  // Entity-wide segregation of duties at posting time (Settings → Access
+  // policy). ENFORCED: whoever prepared a transaction cannot post it — two
+  // people. RELAXED: they can, and the posting is flagged for audit.
+  const [sodMode, setSodMode] = useState("ENFORCED");
   const toggleReconcilable = useCallback((code) => setReconcilableAccounts((prev) => (
     prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]
   )), []);
@@ -27,8 +31,9 @@ export function AccountingSettingsProvider({ children }) {
       inventoryCostingMethod, setInventoryCostingMethod,
       reconDifferenceAccounts, setReconDifferenceAccounts,
       reconcilableAccounts, toggleReconcilable,
+      sodMode, setSodMode,
     }),
-    [inventoryCostingMethod, reconDifferenceAccounts, reconcilableAccounts, toggleReconcilable],
+    [inventoryCostingMethod, reconDifferenceAccounts, reconcilableAccounts, toggleReconcilable, sodMode],
   );
   return (
     <AccountingSettingsContext.Provider value={value}>

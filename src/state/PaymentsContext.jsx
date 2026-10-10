@@ -191,13 +191,18 @@ export function PaymentsProvider({ children }) {
   //
   //   entries: [{ id, breakdown, paysInFull, date? }] — `date` is the payment
   //   date (defaults to today); the journal entry and the history are dated by it.
+  //
+  // Returns { [id]: je_number } for the payments it recorded.
   const recordPayment = useCallback((entries, by) => {
     // Nobody executes a payment that was never approved. The guard runs here,
     // against the current state, rather than inside the updater below: the
     // journal entries are written outside it, and they must be written for
     // exactly the payments that land.
-    const eligible = entries.filter((e) => payments[e.id]?.request === "approved");
-    if (eligible.length === 0) return;
+    // `approvedBy` on an entry is an approval given at the moment of recording:
+    // a payment somebody made from the bank app, found on the statement, and
+    // approved when its journal is posted from the bank reconciliation.
+    const eligible = entries.filter((e) => payments[e.id]?.request === "approved" || e.approvedBy);
+    if (eligible.length === 0) return {};
 
     // One journal entry per payment, written into the ledger now rather than
     // derived on demand when the Payment tab is opened. The tab links each row
@@ -254,13 +259,16 @@ export function PaymentsProvider({ children }) {
     setPayments((prev) => {
       const next = { ...prev };
       for (const e of eligible) {
-        const cur = next[e.id];
+        const cur = next[e.id] || {};
         const cleared = breakdownTotal(e.breakdown);
         // The payee travels with the payment: bank reconciliation names the
         // counterparty from it, and a journal payable has no bill to look up.
         // Dated by the payment date the user entered (Record payment), not the
         // day it was keyed in.
-        const history = [...(cur.history || []), { at: e.date || TODAY_ISO, by, breakdown: e.breakdown, cleared, je_number: jeById[e.id], vendorName: payeeById[e.id] }];
+        const history = [...(cur.history || []), {
+          at: e.date || TODAY_ISO, by, breakdown: e.breakdown, cleared, je_number: jeById[e.id], vendorName: payeeById[e.id],
+          ...(e.approvedBy ? { approvedBy: e.approvedBy, source: e.source || null } : {}),
+        }];
         next[e.id] = {
           ...cur,
           request: "notyet",
@@ -273,6 +281,7 @@ export function PaymentsProvider({ children }) {
       }
       return next;
     });
+    return jeById;
   }, [payments, bills, addJournalEntry, peekNextJeNumber]);
 
   // Convenience for callers that just want "pay the whole open balance" — it
