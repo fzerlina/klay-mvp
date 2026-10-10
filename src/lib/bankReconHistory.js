@@ -25,14 +25,15 @@ function decisionFor(ex, period) {
   const on = `by ${BY} on ${d(at)}`;
   const s = ex.suggestion;
   if (s?.kind === "record") {
-    return { action: "reconcile", at, by: BY, recordIds: [s.recordId], journals: [s.ref], note: `Reconciled to ${s.ref}${s.billId && s.billId !== s.ref ? ` (${s.billId})` : ""} ${on}.` };
+    return { action: "reconcile", at, by: BY, recordIds: [s.recordId], journals: [s.ref], note: `Matched to ${s.ref}${s.billId && s.billId !== s.ref ? ` (${s.billId})` : ""} ${on}.` };
   }
-  if (ex.detector === "FEE_PATTERN" || ex.detector === "INTEREST_CREDIT") {
-    return { action: "post-journal", at, by: BY, note: `${ex.detector === "FEE_PATTERN" ? "Bank fee" : "Interest"} journal posted ${on}.` };
+  if (ex.detector === "FEE_PATTERN" || ex.detector === "INTEREST_CREDIT" || ex.detector === "INTEREST_TAX") {
+    const kind = ex.detector === "FEE_PATTERN" ? "Bank fee" : ex.detector === "INTEREST_TAX" ? "Tax on interest" : "Interest";
+    return { action: "post-journal", at, by: BY, note: `${kind} journal posted ${on}.` };
   }
   // Anything the engine had no record for — today's open invoices are not
   // last month's — was settled by hand at the time.
-  return { action: "manual-match", at, by: BY, recordIds: [], journals: [], note: `Reconciled manually ${on}.` };
+  return { action: "manual-match", at, by: BY, recordIds: [], journals: [], note: `Matched manually ${on}.` };
 }
 
 export function historicalResolutions() {

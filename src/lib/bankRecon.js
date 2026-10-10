@@ -21,32 +21,31 @@
 // matching engine and the decisions laid over it, so "reconciled" means a
 // person reconciled a specific bank line to this specific payment.
 
-import { statementFor, statementLabel, CURRENT_PERIOD } from "../data/seed/bankStatement";
+import { statementFor, statementLabel, monthEnd, CURRENT_PERIOD } from "../data/seed/bankStatement";
 import { bookRecordsFor } from "./bankLedger";
 import { reconcile, EXCEPTION_TYPES, isOpen } from "./bankMatching";
 import { bankAccountById, COMPANY_BANK_ACCOUNTS, statementLabelOf } from "../data/seed/bankAccounts";
 import { addDays } from "./clock";
 
-// ── The five states ──────────────────────────────────────────────────────────
+// ── An account's state ──────────────────────────────────────────────────────
 //
-// Straight from the PRD, where this model is called a first-class product
-// output rather than an internal detail — the Close Command Center's Gate 4
-// reads exactly these values.
+// Three stages, grey → amber → green, and the close board's Gate 4 reads
+// exactly these values:
 //
-// The load-bearing decision is RECONCILED_WITH_TIMING closing the gate. A
-// BI-FAST payment booked after the statement cut-off has not failed to clear;
-// it has not had time to. Blocking a close on it would be false precision, and
-// a Finance Manager who is blocked by things that resolve themselves learns to
-// override the block — which is how a genuine mismatch gets waved through.
+//   No statement yet   nothing uploaded for the month
+//   In progress        uploaded; lines open, or all decided but the uploads
+//                      don't reach month-end ("Up to date")
+//   Reconciled         the whole month on file, every line decided
+//
+// Statements are uploaded more than once a month, so "every line decided" is
+// not enough on its own: an account caught up through the 20th is up to date,
+// not reconciled. Payments booked in Klay but not yet on the statement never
+// hold an account open — they are the bank's timing, not a decision.
 
 export const RECON_STATES = {
-  // Not one of the PRD's five. An account with no GL account mapped cannot be
-  // reconciled to the ledger at all — there is nowhere for its movements to
-  // post, so there is nothing to hold a statement against. Calling that
-  // UNRECONCILED would put the entity's Gate 4 permanently red over a petty-cash
-  // float nobody intends to reconcile this way, and a gate that is always red is
-  // a gate nobody reads. paymentJournal.js already treats an unmapped account as
-  // a configuration fact rather than an error; so does this.
+  // Not a stage. An account with no GL account mapped cannot be reconciled to
+  // the ledger at all — there is nowhere for its movements to post. Shown as a
+  // muted note, and it never holds the close open.
   OUT_OF_SCOPE: {
     key: "OUT_OF_SCOPE",
     label: "Not reconciled here",
@@ -54,40 +53,33 @@ export const RECON_STATES = {
     gateClosed: true,
     blurb: "No GL account mapped, so there is nothing to reconcile a statement against.",
   },
-  UNRECONCILED: {
-    key: "UNRECONCILED",
-    label: "Unreconciled",
-    tone: "danger",
-    gateClosed: false,
-    blurb: "No statement loaded for this period.",
-  },
-  IN_PROGRESS: {
-    key: "IN_PROGRESS",
-    label: "Matching",
+  // Grey. Nothing uploaded for the month yet.
+  NO_STATEMENT: {
+    key: "NO_STATEMENT",
+    label: "No statement yet",
     tone: "muted",
     gateClosed: false,
-    blurb: "Statement loaded, matching engine running.",
+    blurb: "No statement uploaded for this month.",
   },
-  RECONCILED_WITH_EXCEPTIONS: {
-    key: "RECONCILED_WITH_EXCEPTIONS",
-    label: "Lines open",
+  // Amber. At least one upload. Lines still open — or every line decided but
+  // the uploads don't reach month-end yet ("Up to date"): a statement can be
+  // uploaded several times a month, and being caught up through the 20th is
+  // not the month reconciled.
+  IN_PROGRESS: {
+    key: "IN_PROGRESS",
+    label: "In progress",
     tone: "warn",
     gateClosed: false,
-    blurb: "Statement read. Some lines still need a person to reconcile them.",
+    blurb: "Statement uploaded; lines still to reconcile, or the month isn't covered to its last day yet.",
   },
-  RECONCILED_WITH_TIMING: {
-    key: "RECONCILED_WITH_TIMING",
+  // Green. The uploads cover the whole month and every line is reconciled or
+  // excluded. The only state that closes the month.
+  RECONCILED: {
+    key: "RECONCILED",
     label: "Reconciled",
     tone: "success",
     gateClosed: true,
-    blurb: "Everything matched. What is left will clear by itself.",
-  },
-  FULLY_RECONCILED: {
-    key: "FULLY_RECONCILED",
-    label: "Fully reconciled",
-    tone: "success",
-    gateClosed: true,
-    blurb: "Every line matched or written off.",
+    blurb: "The whole month is on file and every line is reconciled or excluded.",
   },
 };
 
@@ -102,25 +94,20 @@ export const RECON_META = {
 
 // ── State derivation ─────────────────────────────────────────────────────────
 //
-// Note what counts as "left over". An open bank fee is not a timing difference,
-// so an account with two unconfirmed fees is RECONCILED_WITH_EXCEPTIONS and its
-// gate stays open — which reads harsh for a Rp 2.500 charge until you notice the
-// resolution is one tap on a batch button. The PRD draws the line exactly here:
-// timing exceptions close the gate, and everything else is a decision somebody
-// still has to make.
+// Every statement line counts — a Rp 2.500 fee waiting for its journal holds
+// the account open like anything else; its resolution is one tap on Post all.
 
 export const reconcilable = (account) => !!account?.glAccount;
 
 export function stateOf(result, statement) {
   if (!reconcilable(statement?.account)) return RECON_STATES.OUT_OF_SCOPE;
-  if (!statement || !statement.loaded) return RECON_STATES.UNRECONCILED;
-  const open = result.exceptions.filter(isOpen);
-  if (!open.length) return RECON_STATES.FULLY_RECONCILED;
-  const blocking = open.filter((e) => EXCEPTION_TYPES[e.type]?.blocking);
-  if (blocking.length) return RECON_STATES.RECONCILED_WITH_EXCEPTIONS;
-  const nonTiming = open.filter((e) => e.type !== "TIMING_DIFFERENCE");
-  if (nonTiming.length) return RECON_STATES.RECONCILED_WITH_EXCEPTIONS;
-  return RECON_STATES.RECONCILED_WITH_TIMING;
+  if (!statement || !statement.loaded) return RECON_STATES.NO_STATEMENT;
+  const open = result.exceptions.filter(isOpen).length;
+  const wholeMonth = statement.through >= monthEnd(statement.period);
+  if (!open && wholeMonth) return RECON_STATES.RECONCILED;
+  // Caught up on what is on file, but the month runs on past it.
+  if (!open) return { ...RECON_STATES.IN_PROGRESS, label: "Up to date", upToDate: true };
+  return RECON_STATES.IN_PROGRESS;
 }
 
 // ── Running a reconciliation ─────────────────────────────────────────────────
@@ -158,7 +145,7 @@ export function runReconciliation(accountId, { extraPayments = null, force = fal
 
   const result = reconcile({ statement, books });
   const state = stateOf(result, statement);
-  const out = { accountId, account: statement.account, statement, records: books, ...result, state, statementLabel: period === CURRENT_PERIOD ? statementLabelOf(statement.account) : statementLabel(statement) };
+  const out = { accountId, account: statement.account, statement, records: books, ...result, state, statementLabel: statement.loaded ? statementLabel(statement) : period === CURRENT_PERIOD ? statementLabelOf(statement.account) : statementLabel(statement) };
   cache.set(key, out);
   return out;
 }
@@ -172,10 +159,10 @@ export function allReconciliations(opts) {
   return COMPANY_BANK_ACCOUNTS.map((a) => runReconciliation(a.id, opts)).filter(Boolean);
 }
 
-const STATE_SEVERITY = ["OUT_OF_SCOPE", "FULLY_RECONCILED", "RECONCILED_WITH_TIMING", "IN_PROGRESS", "RECONCILED_WITH_EXCEPTIONS", "UNRECONCILED"];
+const STATE_SEVERITY = ["OUT_OF_SCOPE", "RECONCILED", "IN_PROGRESS", "NO_STATEMENT"];
 
 export function entityState(runs) {
-  if (!runs.length) return RECON_STATES.UNRECONCILED;
+  if (!runs.length) return RECON_STATES.NO_STATEMENT;
   const worst = runs.reduce((acc, r) => (STATE_SEVERITY.indexOf(r.state.key) > STATE_SEVERITY.indexOf(acc.state.key) ? r : acc));
   return worst.state;
 }
@@ -209,13 +196,14 @@ export function reconOf({ at, breakdown, billId } = {}, resolutions = {}) {
 
   const run = runReconciliation(account.id);
   if (!run) return out("unmatched", `${account.name} has no statement loaded.`);
+  if (run.statement.awaitingUpload) return out("unmatched", `${account.name}'s statement for this month hasn't been uploaded yet.`);
 
   const record = (run.records || []).find((r) => r.billId === billId && r.date === at);
   if (record) {
     const exceptions = run.exceptions.map((e) => (resolutions[e.id] ? { ...e, resolution: resolutions[e.id] } : e));
     const done = exceptions.find((e) => {
       const r = e.resolution;
-      if (!r || r.action === "mark-later") return false;
+      if (!r || r.action === "exclude") return false;
       return (r.recordIds || []).includes(record.id) || (r.action === "reconcile" && e.suggestion?.recordId === record.id);
     });
     if (done) return out("cleared", done.resolution.note);

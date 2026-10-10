@@ -25,6 +25,7 @@ import { BILLS } from "../data/seed/bills";
 import { VENDORS } from "../data/seed/vendors";
 import { CUSTOMERS } from "../data/seed/customers";
 import { cashOut, breakdownTotal, withheldTax } from "./paymentBreakdown";
+import { volumeRecords } from "../data/seed/bankVolume";
 
 // ── From a ledger code to a bank account ────────────────────────────────────
 //
@@ -124,6 +125,8 @@ function journalBookRecords({ from, to } = {}) {
         ref: je.je_number,
         label: je.memo,
         glLine: { account_code: line.account_code, account_name: line.account_name },
+        // The other side of the entry — what the cash settled (AP, AR, an expense).
+        contraCodes: je.lines.filter((l) => l !== line).map((l) => l.account_code),
         billId: null,
         cleared: Math.abs(amount),
         withheld: 0,
@@ -189,6 +192,8 @@ export function bookRecords({ from, to, extraPayments = null } = {}) {
   return [
     ...journalBookRecords({ from, to }),
     ...paymentBookRecords(payments, { from, to }),
+    // The busy operating accounts' everyday traffic (data/seed/bankVolume.js).
+    ...volumeRecords({ from, to }),
   ].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 }
 

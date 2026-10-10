@@ -44,6 +44,7 @@ import { CUSTOMERS } from "../data/seed/customers";
 import { KNOWN_NAMES } from "../data/seed/bankKnownNames";
 import { railOf } from "./paymentRails";
 import { formatRupiahExact } from "./format";
+import { DEFAULT_FEE_CEILING, feeCeilingFor } from "../data/seed/bankFees";
 import { dayDiff, addBusinessDays } from "./clock";
 
 // ── Configuration ────────────────────────────────────────────────────────────
@@ -53,7 +54,8 @@ import { dayDiff, addBusinessDays } from "./clock";
 // Rp 15,000, on the grounds that Indonesian bank fees top out around Rp 25,000
 // for RTGS and a Rp 50,000 net would start swallowing real payments.
 
-export const FEE_CEILING = 15000;
+// Now per bank (data/seed/bankFees.js); this stays the fallback.
+export const FEE_CEILING = DEFAULT_FEE_CEILING;
 
 // How far a customer receipt may sit from an invoice's subtotal, either way,
 // and still be suggested for it.
@@ -65,6 +67,9 @@ export const WITHHOLDING_RATE = 0.02;
 
 const FEE_PATTERNS = /(biaya|admin|adm\b|fee|charge|provisi)/i;
 const INTEREST_PATTERNS = /(bunga|interest)/i;
+// Read before the fee and interest rules: "PAJAK BUNGA" names interest, but it
+// is the tax on it, and it leaves the account.
+const INTEREST_TAX_PATTERNS = /(pajak\s*bunga|pph\s*(final\s*)?bunga|tax\s*on\s*interest)/i;
 
 // How far apart the bank date and our booking date may be for a recorded
 // payment or receipt to be the same event.
@@ -221,7 +226,7 @@ function suggestRecord(line, record, alternates, read) {
     strength,
     basis,
     suggestion: { kind: "record", recordId: record.id, ref: record.ref, billId: record.billId || null, basis: "exact", party: record.counterparty || "", label: record.label || "" },
-    actions: ["reconcile", "manual-match", "mark-later"],
+    actions: ["reconcile", "manual-match", "exclude"],
   };
 }
 
@@ -267,7 +272,7 @@ function suggestInvoice(line, hit, alternates) {
       kind: "invoice", invoiceId: inv.id, ref: inv.id, basis: exact ? "exact" : "range",
       subtotal: sub, diff, paysInFull: full, customerName: inv.customerName,
     },
-    actions: ["reconcile", "manual-match", "mark-later"],
+    actions: ["reconcile", "manual-match", "exclude"],
   };
 }
 
@@ -298,23 +303,43 @@ function suggestUnrecordedPayment(line, read) {
     strength: "likely",
     basis: named.length === 1 ? "Bill total less its PPh 23 · vendor named in the description" : "Bill total less its PPh 23 · the only open bill it fits",
     counterparty: bill.vendorName,
-    actions: ["record-payment", "manual-match", "mark-later"],
+    actions: ["record-payment", "manual-match", "exclude"],
   };
 }
 
-function suggestBankFee(line) {
-  if (line.amount >= 0 || Math.abs(line.amount) > FEE_CEILING) return null;
+// The master stores Mandiri as "MDR" for its card logo.
+const BANK_DISPLAY = { MDR: "Mandiri", PERMATA: "Permata" };
+
+function suggestBankFee(line, account) {
+  const ceiling = feeCeilingFor(account);
+  if (line.amount >= 0 || Math.abs(line.amount) > ceiling) return null;
   if (!FEE_PATTERNS.test(line.description)) return null;
   return {
     type: EXCEPTION_TYPES.BANK_FEE.key,
     detector: "FEE_PATTERN",
     strength: "strong",
-    basis: `The bank describes it as a fee · under ${rp(FEE_CEILING)}`,
+    basis: `The bank describes it as a fee · within ${BANK_DISPLAY[account?.bank] || account?.bank || "the bank"}'s ${rp(ceiling)} fee ceiling`,
     title: `Bank fee — ${rp(line.amount)}`,
     explanation:
       `${rp(line.amount)} on ${d(line.date)}, described by the bank as "${line.description}". Nothing in Klay raises a bill for it, ` +
       `so Klay drafted the journal. Post it as it is, or edit it first.`,
-    actions: ["post-journal", "edit-journal", "manual-match", "mark-later"],
+    actions: ["post-journal", "edit-journal", "manual-match", "exclude"],
+  };
+}
+
+// The final tax the bank withholds on interest, printed as its own debit.
+function suggestInterestTax(line) {
+  if (line.amount >= 0 || !INTEREST_TAX_PATTERNS.test(line.description)) return null;
+  return {
+    type: EXCEPTION_TYPES.BANK_FEE.key,
+    detector: "INTEREST_TAX",
+    strength: "strong",
+    basis: "The bank describes it as tax on interest",
+    title: `Tax on interest — ${rp(line.amount)}`,
+    explanation:
+      `${rp(line.amount)} on ${d(line.date)}, described by the bank as "${line.description}". The final tax (PPh Final) the bank ` +
+      `withholds on interest — 20% on giro interest. Nothing in Klay raises it, so Klay drafted the journal. Post it as it is, or edit it first.`,
+    actions: ["post-journal", "edit-journal", "exclude"],
   };
 }
 
@@ -329,7 +354,7 @@ function suggestBankInterest(line) {
     explanation:
       `${rp(line.amount)} credited on ${d(line.date)}, described by the bank as "${line.description}". Interest the bank paid; nothing in ` +
       `Klay raises an invoice for it, so Klay drafted the journal. Post it as it is, or edit it first.`,
-    actions: ["post-journal", "edit-journal", "manual-match", "mark-later"],
+    actions: ["post-journal", "edit-journal", "manual-match", "exclude"],
   };
 }
 
@@ -347,7 +372,7 @@ function unregisteredVa(line) {
       `${rp(line.amount)} arrived on ${d(line.date)} tagged with Virtual Account ${vaNumber} and no customer name. No open invoice is within ` +
       `${pct(AR_TOLERANCE)} of this amount, and the VA number is not mapped to a customer, so there is nothing to suggest.`,
     vaNumber,
-    actions: ["manual-match", "mark-later"],
+    actions: ["manual-match", "exclude"],
   };
 }
 
@@ -375,7 +400,7 @@ export function reconcile({ statement, books = [] }) {
     // Descriptions that say fee or interest are taken at their word before any
     // amount is compared: a Rp 1.85M interest credit is not a customer paying
     // an invoice that happens to be close to it.
-    spec = suggestBankFee(line) || suggestBankInterest(line);
+    spec = suggestInterestTax(line) || suggestBankFee(line, statement.account) || suggestBankInterest(line);
 
     if (!spec) {
       const records = recordCandidates(line, pool, read);
@@ -404,7 +429,7 @@ export function reconcile({ statement, books = [] }) {
           `${rp(line.amount)} ${line.amount < 0 ? "left" : "arrived in"} the account on ${d(line.date)}, the same amount as the line on ${d(first.date)}` +
           `${read.name ? ` (both read as ${read.name})` : ""}, and Klay holds one record of that amount. Either it was sent twice or one of ` +
           `them belongs to something not yet entered. Verify before reconciling.`,
-        actions: ["manual-match", "mark-later"],
+        actions: ["manual-match", "exclude"],
       };
     }
 
@@ -425,7 +450,7 @@ export function reconcile({ statement, books = [] }) {
             : `, and the description carries no name. `) +
           `Reconcile it manually if it covers several records.`,
         counterparty: read.name,
-        actions: ["manual-match", "mark-later"],
+        actions: ["manual-match", "exclude"],
       };
     }
 
@@ -511,7 +536,10 @@ function emptyCounts() {
 // "Mark for later" parks an item without deciding it. It is recorded like any
 // other decision, but it is still open: parking must never be a way to get a
 // month marked reconciled.
-export const isOpen = (e) => !e.resolution || e.resolution.action === "mark-later";
+// A line is open until it is matched (and any journal the match drafted is
+// posted) or excluded. A match waiting on its journal still holds the account
+// open — it is matched, not yet reconciled.
+export const isOpen = (e) => !e.resolution || !!e.resolution.pendingJournal;
 
 // Counts over a run's exceptions, with or without this session's decisions
 // laid over them.

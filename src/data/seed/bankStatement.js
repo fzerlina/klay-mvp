@@ -38,6 +38,8 @@ import { COMPANY_BANK_ACCOUNTS, bankAccountById } from "./bankAccounts";
 import { BILLS } from "./bills";
 import { INVOICES } from "./invoices";
 import { bookRecordsFor } from "../../lib/bankLedger";
+import { volumeBankOnly } from "./bankVolume";
+import { INTEREST_TAX_RATE } from "./bankFees";
 import { addDays, nextBusinessDay, TODAY } from "../../lib/clock";
 
 // ── Periods ──────────────────────────────────────────────────────────────────
@@ -154,6 +156,9 @@ const BANK_ONLY = {
     { day: 14, amount:   -15000, description: "BIAYA TRANSFER RTGS" },
     { day: 17, amount:    -2500, description: "BIAYA TRANSFER BI-FAST" },
     { day: 11, amount:  1850000, description: "BUNGA GIRO" },
+    { day: 11, amount:  -370000, description: "PAJAK BUNGA" },
+    // Monthly giro administration — over the old flat Rp 15,000 ceiling.
+    { day: 1,  amount:   -30000, description: "BIAYA ADM GIRO" },
     { day: 16, amount: 47500000, description: "SWITCHING CR VA 3812000178432" },
     { day: 18, amount: -8250000, description: "TRSF E-BANKING DB 1804 BF20250418-9921 CV PERCETAKAN MAJU" },
   ],
@@ -161,6 +166,8 @@ const BANK_ONLY = {
     { day: 6,  amount:    -2500, description: "BIAYA TRANSFER BI-FAST" },
     { day: 13, amount:    -4000, description: "BIAYA ADM BULANAN" },
     { day: 15, amount:   890000, description: "BUNGA GIRO" },
+    { day: 15, amount:  -178000, description: "PAJAK BUNGA" },
+    { day: 10, amount:   -25000, description: "BIAYA RTGS" },
   ],
   "bni-op": [
     { day: 8,  amount:    -2500, description: "BIAYA TRANSFER BI-FAST" },
@@ -174,7 +181,12 @@ const BANK_ONLY = {
 function bankOnlyFor(account) {
   if (BANK_ONLY[account.id]) return BANK_ONLY[account.id];
   const interest = Math.max(1000, Math.round((account.openingBalance * 0.0002) / 100) * 100);
-  const lines = [{ day: 0, amount: interest, description: account.group === "deposit" ? "BUNGA DEPOSITO" : "BUNGA GIRO" }];
+  const deposit = account.group === "deposit";
+  const lines = [
+    { day: 0, amount: interest, description: deposit ? "BUNGA DEPOSITO" : "BUNGA GIRO" },
+    // The final tax on it, printed as its own debit the same day.
+    { day: 0, amount: -Math.round(interest * INTEREST_TAX_RATE), description: deposit ? "PAJAK BUNGA DEPOSITO" : "PAJAK BUNGA" },
+  ];
   if (account.group !== "deposit") lines.push({ day: 3, amount: -5000, description: "BIAYA ADM BULANAN" });
   return lines;
 }
@@ -199,6 +211,12 @@ const PAID_OUTSIDE_KLAY = {
 // more than the withholding. `off` is the difference as a share of
 // the subtotal.
 
+//
+// The rest are the receipts no single invoice explains, which is what To match
+// is for: a customer settling two invoices in one transfer, and one paying an
+// invoice in instalments (`share` is the part of the subtotal each covers).
+// The engine suggests nothing for them; a person ticks the invoices.
+
 const CUSTOMER_RECEIPTS = {
   "bca-op": [
     { invoiceId: "INV005", day: 6,  off: -0.02 },
@@ -206,8 +224,20 @@ const CUSTOMER_RECEIPTS = {
     { invoiceId: "INV024", day: 15, off: 0.02 },
     // No name printed, and short by more than the 2% withholding.
     { invoiceId: "INV022", day: 17, off: -0.025, anonymous: true },
+    { invoiceId: "INV153", day: 2,  off: 0 },
+    { invoiceId: "INV071", day: 9,  off: -0.02 },
+    // UD Surya Energi clears both its open invoices in one transfer.
+    { invoiceIds: ["INV038", "INV195"], day: 10, off: 0 },
+    // Koperasi Sentosa Pertanian pays INV079 in two instalments.
+    { invoiceId: "INV079", day: 7,  off: 0, share: 40000000 / 82550000 },
+    { invoiceId: "INV079", day: 14, off: 0, share: 42550000 / 82550000 },
   ],
 };
+
+// A payment recorded once in Klay but sent as several transfers — the company's
+// e-banking token caps a single transfer, so the treasurer splits it. The
+// listed amounts go first and the last transfer carries the rest.
+const SENT_IN_PARTS = { "BILL068:0": [50000000] };
 
 // Two retainers of Rp 12.5M in the same week, to two vendors. Printed cleanly,
 // with the names, so the amount ties and the description has to break it: one
@@ -233,21 +263,81 @@ function statementWindow(account, period) {
 // Fees and interest recur every month; the one-off cases (the unregistered VA,
 // the mystery debit, the payment made outside Klay, the duplicate) belong to
 // the current statement, where the demo needs them.
-const RECURRING = /^(BIAYA|BUNGA)/;
+const RECURRING = /^(BIAYA|BUNGA|PAJAK)/;
 
 // ── Building one account's statement ─────────────────────────────────────────
 
-export function statementFor(accountId, { extraPayments = null, period = CURRENT_PERIOD } = {}) {
+// ── Uploaded or not ──────────────────────────────────────────────────────────
+//
+// The bank has issued this month's statement for every account, and none has
+// been uploaded to Klay yet: the month starts empty, the way a reconciliation
+// really begins. Each card says no statement, the close board holds the month
+// open, and an account's lines appear once somebody uploads its statement.
+// Earlier months are already uploaded and reconciled.
+export const AWAITING_UPLOAD = new Set(COMPANY_BANK_ACCOUNTS.filter((a) => a.statementThrough).map((a) => a.id));
+
+// A statement can be uploaded more than once in a month — weekly, daily, or a
+// corrected re-issue. What is on file is a date: the uploads together cover
+// the month from its first day through `coverage`. A later upload extends it;
+// lines already on file are recognised and kept, decisions included.
+//
+// Module state rather than React state, because the reconciliation run is
+// cached at module level and read by screens that never see the page (the
+// close board, Bill Detail); BankReconContext writes here when an upload
+// finishes, clears the cache, and re-renders everyone.
+const coverage = new Map();
+export const markStatementOnFile = (accountId, through) => {
+  if (!coverage.has(accountId) || through > coverage.get(accountId)) coverage.set(accountId, through);
+};
+// How far the uploads reach for an account and month, or null for none.
+export function coverageOf(accountId, period = CURRENT_PERIOD) {
+  const account = bankAccountById(accountId);
+  if (!account?.statementThrough) return null;
+  if (period !== CURRENT_PERIOD) return monthEnd(period);
+  if (!AWAITING_UPLOAD.has(accountId)) return account.statementThrough;
+  return coverage.get(accountId) || null;
+}
+export const isStatementOnFile = (accountId, period = CURRENT_PERIOD) => !!coverageOf(accountId, period);
+
+// The latest statement the bank has for the current month: the first one
+// runs to the account's usual cut-off; after that, to the last business day
+// before today. Null when there is nothing newer than what is on file.
+const TODAY_LOCAL = `${TODAY.getFullYear()}-${String(TODAY.getMonth() + 1).padStart(2, "0")}-${String(TODAY.getDate()).padStart(2, "0")}`;
+const LAST_BANK_DAY = (() => { let d = addDays(TODAY_LOCAL, -1); while ([0, 6].includes(new Date(`${d}T00:00:00Z`).getUTCDay())) d = addDays(d, -1); return d; })();
+export function nextStatementThrough(accountId, period = CURRENT_PERIOD) {
+  const account = bankAccountById(accountId);
+  if (!account?.statementThrough) return null;
+  if (period !== CURRENT_PERIOD) return monthEnd(period);
+  const onFileThrough = coverageOf(accountId, period);
+  if (!onFileThrough) return account.statementThrough;
+  const latest = LAST_BANK_DAY < monthEnd(period) ? LAST_BANK_DAY : monthEnd(period);
+  return latest > onFileThrough ? latest : null;
+}
+
+// `through` reads the statement to a given day — what an upload would add —
+// instead of to what is on file.
+export function statementFor(accountId, { extraPayments = null, period = CURRENT_PERIOD, through: upTo = null } = {}) {
   const account = bankAccountById(accountId);
   if (!account) return null;
   const current = period === CURRENT_PERIOD;
-  const { from, through } = period > CURRENT_PERIOD ? { from: null, through: null } : statementWindow(account, period);
-  if (!from || !through) {
+  const window = period > CURRENT_PERIOD ? { from: null, through: null } : statementWindow(account, period);
+  const from = window.from;
+  if (!from || !window.through) {
     return { account, period, from: null, through: null, lines: [], outstanding: [], openingBalance: account.openingBalance, expectedOpening: account.openingBalance, closingBalance: account.openingBalance, loaded: false };
   }
-  // Line ids carry the month so a decision on a March line can never land on an
-  // April one. The current month keeps the short form.
-  const idOf = (n) => (current ? `L${accountId}-${n}` : `L${accountId}-${period}-${n}`);
+  // Nothing uploaded yet: the month is known, the lines are not.
+  const through = upTo || coverageOf(accountId, period);
+  if (!through) {
+    return { account, period, from, through: window.through, lines: [], outstanding: [], openingBalance: account.openingBalance, expectedOpening: account.openingBalance, closingBalance: account.openingBalance, loaded: false, awaitingUpload: true };
+  }
+  // A line's id says what the line is, not where it falls, so a longer upload
+  // later in the month names every earlier line the same way — and the
+  // decisions made on them stay put. Ids carry the month so a decision on a
+  // March line can never land on an April one; the current month keeps the
+  // short form.
+  const idOf = (key) => (current ? `L${accountId}-${key}` : `L${accountId}-${period}-${key}`);
+  // The reference a bank prints, stable for the same line.
+  const refNo = (key) => 1 + Math.floor(hash(`${accountId}:${key}`) * 9998);
 
   // The ledger is read to the LAST day of the period, not to the statement
   // cut-off: a payment booked after the cut-off is exactly what "in transit"
@@ -256,7 +346,6 @@ export function statementFor(accountId, { extraPayments = null, period = CURRENT
 
   const lines = [];
   const outstanding = []; // booked, not on this statement — the other direction of exception
-  let seq = 1;
 
   for (const record of books) {
     const roll = hash(record.id);
@@ -277,31 +366,46 @@ export function statementFor(accountId, { extraPayments = null, period = CURRENT
     const date = fate === "late" ? nextBusinessDay(record.date) : record.date;
     if (date > through) { outstanding.push({ record }); continue; }
 
+    const parts = current && SENT_IN_PARTS[record.id];
+    if (parts) {
+      const sign = Math.sign(record.amount);
+      const rest = Math.abs(record.amount) - parts.reduce((s, p) => s + p, 0);
+      [...parts, rest].forEach((part, i) => {
+        const key = `r${record.id}#${i}`;
+        lines.push({
+          id: idOf(key), accountId, date, amount: sign * part,
+          description: describe({ amount: record.amount, counterparty: record.counterparty, rail, iso: date, seq: refNo(key) }),
+        });
+      });
+      continue;
+    }
+
+    const key = `r${record.id}`;
     lines.push({
-      id: idOf(seq),
+      id: idOf(key),
       accountId,
       date,
       amount: record.amount,
-      description: describe({
+      // Utilities, tax deposits and QRIS settlements print their own formats.
+      description: record.bankText || describe({
         amount: record.amount,
         counterparty: fate === "anonymous" ? "" : record.counterparty,
         rail,
         iso: date,
-        seq,
+        seq: refNo(key),
       }),
     });
-    seq++;
 
     if (current && (DUPLICATED[accountId] || []).includes(record.id)) {
       const dupDate = nextBusinessDay(date) <= through ? nextBusinessDay(date) : date;
+      const dupKey = `${key}#dup`;
       lines.push({
-        id: idOf(seq),
+        id: idOf(dupKey),
         accountId,
         date: dupDate,
         amount: record.amount,
-        description: describe({ amount: record.amount, counterparty: record.counterparty, rail, iso: dupDate, seq }),
+        description: describe({ amount: record.amount, counterparty: record.counterparty, rail, iso: dupDate, seq: refNo(dupKey) }),
       });
-      seq++;
     }
   }
 
@@ -310,42 +414,55 @@ export function statementFor(accountId, { extraPayments = null, period = CURRENT
     if (!bill) continue;
     const date = addDays(from, spec.day);
     if (date > through) continue;
+    const key = `o${spec.billId}`;
     lines.push({
-      id: idOf(seq),
+      id: idOf(key),
       accountId,
       date,
       amount: -(bill.total - (bill.pph23 || 0)),
-      description: describe({ amount: -1, counterparty: bill.vendorName, rail: spec.rail, iso: date, seq }),
+      description: describe({ amount: -1, counterparty: bill.vendorName, rail: spec.rail, iso: date, seq: refNo(key) }),
     });
-    seq++;
   }
 
   for (const spec of current ? CUSTOMER_RECEIPTS[accountId] || [] : []) {
-    const inv = INVOICES.find((i) => i.id === spec.invoiceId);
-    if (!inv) continue;
+    const invs = (spec.invoiceIds || [spec.invoiceId]).map((id) => INVOICES.find((i) => i.id === id)).filter(Boolean);
+    if (!invs.length) continue;
     const date = addDays(from, spec.day);
     if (date > through) continue;
+    const due = invs.reduce((s, i) => s + (i.dpp || i.total), 0);
+    const key = `c${invs.map((i) => i.id).join("+")}@${spec.day}`;
     lines.push({
-      id: idOf(seq),
+      id: idOf(key),
       accountId,
       date,
-      amount: Math.round((inv.dpp || inv.total) * (1 + spec.off)),
-      description: describe({ amount: 1, counterparty: spec.anonymous ? "" : inv.customerName, rail: "BI_FAST", iso: date, seq }),
+      amount: Math.round(due * (spec.share ?? 1) * (1 + spec.off)),
+      description: describe({ amount: 1, counterparty: spec.anonymous ? "" : invs[0].customerName, rail: "BI_FAST", iso: date, seq: refNo(key) }),
     });
-    seq++;
   }
 
-  for (const extra of bankOnlyFor(account).filter((x) => current || RECURRING.test(x.description))) {
+  bankOnlyFor(account).forEach((extra, i) => {
+    if (!current && !RECURRING.test(extra.description)) return;
     const date = addDays(from, extra.day);
-    if (date > through) continue;
+    if (date > through) return;
     lines.push({
-      id: idOf(seq),
+      id: idOf(`b${i}`),
       accountId,
       date,
       amount: extra.amount,
       description: extra.description,
     });
-    seq++;
+  });
+
+  // The simulated accounts' bank-only lines: transfer fees, and receipts
+  // nobody recorded in Klay.
+  for (const extra of current ? volumeBankOnly(accountId, { from, through }) : []) {
+    lines.push({
+      id: idOf(extra.key),
+      accountId,
+      date: extra.date,
+      amount: extra.amount,
+      description: extra.description || describe({ amount: extra.amount, counterparty: extra.counterparty, rail: "BI_FAST", iso: extra.date, seq: refNo(extra.key) }),
+    });
   }
 
   lines.sort((a, b) => (a.date === b.date ? a.id.localeCompare(b.id) : a.date < b.date ? -1 : 1));
@@ -361,7 +478,7 @@ export function statementFor(accountId, { extraPayments = null, period = CURRENT
   const net = lines.reduce((sum, l) => sum + l.amount, 0);
   const openingBalance = current
     ? account.openingBalance
-    : statementFor(accountId, { period: shiftPeriod(period, 1) }).openingBalance - net;
+    : statementFor(accountId, { period: shiftPeriod(period, 1), through: monthEnd(shiftPeriod(period, 1)) }).openingBalance - net;
   let running = openingBalance;
   for (const l of lines) { running += l.amount; l.balance = running; }
   const closingBalance = running;
