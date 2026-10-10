@@ -13,7 +13,7 @@ export const COSTING_METHOD_LABELS = {
   average_cost: "Average Cost",
 };
 
-// RECON DIFFERENCE ACCOUNTS are where Reconcile manually may book the small gap
+// RECON DIFFERENCE ACCOUNTS are where To match may book the small gap
 // between a bank line and the Klay records it stands for — bank rounding, a few
 // rupiah a transfer lost. Chosen in Settings → Bank reconciliation. Codes from
 // data/seed/coa.js.

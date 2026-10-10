@@ -39,6 +39,13 @@ const no = (reason) => ({ ok: false, reason });
 const SOURCE_TYPES = new Set(["bill", "ap_bill", "bill_payment", "invoice", "invoice_payment", "payment", "bank_reconciliation", "inventory_movement"]);
 export const isSystemEntry = (je) => SOURCE_TYPES.has(je.reference_type);
 
+// Written by another screen, but reversed here. The bank reconciliation never
+// undoes a journal it posted — a wrong one is reversed in the GL, and the
+// reconciliation follows (the bank line needs a journal again). Edit and void
+// stay at the source like any other system entry.
+const REVERSED_IN_GL = new Set(["bank_reconciliation"]);
+export const reversibleHere = (je) => !isSystemEntry(je) || REVERSED_IN_GL.has(je.reference_type);
+
 export function canEdit(je) {
   if (je.status !== "draft") return no("Only a draft can be edited. Posted entries are reversed, not changed.");
   if (isSystemEntry(je)) return no("Written by another screen — change it at its source.");
@@ -78,7 +85,7 @@ export function canReverse(je, { canPost } = {}) {
   if (!canPost) return no("Your role cannot post journal entries.");
   if (je.reversed_by) return no(`Already reversed by ${je.reversed_by}.`);
   if (je.reversal_of) return no("This is itself a reversal.");
-  if (isSystemEntry(je)) return no("Written by another screen — reverse it at its source.");
+  if (!reversibleHere(je)) return no("Written by another screen — reverse it at its source.");
   return OK;
 }
 

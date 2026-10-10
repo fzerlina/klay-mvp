@@ -7,7 +7,7 @@ import { scheduledEntries } from "../lib/scheduledJournals";
 import { nextPeriod } from "../lib/fixedAssets";
 import {
   canEdit, canSubmit, canApprove as canApproveEntry, canReturn, canVoid, canReverse,
-  isSystemEntry, withEvent, buildReversal, isoOf,
+  isSystemEntry, reversibleHere, withEvent, buildReversal, isoOf,
 } from "../lib/journalLifecycle";
 import { ReturnDialog, ReverseDialog, RecurringDialog, TemplatesDrawer } from "./JeActionDialogs";
 import { TODAY } from "../lib/clock";
@@ -1036,7 +1036,7 @@ export default function JournalEntryPage() {
       out.push({ key: "approve", label: "Approve & post", icon: "check", primary: true, check: canApproveEntry(je, ctx) });
       out.push({ key: "return", label: "Send back", icon: "back", check: canReturn(je, ctx) });
     }
-    if (je.status === "posted" && !sys) out.push({ key: "reverse", label: "Reverse", icon: "reverse", check: canReverse(je, ctx) });
+    if (je.status === "posted" && reversibleHere(je)) out.push({ key: "reverse", label: "Reverse", icon: "reverse", check: canReverse(je, ctx) });
     if (!sys && !je.reversal_of && ["draft", "posted"].includes(je.status) && canTransact) {
       out.push({ key: "recurring", label: "Make recurring", icon: "repeat", check: { ok: true } });
     }

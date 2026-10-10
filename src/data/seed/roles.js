@@ -412,7 +412,7 @@ export { BLOCK_NO_APPROVER, roleName };
 
 const ANCHOR_USERS = [
   { id: "U001", name: "Andi Wijaya", email: "andi.wijaya@klay.id", roleKeys: ["admin"], status: "Active", approval_limit: null, lastActive: "2026-06-07", invitedOn: "2025-01-12" },
-  { id: "U002", name: "Sari Dewanti", email: "sari.dewanti@klay.id", roleKeys: ["finance_manager"], status: "Active", approval_limit: 100000000, lastActive: "2026-06-06", invitedOn: "2025-01-12" },
+  { id: "U002", name: "Sari Dewanti", email: "sari.dewanti@klay.id", roleKeys: ["finance_manager"], extraCaps: ["bank.reconcile"], status: "Active", approval_limit: 100000000, lastActive: "2026-06-06", invitedOn: "2025-01-12" },
   { id: "U003", name: "Budi Santoso", email: "budi.santoso@klay.id", roleKeys: ["ap_staff"], status: "Active", approval_limit: null, lastActive: "2026-06-07", invitedOn: "2025-02-03" },
   { id: "U004", name: "Rina Kartika", email: "rina.kartika@klay.id", roleKeys: ["ar_staff"], status: "Active", approval_limit: null, lastActive: "2026-06-05", invitedOn: "2025-02-03" },
   { id: "U005", name: "Dimas Prasetyo", email: "dimas.prasetyo@klay.id", roleKeys: ["purchasing_staff"], status: "Active", approval_limit: null, lastActive: "2026-06-04", invitedOn: "2025-03-18" },

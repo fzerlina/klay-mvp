@@ -64,6 +64,7 @@ export const COA = [
   { id: '1-5200', code: '1-5200', name: 'Advance to Suppliers',          type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-other-current', level: 3, is_active: true },
   { id: '1-5300', code: '1-5300', name: 'Employee Advances',             type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-other-current', level: 3, is_active: true },
   { id: '1-5400', code: '1-5400', name: 'Assets Held for Sale',          type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-other-current', level: 3, is_active: true },
+  { id: '1-5500', code: '1-5500', name: 'Prepaid Tax — PPh 23',          type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-other-current', level: 3, is_active: true },
 
   { id: 'g-non-current-asset', type: 'group', level: 1, parent: 'g-asset',        label: 'Non-Current Assets' },
   { id: 'g-ppe',            type: 'group', level: 2, parent: 'g-non-current-asset', label: 'Property, Plant & Equipment' },

@@ -336,11 +336,10 @@ export function computeReconciliation(records = AP_CLOSE_RECORDS, bills = BILLS)
 
 // ─── Gate 4 — Bank reconciliation ─────────────────────────────────────────────
 // AP close CONSUMES this from the (separate) bank-rec module — it doesn't compute
-// it. Green when every account is FULLY_RECONCILED or RECONCILED_WITH_TIMING
-// (a recorded payment not yet cleared at the bank is a legitimate timing
-// difference, still green). Only UNRECONCILED blocks. With many accounts the
-// close board shows a rollup + only the exceptions — the full list lives in the
-// bank-rec module. Flip a `state` to "UNRECONCILED" to demo a red gate.
+// it. Green when every account is RECONCILED — the whole month uploaded and
+// every line decided. NO_STATEMENT and IN_PROGRESS hold it open. With many
+// accounts the close board shows a rollup + only the exceptions — the full
+// list lives in the bank-rec module.
 // Gate 4 — bank reconciliation.
 //
 // This used to be a hand-written list of eleven accounts ("BCA-OPS ••4021")
@@ -391,15 +390,16 @@ export function computeBankRecon(overlay = EMPTY_OVERLAY) {
     // only open item is a Rp 2.500 fee awaiting one tap is amber: the gate is
     // genuinely open, but calling it the same colour as an unexplained debit
     // teaches people that red on this card does not mean much.
-    const sev = state.key === "FULLY_RECONCILED" || state.key === "OUT_OF_SCOPE"
+    const sev = state.key === "RECONCILED" || state.key === "OUT_OF_SCOPE"
       ? "green"
-      : blocking > 0 || state.key === "UNRECONCILED" ? "red"
+      : blocking > 0 ? "red"
       : "amber";
 
     const stateLabel =
-      state.key === "FULLY_RECONCILED" ? "Reconciled"
+      state.key === "RECONCILED" ? "Reconciled"
       : state.key === "OUT_OF_SCOPE" ? "Not reconciled here"
-      : state.key === "UNRECONCILED" ? "No statement loaded"
+      : state.key === "NO_STATEMENT" ? "Statement to upload"
+      : state.upToDate ? `Up to date · through ${r.statementLabel}`
       : blocking > 0 ? `${blocking} to resolve`
       // Timing never appears alone in the label while something else is open —
       // "1 in transit" on an account that also has an unwritten-off fee reads
@@ -419,7 +419,8 @@ export function computeBankRecon(overlay = EMPTY_OVERLAY) {
       sev,
       gateGreen,
       stateLabel,
-      hasActivity: r.counts.total > 0 || open.length > 0,
+      // A statement still to upload is work, even with no lines yet.
+      hasActivity: r.counts.total > 0 || open.length > 0 || state.key === "NO_STATEMENT",
     };
   });
 
@@ -433,7 +434,7 @@ export function computeBankRecon(overlay = EMPTY_OVERLAY) {
   // Only accounts needing a glance surface on the close board; anything fully
   // reconciled or out of scope stays invisible. Open gates first.
   const exceptions = rows
-    .filter((r) => r.state !== "FULLY_RECONCILED" && r.state !== "OUT_OF_SCOPE" && r.hasActivity)
+    .filter((r) => r.state !== "RECONCILED" && r.state !== "OUT_OF_SCOPE" && r.hasActivity)
     .sort((a, b) => Number(a.gateGreen) - Number(b.gateGreen) || Math.abs(b.delta) - Math.abs(a.delta));
 
   return { rows, exceptions, total, reconciled: total - unrec, timing, unrec, green: unrec === 0 };

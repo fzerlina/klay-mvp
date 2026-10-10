@@ -14,7 +14,7 @@ const LEAVES = COA.filter((a) => a.type !== "group" && a.is_active !== false);
 const nameOf = (code) => LEAVES.find((a) => a.code === code)?.name || "";
 const rp = (n) => formatRupiahExact(n || 0);
 
-export default function ReconJournalModal({ exception, draft, onSave, onPost, onClose }) {
+export default function ReconJournalModal({ exception, draft, onSave, onPost, onClose, canPost = true }) {
   const [memo, setMemo] = useState(draft.memo);
   const [date, setDate] = useState(draft.je_date);
   const [lines, setLines] = useState(() => draft.lines.map((l) => ({ ...l })));
@@ -105,7 +105,7 @@ export default function ReconJournalModal({ exception, draft, onSave, onPost, on
           <div className={`mm-foot-sum${problem ? " rj-problem" : ""}`}>{problem || "Balanced. The bank line equals the statement line."}</div>
           <button type="button" className="recon-ex-btn" onClick={onClose}>Cancel</button>
           <button type="button" className="recon-ex-btn" disabled={!!problem} onClick={() => onSave(next)}>Save draft</button>
-          <button type="button" className="recon-ex-btn primary" disabled={!!problem} onClick={() => onPost(next)}>Post</button>
+          <button type="button" className="recon-ex-btn primary" disabled={!!problem || !canPost} title={canPost ? undefined : "Posting needs the Post to ledger permission"} onClick={() => onPost(next)}>Post</button>
         </div>
       </div>
     </div>

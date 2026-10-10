@@ -11,7 +11,7 @@ export function AccountingSettingsProvider({ children }) {
   const [inventoryCostingMethod, setInventoryCostingMethod] = useState(
     ACCOUNTING_SETTINGS.inventory_costing_method,
   );
-  // Account codes Reconcile manually may book a difference to.
+  // Account codes To match may book a difference to.
   const [reconDifferenceAccounts, setReconDifferenceAccounts] = useState(
     ACCOUNTING_SETTINGS.recon_difference_accounts,
   );
