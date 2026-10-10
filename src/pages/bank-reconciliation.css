@@ -97,13 +97,6 @@
 .bank-card-meta{font-size:11px;color:var(--color-text-tertiary)}
 .bank-card-meta strong{color:var(--color-text-secondary);font-family:var(--font-mono);font-weight:600}
 
-/* ── SELECTED ACCOUNT HEADER ──────────────────────────────────────────── */
-.recon-acct-head{padding:0 24px 8px}
-.recon-acct-title{font-size:13px;color:var(--color-text-secondary);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.recon-acct-title strong{font-family:var(--font-display);font-size:15px;color:var(--color-text-primary);letter-spacing:-.005em;font-weight:700}
-/* ── SELECTED ACCOUNT: STATE + FINISH LINE ───────────────────────────── */
-.recon-acct-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap}
-.recon-acct-right{display:flex;align-items:center;gap:10px;flex-shrink:0}
 .recon-state-pill{font-size:10.5px;font-weight:700;padding:3px 10px;border-radius:9999px;border:1px solid;white-space:nowrap}
 .recon-state-pill.success{background:var(--color-success-surface);color:var(--color-success-text);border-color:var(--color-success-border)}
 .recon-state-pill.warn{background:var(--color-warning-surface);color:var(--color-warning-text);border-color:var(--color-warning-border)}
@@ -287,6 +280,17 @@
 /* How a line was tied to the ledger when the amount alone could not do it. A
    label, never a score: "read from the description" vs "a name you confirmed". */
 .recon-tag{display:inline-block;margin-left:7px;padding:1px 7px;border-radius:999px;font-family:var(--font-sans);font-size:10px;font-weight:600;letter-spacing:.01em;vertical-align:1px;background:var(--color-surface-sunken);color:var(--color-text-secondary);border:1px solid var(--color-border-default)}
+.bank-upload-drop.over{border-color:var(--color-action);background:var(--color-action-wash)}
+.bank-upload-sample{align-self:center;background:none;border:0;padding:2px;font-family:var(--font-sans);font-size:11.5px;color:var(--color-action);cursor:pointer}
+.bank-upload-sample:hover{text-decoration:underline;text-underline-offset:2px}
+.bank-upload-sample .mono{font-family:var(--font-mono);font-size:10.5px;color:var(--color-text-tertiary);margin-left:4px}
+.bank-upload-balance{font-size:12px;line-height:1.5;padding:9px 12px;border-radius:8px;border:1px solid}
+.bank-upload-balance.ok{background:var(--color-success-surface);border-color:var(--color-success-border);color:var(--color-success-text)}
+.bank-upload-balance.warn{background:var(--color-warning-surface);border-color:var(--color-warning-border);color:var(--color-warning-text)}
+/* An account whose statement hasn't been uploaded: present, but waiting. */
+.bank-card.awaiting{border-style:dashed}
+.recon-awaiting{display:flex;flex-direction:column;align-items:center;gap:10px;padding:44px 24px}
+.recon-awaiting-title{font-family:var(--font-display);font-size:16px;font-weight:700;color:var(--color-text-primary)}
 .bank-upload-fields{font-size:11px;color:var(--color-text-tertiary);margin-top:10px;line-height:1.5}
 
 /* Month bar: every past month is open. The dot is where the selected account
@@ -306,7 +310,6 @@
 .recon-section-head{display:flex;align-items:center;gap:8px;padding:12px 18px 6px}
 .recon-section-title{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--color-text-secondary)}
 .recon-section-head .recon-group-batch{margin-left:auto}
-.recon-ex-parked{flex-basis:100%;font-size:11.5px;color:var(--color-text-secondary);margin-bottom:2px}
 .recon-card .bp-tabs-row{overflow-x:auto;scrollbar-width:none}
 .recon-card .bp-tab{white-space:nowrap;flex:none}
 
@@ -328,28 +331,7 @@
 .recon-crow-acts{justify-content:flex-end}
 @media (max-width:640px){.recon-crow{grid-template-columns:44px minmax(0,1fr) auto}.recon-crow-acts{grid-column:2 / -1;justify-content:flex-start}}
 
-/* Match manually */
-.mm-modal{width:min(640px,calc(100vw - 32px));max-height:min(640px,calc(100vh - 48px));display:flex;flex-direction:column}
-.mm-line{display:flex;align-items:baseline;gap:10px;margin-top:6px;min-width:0}
-.mm-line-date{font-family:var(--font-mono);font-size:10.5px;color:var(--color-text-tertiary);flex:none}
-.mm-line-desc{font-family:var(--font-mono);font-size:11px;color:var(--color-text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}
-.mm-line-amt{font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--color-text-primary);flex:none}
-.mm-search{padding:10px 18px;border-bottom:1px solid var(--color-border-subtle)}
-.mm-search-input{width:100%;box-sizing:border-box;padding:7px 10px;border:1px solid var(--color-border-default);border-radius:var(--radius-sm);background:var(--color-surface-sunken);font-family:var(--font-sans);font-size:12px;color:var(--color-text-primary)}
-.mm-list{flex:1;overflow-y:auto;min-height:120px}
-.mm-empty{padding:28px 18px;text-align:center;font-size:12px;color:var(--color-text-tertiary);line-height:1.6}
-.mm-row{display:grid;grid-template-columns:18px 48px minmax(0,1fr) auto;gap:10px;align-items:start;padding:10px 18px;border-bottom:1px solid var(--color-border-subtle);cursor:pointer}
-.mm-row:hover{background:var(--color-surface-sunken)}
-.mm-row.on{background:var(--color-surface-sunken)}
-.mm-row input{margin:2px 0 0}
-.mm-row-date{font-family:var(--font-mono);font-size:10.5px;color:var(--color-text-tertiary);padding-top:2px}
-.mm-row-main{display:flex;flex-direction:column;gap:2px;min-width:0}
-.mm-row-ref{font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--color-text-primary)}
-.mm-row-label{font-size:11.5px;color:var(--color-text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.mm-row-hints{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:2px}
-.mm-row-hints .recon-tag{margin-left:0}
-.mm-row-gap{font-size:10.5px;color:var(--color-text-tertiary)}
-.mm-row-amt{font-family:var(--font-mono);font-size:11.5px;font-weight:600;color:var(--color-text-primary);white-space:nowrap}
+/* Footer row shared by the journal modal */
 .mm-foot{display:flex;align-items:center;gap:8px;padding:12px 18px;border-top:1px solid var(--color-border-default)}
 .mm-foot-sum{flex:1;font-size:12px;color:var(--color-text-secondary)}
 .mm-foot-left{color:var(--color-warning-text)}
@@ -437,18 +419,22 @@
 .recon-section-blurb{font-size:11px;color:var(--color-text-tertiary);min-width:0}
 
 /* Review journals: Date · Bank statement line · Debit · Credit · Amount · Actions */
-.recon-jrow{grid-template-columns:56px minmax(200px,1.2fr) minmax(190px,1fr) minmax(190px,1fr) 128px 200px}
+.recon-jrow{grid-template-columns:76px minmax(200px,1.2fr) minmax(190px,1fr) minmax(190px,1fr) 128px 200px}
+/* The tick box rides in the date cell. */
+.recon-jsel{display:flex;align-items:flex-start;gap:8px;cursor:pointer}
+.recon-jsel .rm-check{margin-top:1px;flex:none}
+.recon-jrow.on{background:var(--color-action-wash);box-shadow:inset 3px 0 0 var(--color-action)}
+.recon-section-head .rm-check{margin:0}
 .recon-jside{display:flex;align-items:baseline;gap:8px;font-size:12px;color:var(--color-text-primary);min-width:0}
 .recon-jside-acct{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .recon-jside-acct strong{font-family:var(--font-mono);font-weight:600;margin-right:4px}
 .recon-jside-amt{margin-left:auto;font-family:var(--font-mono);font-size:11px;color:var(--color-text-secondary);white-space:nowrap}
 .recon-td-line .recon-td-draft{align-self:flex-start}
-@container (max-width:1180px){.recon-jrow{grid-template-columns:48px minmax(150px,1fr) minmax(150px,1fr) minmax(150px,1fr) 112px 180px}}
-@container (max-width:960px){.recon-jrow{grid-template-columns:48px minmax(0,1fr) auto}}
+@container (max-width:1180px){.recon-jrow{grid-template-columns:68px minmax(150px,1fr) minmax(150px,1fr) minmax(150px,1fr) 112px 180px}}
+@container (max-width:960px){.recon-jrow{grid-template-columns:68px minmax(0,1fr) auto}}
 
 /* Progress — accounts reconciled (hero), lines by status (selected account), per card. */
 .recon-bar{display:flex;height:8px;border-radius:999px;background:var(--color-surface-sunken);border:1px solid var(--color-border-subtle);overflow:hidden;min-width:0}
-.recon-bar.sm{height:5px;margin-top:8px}
 .recon-bar-seg{height:100%;transition:width var(--transition-fast,.15s) ease}
 .recon-bar-seg.reconciled{background:var(--color-success-text)}
 .recon-bar-seg.journals{background:var(--color-brand-mid)}
@@ -459,17 +445,10 @@
 .bank-accts-progress-lbl{font-size:12.5px;color:var(--color-text-secondary);white-space:nowrap}
 .bank-accts-progress-lbl strong{color:var(--color-text-primary);font-family:var(--font-mono)}
 .bank-accts-progress .recon-bar{flex:1;order:1}
-.bank-card-progress{display:flex;align-items:center;gap:10px;margin-top:8px}
-.bank-card-progress .recon-bar{flex:1;margin-top:0}
-.bank-card-count{font-size:11px;color:var(--color-text-tertiary);white-space:nowrap}
-.bank-card-count strong{font-family:var(--font-mono);color:var(--color-text-primary)}
-.bank-card-count.done{color:var(--color-success-text);font-weight:700}
-.recon-left{display:flex;flex-direction:column;align-items:flex-end;font-size:12px;color:var(--color-text-secondary);line-height:1.3}
-.recon-left strong{font-family:var(--font-mono);color:var(--color-text-primary)}
-.recon-left-split{font-size:10.5px;color:var(--color-text-tertiary)}
+.bank-card-head .recon-state-pill{margin-left:auto;align-self:flex-start;font-size:9.5px;padding:2px 8px}
+.bank-card-stmt{font-size:11px;color:var(--color-text-tertiary);margin-top:-2px}
 .recon-foot-item{display:inline-flex;align-items:baseline;gap:6px}
 .recon-foot-amt{font-family:var(--font-mono);font-size:10.5px;color:var(--color-text-tertiary)}
-.recon-left-main{white-space:nowrap}
 
 /* Month */
 .bank-month{position:relative;flex:none}
@@ -489,8 +468,184 @@
 .recon-card .lg-filter-row .recon-group-batch{flex:none;white-space:nowrap}
 @container (max-width:1180px){.recon-trow:not(.recon-jrow){grid-template-columns:48px minmax(140px,1fr) 96px minmax(160px,1fr) 108px 272px}}
 @container (min-width:961px){.recon-td-acts{flex-wrap:nowrap}}
-/* Reconcile manually — booking the difference. */
-.mm-diff{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:10px 18px;border-top:1px solid var(--color-border-default);background:var(--color-surface-sunken);font-size:12px;color:var(--color-text-secondary)}
-.mm-diff-lbl{white-space:nowrap}
-.mm-diff-select{flex:1;min-width:200px;padding:6px 8px;border:1px solid var(--color-border-default);border-radius:var(--radius-sm);background:var(--color-surface);font-family:var(--font-sans);font-size:12px;color:var(--color-text-primary)}
-.mm-diff-none a{color:var(--color-action)}
+
+/* ── DIRECTION FILTER — All / Payable / Receivable ───────────────────── */
+.recon-dir{display:inline-flex;flex:none;padding:2px;border:1px solid var(--color-border-default);border-radius:var(--radius-sm);background:var(--color-surface-sunken)}
+.recon-dir-btn{border:0;background:transparent;padding:5px 12px;border-radius:5px;font-family:var(--font-sans);font-size:12px;font-weight:600;color:var(--color-text-secondary);cursor:pointer;white-space:nowrap}
+.recon-dir-btn:hover{color:var(--color-text-primary)}
+.recon-dir-btn.on{background:var(--color-surface-raised);color:var(--color-text-primary);box-shadow:0 1px 2px rgba(8,7,6,.08)}
+.recon-seg{display:inline-flex;align-items:center;gap:7px;flex:none}
+.recon-seg-lbl{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--color-text-tertiary)}
+/* To match: search and the side's filter on one line under each pane title. */
+.rm-tools{display:flex;align-items:center;gap:8px;margin:0 18px 10px;min-width:0}
+.rm-tools .rm-search{flex:1;min-width:0;margin:0}
+.rm-tools .recon-dir-btn{padding:5px 9px}
+
+/* ── NEED CONFIRMATION — bank side | Klay side ───────────────────────── */
+/* Each side is its own three-column grid on the same white as the rest of the
+   card. What tells them apart is the rule down the middle (with the =/≈ mark
+   on it) and the two labelled headers — not a change of colour. */
+.cf-row{display:grid;grid-template-columns:minmax(0,1fr) 32px minmax(0,1.1fr) 268px;align-items:stretch;border-bottom:1px solid var(--color-border-subtle);transition:background var(--transition-fast)}
+.cf-row:not(.cf-thead):hover{background:var(--color-surface-sunken)}
+.cf-side{display:grid;grid-template-columns:48px minmax(0,1fr) 120px;column-gap:12px;align-items:start;padding:11px 14px;min-width:0}
+.cf-side.bank{padding-left:18px}
+.cf-side.klay{padding-right:20px}
+.cf-gutter{position:relative;display:flex;align-items:flex-start;justify-content:center;padding-top:10px}
+.cf-gutter::before{content:"";position:absolute;top:0;bottom:0;left:50%;border-left:1px solid var(--color-border-default)}
+.cf-eq{position:relative;width:20px;height:20px;border-radius:50%;background:var(--color-surface-raised);border:1px solid var(--color-border-default);font-family:var(--font-mono);font-size:12px;font-weight:700;line-height:18px;text-align:center;color:var(--color-success-text)}
+.cf-eq.near{color:var(--color-warning-text)}
+.cf-row > .recon-td-acts{padding:9px 18px 9px 0;align-self:start;flex-wrap:nowrap;gap:5px}
+.cf-row > .recon-td-acts .recon-ex-btn{padding:5px 9px}
+/* One line for what the Klay record is; the full text is on hover. */
+.cf-side.klay .recon-res-sub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cf-thead{position:sticky;top:0;z-index:1;background:var(--color-surface-raised)}
+.cf-thead .cf-side{row-gap:5px;padding-top:10px;padding-bottom:8px;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--color-text-tertiary)}
+.cf-thead .num{text-align:right}
+.cf-kicker{grid-column:1 / -1;display:flex;align-items:center;gap:6px;font-size:11px;letter-spacing:.06em;color:var(--color-text-primary)}
+.cf-kicker::before{content:"";width:8px;height:8px;border-radius:2px;background:var(--color-text-tertiary)}
+.cf-side.klay .cf-kicker::before{background:var(--color-brand-mid)}
+.cf-ref{font-family:var(--font-mono);font-size:11.5px;font-weight:600;color:var(--color-text-primary)}
+.cf-ref-sub{font-weight:400;color:var(--color-text-secondary)}
+.cf-why-line{font-size:10.5px;line-height:1.4;color:var(--color-text-tertiary);margin-top:1px}
+.cf-why-line .recon-res-basis{margin-top:0}
+.cf-why{font-size:11.5px;font-weight:700;color:var(--color-text-primary)}
+.cf-why.warn{color:var(--color-warning-text)}
+/* Narrower: the sides give up width; the buttons stay on one line. */
+@container (max-width:1180px){
+  .cf-row{grid-template-columns:minmax(0,1fr) 28px minmax(0,1.1fr) 260px}
+  .cf-side{grid-template-columns:42px minmax(0,1fr) 106px;column-gap:10px;padding-left:12px;padding-right:12px}
+  .cf-side.bank{padding-left:18px}
+}
+@container (max-width:960px){
+  .cf-row{grid-template-columns:minmax(0,1fr)}
+  .cf-gutter{display:none}
+  .cf-thead{display:none}
+  .cf-side.klay{border-left:3px solid var(--color-brand-subtle);margin-left:18px;padding-left:12px}
+  .cf-row > .recon-td-acts{padding:4px 18px 12px;justify-content:flex-start}
+}
+
+/* ── CATEGORY CHIP — AP / AR / Bank / Other ─────────────────────────── */
+.recon-cat{display:inline-block;margin-right:6px;padding:0 5px;border-radius:4px;border:1px solid;font-family:var(--font-sans);font-size:9.5px;font-weight:700;letter-spacing:.03em;line-height:15px;vertical-align:1px}
+.recon-cat.ap{background:var(--color-warning-surface);color:var(--color-warning-text);border-color:var(--color-warning-border)}
+.recon-cat.ar{background:var(--color-success-surface);color:var(--color-success-text);border-color:var(--color-success-border)}
+.recon-cat.bank{background:var(--color-action-wash);color:var(--color-action);border-color:var(--color-action-subtle)}
+.recon-cat.other{background:var(--color-surface-sunken);color:var(--color-text-secondary);border-color:var(--color-border-default)}
+
+/* ── EXCLUDE — the link and its reasons ──────────────────────────────── */
+.recon-excl{position:relative;display:inline-flex}
+.recon-excl-pop{position:absolute;top:calc(100% + 4px);right:0;z-index:20;display:flex;flex-direction:column;min-width:230px;padding:4px;background:var(--color-surface-raised);border:1px solid var(--color-border-default);border-radius:8px;box-shadow:0 8px 24px rgba(8,7,6,.14)}
+.recon-excl.dark .recon-excl-pop{top:auto;bottom:calc(100% + 6px)}
+.recon-excl-head{padding:6px 10px 4px;font-size:10.5px;font-weight:700;color:var(--color-text-tertiary)}
+.recon-excl-item{padding:7px 10px;border:0;border-radius:5px;background:none;text-align:left;font-family:var(--font-sans);font-size:12px;color:var(--color-text-primary);cursor:pointer;white-space:nowrap}
+.recon-excl-item:hover{background:var(--color-surface-sunken)}
+.recon-res-head.muted{color:var(--color-text-secondary)}
+
+/* ── TO MATCH — two tables side by side ──────────────────────────────── */
+.rm-split{display:grid;grid-template-columns:minmax(0,1fr) 8px minmax(0,1fr)}
+.rm-divider{background:var(--color-surface-sunken);border-left:1px solid var(--color-border-default);border-right:1px solid var(--color-border-default)}
+.rm-pane{display:flex;flex-direction:column;min-width:0}
+.rm-pane-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:14px 18px 8px}
+.rm-pane-kicker{display:flex;align-items:center;gap:7px;font-family:var(--font-display);font-size:15px;font-weight:700;color:var(--color-text-primary);letter-spacing:-.005em}
+.rm-pane-kicker::before{content:"";width:9px;height:9px;border-radius:2px;background:var(--color-text-tertiary)}
+.rm-pane.klay .rm-pane-kicker::before{background:var(--color-brand-mid)}
+.rm-pane-count{font-size:11.5px;color:var(--color-text-tertiary);white-space:nowrap}
+.rm-search{display:flex;align-items:center;gap:8px;margin:0 18px 10px;padding:0 10px;height:32px;border:1px solid var(--color-border-default);border-radius:var(--radius-sm);background:var(--color-surface-raised)}
+.rm-search:focus-within{border-color:var(--color-action)}
+.rm-search svg{width:13px;height:13px;flex:none;stroke:var(--color-text-tertiary);fill:none;stroke-width:1.5;stroke-linecap:round}
+.rm-search input{flex:1;min-width:0;border:0;outline:none;background:transparent;font-family:var(--font-sans);font-size:12.5px;color:var(--color-text-primary)}
+.rm-table{display:flex;flex-direction:column;min-width:0;border-top:1px solid var(--color-border-subtle)}
+/* Each side scrolls on its own, at the same fixed height, so a long statement
+   never pushes the Klay side out of view (and vice versa). */
+.rm-body{height:max(320px,calc(100vh - 420px));overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
+.rm-row{display:grid;grid-template-columns:18px 44px minmax(0,1fr) 124px;column-gap:10px;align-items:start;padding:9px 18px;border-bottom:1px solid var(--color-border-subtle);cursor:pointer;transition:background var(--transition-fast)}
+.rm-row:hover{background:var(--color-surface-sunken)}
+.rm-row.on{background:var(--color-action-wash);box-shadow:inset 3px 0 0 var(--color-action)}
+.rm-row.off{opacity:.42;cursor:not-allowed}
+.rm-thead{cursor:default;padding-top:7px;padding-bottom:7px;background:var(--color-surface-sunken);font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--color-text-tertiary);align-items:center}
+.rm-thead:hover{background:var(--color-surface-sunken)}
+.rm-thead .num{text-align:right}
+.rm-check{margin:1px 0 0;width:13px;height:13px;accent-color:var(--color-action);cursor:pointer}
+.rm-date{font-family:var(--font-mono);font-size:11px;color:var(--color-text-tertiary);padding-top:1px}
+.rm-main{display:flex;flex-direction:column;gap:2px;min-width:0}
+.rm-desc{font-family:var(--font-mono);font-size:11px;line-height:1.45;color:var(--color-text-primary);word-break:break-word}
+.rm-ref{font-family:var(--font-mono);font-size:11.5px;font-weight:600;color:var(--color-text-primary)}
+.rm-ref-sub{font-weight:400;color:var(--color-text-secondary)}
+.rm-sub{font-size:11.5px;color:var(--color-text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rm-hints{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin-top:2px}
+.rm-hints .recon-tag{margin-left:0}
+.rm-gap{font-size:10.5px;color:var(--color-text-tertiary)}
+.rm-amt{font-family:var(--font-mono);font-size:12px;font-weight:600;color:var(--color-text-primary);text-align:right;white-space:nowrap}
+.rm-amt.in{color:var(--color-success-text)}
+.rm-was{font-size:11px;color:var(--color-text-tertiary)}
+.rm-was-btn{background:none;border:0;padding:0;font:inherit;font-weight:600;color:var(--color-action);cursor:pointer}
+.rm-was-btn:hover{text-decoration:underline;text-underline-offset:2px}
+.rm-note{display:flex;flex-direction:column;gap:4px;padding:12px 18px 14px 46px;font-size:11.5px;line-height:1.5;color:var(--color-text-tertiary)}
+.rm-empty{padding:32px 18px;text-align:center;font-size:12px;line-height:1.6;color:var(--color-text-tertiary)}
+.recon-card{container-type:inline-size}
+@container (max-width:900px){
+  .rm-split{grid-template-columns:minmax(0,1fr)}
+  .rm-divider{height:8px;border:0;border-top:1px solid var(--color-border-default);border-bottom:1px solid var(--color-border-default)}
+  .rm-body{height:360px}
+}
+
+/* Pane bodies reserve their scrollbar's width; the header and the tray rows
+   reserve the same, so every Amount column lines up down the page. */
+.rm-thead{overflow:hidden;scrollbar-gutter:stable}
+
+/* The selection tray: dark like the footer it sits on, pinned to the bottom of
+   the view, on the same two-column grid as the tables. */
+.recon-card:has(.rm-tray){border-bottom:0;border-radius:12px 12px 0 0}
+.lg-table-wrap:has(.rm-tray){padding-bottom:0}
+.rm-tray{position:sticky;bottom:0;z-index:3;display:grid;grid-template-columns:minmax(0,1fr) 8px minmax(0,1fr);background:var(--color-surface-overlay);color:#fff;border-top:1px solid rgba(255,255,255,.08)}
+.rm-tray-divider{border-left:1px solid rgba(255,255,255,.12);border-right:1px solid rgba(255,255,255,.12)}
+.rm-tray-side{display:flex;flex-direction:column;min-width:0}
+.rm-tray .rm-row{cursor:default;border-bottom:0;padding-top:5px;padding-bottom:5px}
+.rm-tray .rm-row:hover{background:transparent}
+.rm-tray-head{padding-top:10px!important;overflow:hidden;scrollbar-gutter:stable;align-items:baseline}
+.rm-tray-title{grid-column:2 / 4;font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:rgba(255,255,255,.6)}
+.rm-tray-total{font-family:var(--font-mono);font-size:13px;font-weight:700;color:#fff;text-align:right;white-space:nowrap}
+.rm-tray-list{max-height:112px;overflow-y:auto;scrollbar-gutter:stable;padding-bottom:8px}
+.rm-tray-row .rm-date{color:rgba(255,255,255,.5)}
+.rm-tray-row .rm-amt{color:rgba(255,255,255,.9);font-size:11.5px}
+.rm-tray-text{font-family:var(--font-mono);font-size:11px;color:rgba(255,255,255,.85);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.rm-tray-x{width:16px;height:16px;padding:0;border:0;border-radius:4px;background:rgba(255,255,255,.1);color:rgba(255,255,255,.7);font-size:13px;line-height:15px;cursor:pointer}
+.rm-tray-x:hover{background:rgba(255,255,255,.22);color:#fff}
+.rm-tray-empty{padding:2px 18px 4px 46px;font-size:11.5px;color:rgba(255,255,255,.4)}
+@container (max-width:900px){.rm-tray{grid-template-columns:minmax(0,1fr)}.rm-tray-divider{display:none}}
+
+/* The bar under To match: the difference, the status, and Reconcile. */
+.rm-bar{gap:20px}
+.rm-bar-figs{display:flex;align-items:center;gap:28px;min-width:0;flex-wrap:wrap}
+.rm-bar-fig{display:flex;flex-direction:column;gap:2px}
+.rm-bar-fig .lg-footer-lbl{font-size:10.5px}
+.rm-bar-n{margin-left:7px;padding:0 6px;border-radius:999px;background:rgba(255,255,255,.14);font-size:10.5px;font-weight:600;vertical-align:1px}
+.rm-bar-off{color:#F5C26B}
+.rm-bar-hint{color:rgba(255,255,255,.6);font-size:12px}
+.rm-bar-status{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700}
+.rm-bar-status svg{width:13px;height:13px}
+.rm-bar-status.ok{color:#7FDCA4}
+.rm-bar-status.warn{color:#F5C26B;font-weight:600}
+.rm-bar-status a{color:#fff}
+.rm-bar-diff{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:rgba(255,255,255,.75)}
+.rm-bar-diff .warn{color:#F5C26B;font-weight:600}
+.rm-bar-diff select{max-width:240px;padding:5px 8px;border-radius:var(--radius-sm);border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.1);color:#fff;font-family:var(--font-sans);font-size:12px}
+.rm-bar-diff select option{color:var(--color-text-primary);background:var(--color-surface-raised)}
+/* Shortfall: leave it open on the Klay item, or book it. */
+.rm-bar-mode{display:inline-flex;padding:2px;border-radius:6px;background:rgba(255,255,255,.1)}
+.rm-bar-mode button{border:0;background:transparent;color:rgba(255,255,255,.7);padding:4px 10px;border-radius:4px;font-family:var(--font-sans);font-size:11.5px;font-weight:600;cursor:pointer;white-space:nowrap}
+.rm-bar-mode button.on{background:rgba(255,255,255,.92);color:var(--color-text-primary)}
+.rm-part{font-size:10.5px;color:var(--color-warning-text);font-weight:600}
+/* What Match will draft, in the bar. */
+.rm-bar-draft{display:inline-flex;align-items:baseline;gap:8px;padding-left:14px;border-left:1px solid rgba(255,255,255,.15);font-size:11px;color:rgba(255,255,255,.75);white-space:nowrap}
+.rm-bar-draft-l{font-family:var(--font-mono);font-size:10.5px}
+.rm-bar-draft-l b{color:#fff;font-weight:600}
+/* Matched: reconciled, or waiting on its journal. */
+.recon-status{display:inline-block;margin-left:8px;padding:0 7px;border-radius:999px;font-size:10px;font-weight:700;line-height:17px;vertical-align:1px;border:1px solid}
+.recon-status.ok{background:var(--color-success-surface);color:var(--color-success-text);border-color:var(--color-success-border)}
+.recon-status.warn{background:var(--color-warning-surface);color:var(--color-warning-text);border-color:var(--color-warning-border)}
+.recon-td-draft.recon-reversed{border-style:solid;background:var(--color-warning-surface);border-color:var(--color-warning-border);color:var(--color-warning-text)}
+.recon-crow-later:disabled{opacity:.4;cursor:not-allowed}
+.recon-group-batch:disabled{opacity:.45;cursor:not-allowed}
+.rm-bar-go{padding:7px 18px;border-radius:var(--radius-sm);border:1px solid var(--color-action);background:var(--color-action);color:#fff;font-family:var(--font-sans);font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap}
+.rm-bar-go:hover:not(:disabled){background:var(--color-action-hover);border-color:var(--color-action-hover)}
+.rm-bar-go:disabled{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.15);color:rgba(255,255,255,.4);cursor:not-allowed}
