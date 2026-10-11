@@ -191,7 +191,7 @@ function bankOnlyFor(account) {
   return lines;
 }
 
-// ── Paid outside Klay ────────────────────────────────────────────────────────
+// ── Payment not recorded ─────────────────────────────────────────────────────
 //
 // The case the withholding priority exists for. Somebody paid this vendor from
 // the bank and never recorded it, so there is no payment, no journal entry and
@@ -261,7 +261,7 @@ function statementWindow(account, period) {
 }
 
 // Fees and interest recur every month; the one-off cases (the unregistered VA,
-// the mystery debit, the payment made outside Klay, the duplicate) belong to
+// the mystery debit, the payment never recorded, the duplicate) belong to
 // the current statement, where the demo needs them.
 const RECURRING = /^(BIAYA|BUNGA|PAJAK)/;
 

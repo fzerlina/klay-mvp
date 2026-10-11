@@ -2,7 +2,7 @@
 // cash moved (lib/manualMatch.js, DIRECTIONS).
 //
 //   AP     settles a bill or a vendor — a recorded payment, a journal against
-//          trade payables, a bill paid outside Klay
+//          trade payables, a bill whose payment was never recorded
 //   AR     settles an invoice or a customer
 //   Bank   the bank's own charges and interest
 //   Other  anything else Klay can name: payroll, a direct expense, a transfer

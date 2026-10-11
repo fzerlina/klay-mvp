@@ -205,6 +205,12 @@ export function MatchPanels({ lines, candidates, spokenFor = 0, dir, onDir, cat 
                   <span className="rm-date">{shortDate(l.date)}</span>
                   <span className="rm-main">
                     <span className="rm-desc">{l.description}</span>
+                    {l.detector === "PPH_WITHHOLDING" && !l.manual && (
+                      <span className="rm-was">
+                        Looks like {l.billId} less PPh 23 · payment not recorded ·{" "}
+                        <Link to="/payments" className="rm-was-btn" onClick={(e) => e.stopPropagation()}>Record it in Payment</Link>
+                      </span>
+                    )}
                     {l.manual && (
                       <span className="rm-was">
                         {suggestedRef(l) ? <>Klay suggested {suggestedRef(l)} · </> : null}
@@ -250,7 +256,7 @@ export function MatchPanels({ lines, candidates, spokenFor = 0, dir, onDir, cat 
                   : cat !== "all"
                     ? `No ${CATEGORIES[cat].lbl} transaction left to match${sign ? " in this direction" : ""}.`
                   : sign < 0
-                    ? "No payment left to match on this account. If it was paid outside Klay, record the payment from its bill first."
+                    ? "No payment left to match on this account. If its payment was never recorded, record it in Payment first."
                     : sign > 0
                       ? "No open invoice names this customer or comes within 3% of the amount. Search for one by number, customer or amount."
                       : "Nothing left in Klay to match in this direction."}

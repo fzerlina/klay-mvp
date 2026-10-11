@@ -297,7 +297,7 @@ function suggestUnrecordedPayment(line, read) {
     explanation:
       `${rp(line.amount)} left the bank on ${d(line.date)} and matches no payment recorded in Klay. ` +
       `It is ${rp(bill.total)} on ${bill.id} less ${rp(bill.pph23)} PPh 23 (${rate}) — the bill paid in full, so ${bill.vendorName} was likely paid ` +
-      `from the bank app. Record the payment against ${bill.id}, then reconcile this line to it.`,
+      `from the bank app. Record the payment in Payment; this line then comes back as a suggestion for it.`,
     billId: bill.id,
     vendorName: bill.vendorName,
     strength: "likely",
