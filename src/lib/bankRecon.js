@@ -181,7 +181,7 @@ export function entityState(runs) {
 // `resolutions` is the session's decisions (state/BankReconContext). Without
 // them every payment would read "to confirm" — nothing is reconciled until a
 // person says so.
-export function reconOf({ at, breakdown, billId } = {}, resolutions = {}) {
+export function reconOf({ at, breakdown, billId, index = null } = {}, resolutions = {}) {
   const out = (key, why) => ({ ...RECON_META[key], why });
 
   if (!breakdown) {
@@ -209,6 +209,17 @@ export function reconOf({ at, breakdown, billId } = {}, resolutions = {}) {
     if (done) return out("cleared", done.resolution.note);
     const suggested = exceptions.find((e) => !e.resolution && e.suggestion?.recordId === record.id);
     if (suggested) return out("suggested", `On the statement ${suggested.date} — waiting for someone to reconcile it. ${suggested.explanation}`);
+  }
+
+  // A payment recorded during this session is not among the cached run's
+  // records (it reads the seed), but the decision that matched it names it.
+  if (index != null) {
+    const recordId = `${billId}:${index}`;
+    const hit = run.exceptions.find((e) => {
+      const r = resolutions[e.id];
+      return r && r.action !== "exclude" && (r.recordIds || []).includes(recordId);
+    });
+    if (hit) return out("cleared", resolutions[hit.id].note);
   }
 
   const pending = run.outstanding.find((o) => o.record.billId === billId && o.record.date === at);

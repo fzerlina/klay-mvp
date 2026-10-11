@@ -89,7 +89,7 @@ function PaymentTab({ bill, detail }) {
         ref: h.breakdown?.giroNumber || null,
         withheld: withheldTax(h.breakdown),
         jeNumber: h.je_number || null,
-        recon: reconOf({ ...h, billId: bill.id }, resolutions),
+        recon: reconOf({ ...h, billId: bill.id, index: i }, resolutions),
         journal: paymentJournalLines(h.breakdown, { vendorName: bill.vendorName }),
       }));
     }
