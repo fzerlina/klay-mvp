@@ -146,11 +146,10 @@ const TABS = [
   { k: "excluded",     lbl: "Excluded" },
 ];
 
-// Need confirmation is grouped by how strong the match is (STRENGTHS in
-// lib/bankMatching.js), strongest first. Every line still needs a yes; the
-// grouping says where to look hardest. Groups are not named; each row's
-// basis line says why it sits where it does. Strong matches can be confirmed in
-// one tap from beside the search bar.
+// Need confirmation is ordered by how strong the match is (STRENGTHS in
+// lib/bankMatching.js), strongest first. The strength itself is never shown —
+// each row's basis line says in words why it sits where it does. Every line
+// still needs a yes; Confirm all gives it to every row in view at once.
 const CONFIRM_SECTIONS = ["strong", "likely", "weak"].map((k) => ({ k, test: (e) => (e.strength || "weak") === k }));
 
 // Review & post journals: everything waiting to be posted, by where it came from.
@@ -1340,7 +1339,6 @@ export default function BankReconciliationPage() {
   for (const e of run?.exceptions || []) tabMoney[tabOf(e)] += Math.abs(e.amount);
 
   // The tab's one-tap action, named for exactly what it covers.
-  const strong = byTab.confirm.filter((e) => e.strength === "strong");
   // Ticked journals that are still on the list (a posted one drops off).
   const journalsPicked = byTab.journals.filter((j) => selJournals.has(j.id));
   const selOf = (items) => {
@@ -1367,8 +1365,8 @@ export default function BankReconciliationPage() {
   const bulk =
     activeTab === "journals" && byTab.journals.length > 1
       ? { action: "post-journal", items: byTab.journals, label: `Post all ${byTab.journals.length} journals`, ok: perm.canPost, why: WHY_NOT.post }
-      : activeTab === "confirm" && strong.length > 0
-        ? { action: "primary", items: strong, label: `Confirm ${strong.length} strong match${strong.length === 1 ? "" : "es"}`, ok: perm.canMatch, why: WHY_NOT.match }
+      : activeTab === "confirm" && byTab.confirm.length > 1
+        ? { action: "primary", items: byTab.confirm, label: `Confirm all ${byTab.confirm.length}`, ok: perm.canMatch, why: WHY_NOT.match }
         : null;
 
 
