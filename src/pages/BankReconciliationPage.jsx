@@ -139,9 +139,9 @@ function tabOf(ex) {
 const TABS = [
   { k: "confirm",      lbl: "Need confirmation" },
   { k: "tomatch",      lbl: "To match" },
-  { k: "journals",     lbl: "Review & post journals" },
   { k: "reconciled",   lbl: "Reconciled" },
   { k: "excluded",     lbl: "Excluded" },
+  { k: "journals",     lbl: "Review & post journals" },
 ];
 
 // Need confirmation is ordered by how strong the match is (STRENGTHS in
@@ -1532,9 +1532,9 @@ export default function BankReconciliationPage() {
           {[
             ["confirm", "to confirm"],
             ["tomatch", "to match"],
-            ["journals", "journals to post"],
             ["reconciled", "reconciled"],
             ...(tabCount.excluded ? [["excluded", "excluded"]] : []),
+            ["journals", "journals to post"],
           ].map(([k, lbl], i) => (
             <span key={k} className="recon-foot-item">
               {i > 0 && <span className="lg-footer-sep">·</span>}
