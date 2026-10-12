@@ -12,7 +12,8 @@ import "./access-policy.css";
 // from the role matrix and the role-assignment SoD check on the Users page — it
 // governs the runtime submitter-≠-poster control at *posting* time, not who may
 // hold which roles. The mode lives in AccountingSettingsContext so the screens
-// that post (bank reconciliation's Review & post journals) can enforce it.
+// that post can enforce it. Bank reconciliation is the exception: one capability
+// (bank.reconcile) reconciles and posts under both modes.
 
 const ENTITY = { name: "PT Sejahtera Makmur", id: "ENT-001" };
 

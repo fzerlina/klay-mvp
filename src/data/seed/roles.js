@@ -49,7 +49,7 @@ export const CAPABILITIES = {
   "payment.request": { label: "Request payment", kind: "named", home: "ap", desc: "Request payment for a posted bill (AP Staff)" },
   "payment.approve": { label: "Approve payment", kind: "named", home: "ap", desc: "Approve a payment request (Finance Manager)" },
   "payment.execute": { label: "Execute payment", kind: "named", home: "ap", desc: "Execute the transfer off-system and mark the bill paid; upload the bank statement (Finance Staff)" },
-  "bank.reconcile": { label: "Reconcile bank", kind: "named", home: "bank", noDefaultHome: true, desc: "Reconcile bank statements against the ledger. Never bundled into a seeded role — granted explicitly per entity (see NOTE below)." },
+  "bank.reconcile": { label: "Reconcile bank", kind: "named", home: "bank", noDefaultHome: true, desc: "Reconcile bank statements against the ledger, and post the journals reconciliation writes (bank charges, interest, differences, quick drafts). Never bundled into a seeded role — granted explicitly per entity (see NOTE below)." },
   // Named settings / configuration capabilities (split so each grants independently)
   "coa.manage": { label: "Manage Chart of Accounts", kind: "named", home: "settings", desc: "Edit the Chart of Accounts (high-sensitivity changes route through approval)" },
   "dimensions.manage": { label: "Manage dimensions", kind: "named", home: "settings", desc: "Edit dimensions (branch, cost center, project)" },
