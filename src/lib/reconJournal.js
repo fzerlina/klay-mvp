@@ -1,15 +1,14 @@
 // The journal entries a reconciliation drafts.
 //
-// Reconciliation is two steps: match, then post. Matching never posts. A line
-// either needs no journal — it matched a payment or journal already in the
-// books — or it drafts one, which somebody allowed to post to the ledger
-// (gl.post) posts from Review & post journals. Two sources of drafts:
+// A bank line reconciles to a cash journal. Most already exist — a recorded
+// payment or receipt, a posted journal through the account — and matching
+// only links the two. Two kinds of journal are written here:
 //
-//   bank-only     a fee or interest the bank charged or paid; drafted when the
-//                 statement loads, before anybody matches anything
-//   from a match  a customer receipt matched to its invoice (the cash, and any
-//                 PPh 23 the customer withheld), and any difference the person
-//                 chose to book instead of leaving open
+//   bank-only     a fee or interest the bank charged or paid. Klay drafts it
+//                 when the statement loads; posting it from To post (bank.reconcile)
+//                 is what reconciles the line — one step, not two
+//   a difference  a gap somebody chose to book when matching by hand. It is
+//                 posted with the match, so the bar shows it before Match
 //
 // Nothing here posts on its own.
 //
@@ -29,9 +28,7 @@ export const ACCT_BANK_FEE = "72050";
 export const ACCT_INTEREST_INCOME = "71010";
 export const ACCT_BANK_IDR = "11110";
 export const ACCT_BANK_FX = "11120";
-export const ACCT_AR = "1-2100";
 export const ACCT_INTEREST_TAX = "8-1300";
-export const ACCT_PPH23_PREPAID = "1-5500";
 
 const nameOf = (code) => COA.find((a) => a.code === code)?.name || code;
 
@@ -125,31 +122,20 @@ export function postedEntry({ draft, exception, jeNumber, by, today, postDate = 
 export const postedNote = (exception, jeNumber, by) =>
   `${isInterest(exception) ? "Interest" : isInterestTax(exception) ? "Tax on interest" : "Bank fee"} journal ${jeNumber} posted by ${by}.`;
 
-// The draft a match produces, or null when the match needs no journal.
+// The journal a booked difference posts, or null when there is none.
 //
-//   receipts  [{ invoiceId, customerName, cash, withheld }] — cash is what the
-//             bank line paid toward the invoice; withheld is the PPh 23 the
-//             customer kept back on an invoice paid in full (Dr 1-5500)
-//   diff      { accountCode, amount } — a difference the person chose to book;
-//             amount is signed like the statement: negative, the bank took more
-//             (Dr the account, Cr bank); positive, more arrived (Dr bank, Cr it)
+//   diff  { accountCode, amount } — amount is signed like the statement:
+//         negative, the bank took more (Dr the account, Cr bank); positive,
+//         more arrived (Dr bank, Cr it)
 //
 // lines[0] is the bank line — the part of the statement this entry explains.
-export function matchEntry({ account, date, description, refs, receipts = [], diff = null }) {
-  if (!receipts.length && !diff) return null;
+export function differenceEntry({ account, date, description, refs, diff }) {
+  if (!diff?.amount) return null;
   const bank = bankLineFor(account);
-  const net = receipts.reduce((s, r) => s + r.cash, 0) + (diff?.amount || 0);
-  const lines = [{ ...bank, debit: net > 0 ? net : 0, credit: net < 0 ? -net : 0, description: `Statement — ${description}` }];
-  for (const r of receipts) {
-    if (r.withheld > 0) {
-      lines.push({ account_code: ACCT_PPH23_PREPAID, account_name: nameOf(ACCT_PPH23_PREPAID), debit: r.withheld, credit: 0, description: `PPh 23 withheld by ${r.customerName} on ${r.invoiceId}` });
-    }
-    lines.push({ account_code: ACCT_AR, account_name: nameOf(ACCT_AR), debit: 0, credit: r.cash + r.withheld, description: `Receipt — ${r.invoiceId} · ${r.customerName}` });
-  }
-  if (diff) {
-    const amt = Math.abs(diff.amount);
-    lines.push({ account_code: diff.accountCode, account_name: nameOf(diff.accountCode), debit: diff.amount < 0 ? amt : 0, credit: diff.amount > 0 ? amt : 0, description: `Difference against ${refs}` });
-  }
-  const memo = receipts.length && diff ? "Customer receipt and difference" : receipts.length ? "Customer receipt" : "Reconciliation difference";
-  return { je_date: date, memo: `${memo} — ${account.name} statement`, lines, bankAmount: net };
+  const amt = Math.abs(diff.amount);
+  const lines = [
+    { ...bank, debit: diff.amount > 0 ? amt : 0, credit: diff.amount < 0 ? amt : 0, description: `Statement — ${description}` },
+    { account_code: diff.accountCode, account_name: nameOf(diff.accountCode), debit: diff.amount < 0 ? amt : 0, credit: diff.amount > 0 ? amt : 0, description: `Difference against ${refs}` },
+  ];
+  return { je_date: date, memo: `Reconciliation difference — ${account.name} statement`, lines, bankAmount: diff.amount };
 }

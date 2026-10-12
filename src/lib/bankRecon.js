@@ -203,7 +203,7 @@ export function reconOf({ at, breakdown, billId, index = null } = {}, resolution
     const exceptions = run.exceptions.map((e) => (resolutions[e.id] ? { ...e, resolution: resolutions[e.id] } : e));
     const done = exceptions.find((e) => {
       const r = e.resolution;
-      if (!r || r.action === "exclude") return false;
+      if (!r || r.action === "later") return false;
       return (r.recordIds || []).includes(record.id) || (r.action === "reconcile" && e.suggestion?.recordId === record.id);
     });
     if (done) return out("cleared", done.resolution.note);
@@ -217,7 +217,7 @@ export function reconOf({ at, breakdown, billId, index = null } = {}, resolution
     const recordId = `${billId}:${index}`;
     const hit = run.exceptions.find((e) => {
       const r = resolutions[e.id];
-      return r && r.action !== "exclude" && (r.recordIds || []).includes(recordId);
+      return r && r.action !== "later" && (r.recordIds || []).includes(recordId);
     });
     if (hit) return out("cleared", resolutions[hit.id].note);
   }

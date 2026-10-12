@@ -1,10 +1,11 @@
 // To match — the bank statement and Klay's books side by side.
 //
-// Left: statement lines nothing has been suggested for. Right: what Klay holds
-// that no line has been reconciled to — recorded payments and receipts on this
-// account, journals through it, and open invoices. Tick lines on both sides
-// that belong together; the bar under the page adds them up and reconciles
-// once they balance. Any number on either side, because one transfer often
+// Left: statement lines nothing has been suggested for. Right: the cash
+// journals on this account no line has been matched to — recorded payments and
+// receipts, and posted journals through it. Nothing else: an open invoice or
+// bill is not cash until its receipt or payment is recorded. Tick lines on
+// both sides that belong together; the bar under the page adds them up and
+// reconciles once they balance. Any number on either side, because one transfer often
 // settles several bills, and one bill is sometimes paid in two transfers.
 //
 // The right side follows the left: once a line is ticked it shows only records
@@ -12,13 +13,12 @@
 // read from the bank text, then same amount, then nearest date. A reading aid;
 // nothing is ticked for you.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { COA } from "../data/seed/coa";
 import { dayDiff } from "../lib/clock";
-import { nameAgrees, AR_TOLERANCE } from "../lib/bankMatching";
+import { nameAgrees } from "../lib/bankMatching";
 import { DIRECTIONS } from "../lib/manualMatch";
-import { CATEGORIES, CATEGORY_FILTERS, categoryOfRecord } from "../lib/reconCategory";
 
 // A small segmented control. `label` names which side it filters.
 export function Segmented({ label, options, value, onChange }) {
@@ -36,48 +36,13 @@ export function Segmented({ label, options, value, onChange }) {
   );
 }
 
-// AP / AR / Bank / Other — what Klay knows a line or record to be.
-export function CategoryChip({ cat }) {
-  const c = CATEGORIES[cat];
-  if (!c) return null;
-  return <span className={`recon-cat ${c.k}`} title={c.title}>{c.lbl}</span>;
-}
-
-// Why a line can be set aside without a Klay record. Each is a statement
-// artefact rather than a business event — anything that moved money for the
-// company belongs in the books, not in Excluded.
-export const EXCLUDE_REASONS = [
-  { k: "duplicate", lbl: "Printed twice on the statement" },
-  { k: "reversed", lbl: "Reversed by the bank" },
-  { k: "not-ours", lbl: "Not this company’s transaction" },
-];
-
-// "Exclude", then the reason. `dark` for the black bar, where it opens upward.
-export function ExcludeMenu({ onPick, dark = false, label = "Exclude" }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
-  useEffect(() => {
-    if (!open) return;
-    const close = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, [open]);
+// "Mark for later" parks a line without deciding it — it still holds the
+// account open. `dark` for the black bar.
+export function LaterButton({ onClick, dark = false }) {
   return (
-    <span className={`recon-excl${dark ? " dark" : ""}`} ref={ref}>
-      <button type="button" className={dark ? "lg-footer-bulk-btn" : "recon-crow-later"} onClick={() => setOpen((v) => !v)} aria-expanded={open}>
-        {label}
-      </button>
-      {open && (
-        <span className="recon-excl-pop" role="menu">
-          <span className="recon-excl-head">Exclude because it was…</span>
-          {EXCLUDE_REASONS.map((r) => (
-            <button key={r.k} type="button" role="menuitem" className="recon-excl-item" onClick={() => { setOpen(false); onPick(r.k); }}>
-              {r.lbl}
-            </button>
-          ))}
-        </span>
-      )}
-    </span>
+    <button type="button" className={dark ? "lg-footer-bulk-btn" : "recon-crow-later"} onClick={onClick}>
+      Mark for later
+    </button>
   );
 }
 
@@ -89,9 +54,9 @@ const byDateDesc = (a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0);
 const accountName = (code) => COA.find((a) => a.code === code)?.name || code;
 
 // What Klay had proposed for a line before it was set aside.
-const suggestedRef = (l) => l.suggestion?.ref || l.suggestion?.invoiceId || l.billId || "";
+const suggestedRef = (l) => l.suggestion?.ref || l.billId || "";
 
-const KIND_LABEL = { ap_payment: "Payment", je: "Journal", invoice: "Open invoice" };
+const KIND_LABEL = { ap_payment: "Payment", je: "Journal" };
 
 function SearchBox({ value, onChange, placeholder }) {
   return (
@@ -111,7 +76,7 @@ function Check({ checked, disabled, onChange, label }) {
   return <input type="checkbox" className="rm-check" checked={checked} disabled={disabled} onChange={onChange} aria-label={label} />;
 }
 
-export function MatchPanels({ lines, candidates, spokenFor = 0, dir, onDir, cat = "all", onCat, selLines, selRecords, onToggleLine, onToggleRecord, onSetLines, onRestore }) {
+export function MatchPanels({ lines, candidates, spokenFor = 0, dir, onDir, canQuickDraft = true, onQuickDraft, selLines, selRecords, onToggleLine, onToggleRecord, onSetLines, onRestore }) {
   const [qBank, setQBank] = useState("");
   const [qKlay, setQKlay] = useState("");
 
@@ -127,38 +92,28 @@ export function MatchPanels({ lines, candidates, spokenFor = 0, dir, onDir, cat 
       .sort(byDateDesc);
   }, [lines, qBank]);
 
-  // Open invoices are not movements on this account — every unpaid invoice in
-  // the company is one — so they are not listed wholesale. They appear when a
-  // ticked receipt points at them (the customer it names, or an amount within
-  // range), when searched for, or once ticked. Everything else is book records.
-  const { klayRows, hiddenInvoices } = useMemo(() => {
+  const klayRows = useMemo(() => {
     const q = qKlay.trim().toLowerCase();
     const parties = pickedLines.map((l) => l.counterparty).filter(Boolean);
     const first = pickedLines[0];
-    const nearTotal = (r) => !!first && r.amount !== bankTotal && Math.abs(bankTotal - r.amount) <= Math.round(Math.abs(r.amount) * AR_TOLERANCE);
     const named = (r) => parties.some((p) => nameAgrees(p, r.counterparty));
     // The Klay pane filters by what a record is, not which way it moved —
     // that is the bank pane's filter. A ticked record always stays in view.
     const pool = candidates
-      .filter((r) => cat === "all" || selRecords.has(r.id) || categoryOfRecord(r) === cat)
       .filter((r) => !sign || Math.sign(r.amount) === sign);
-    // Choosing AR on the Klay pane is asking for them, so it lists them all.
-    const surfaced = (r) => r.kind !== "invoice" || cat === "ar" || selRecords.has(r.id) || !!q || (sign > 0 && (named(r) || nearTotal(r)));
     const rows = pool
-      .filter(surfaced)
       .filter((r) => selRecords.has(r.id) || !q ||
         [r.ref, r.billId, r.counterparty, r.label, String(Math.abs(r.amount))].some((v) => (v || "").toLowerCase().includes(q)))
       .map((r) => ({
         r,
         named: named(r),
         exact: !!first && r.amount === bankTotal,
-        near: r.kind === "invoice" && nearTotal(r),
         gap: first ? Math.abs(dayDiff(first.date, r.date)) : 0,
       }));
-    if (first) rows.sort((a, b) => Number(b.named) - Number(a.named) || Number(b.exact || b.near) - Number(a.exact || a.near) || a.gap - b.gap);
+    if (first) rows.sort((a, b) => Number(b.named) - Number(a.named) || Number(b.exact) - Number(a.exact) || a.gap - b.gap);
     else rows.sort((a, b) => byDateDesc(a.r, b.r));
-    return { klayRows: rows, hiddenInvoices: pool.filter((r) => !surfaced(r)).length };
-  }, [candidates, cat, sign, selRecords, qKlay, bankTotal, lines, selLines]);
+    return rows;
+  }, [candidates, sign, selRecords, qKlay, bankTotal, lines, selLines]);
 
   const selectable = bankRows.filter((l) => !sign || Math.sign(l.amount) === sign);
   const allOn = selectable.length > 0 && selectable.every((l) => selLines.has(l.id));
@@ -166,6 +121,12 @@ export function MatchPanels({ lines, candidates, spokenFor = 0, dir, onDir, cat 
   const mixed = !sign && new Set(selectable.map((l) => Math.sign(l.amount))).size > 1;
 
   const pickedRecords = candidates.filter((r) => selRecords.has(r.id));
+  // Quick draft writes the cash journal for one bank line at a time.
+  const draftLine = pickedLines.length === 1 ? pickedLines[0] : null;
+  const draftWhy = !canQuickDraft ? "Needs the Reconcile bank permission"
+    : pickedLines.length === 0 ? "Tick the bank line it's for first"
+    : pickedLines.length > 1 ? "Tick one bank line — a quick draft is for one line"
+    : `Post the cash journal for the ${shortDate(draftLine.date)} line`;
 
   return (
     <>
@@ -205,19 +166,16 @@ export function MatchPanels({ lines, candidates, spokenFor = 0, dir, onDir, cat 
                   <span className="rm-date">{shortDate(l.date)}</span>
                   <span className="rm-main">
                     <span className="rm-desc">{l.description}</span>
-                    {l.detector === "PPH_WITHHOLDING" && !l.manual && (
-                      <span className="rm-was">
-                        Looks like {l.billId} less PPh 23 · payment not recorded ·{" "}
-                        <Link to="/payments" className="rm-was-btn" onClick={(e) => e.stopPropagation()}>Record it in Payment</Link>
-                      </span>
-                    )}
                     {l.manual && (
                       <span className="rm-was">
                         {suggestedRef(l) ? <>Klay suggested {suggestedRef(l)} · </> : null}
                         <button type="button" className="rm-was-btn" onClick={(e) => { e.preventDefault(); onRestore?.(l); }}>
-                          Back to Need confirmation
+                          Back to To reconcile
                         </button>
                       </span>
+                    )}
+                    {l.reversed && (
+                      <span className="rm-was">{l.reversed.je} reversed in the GL by {l.reversed.reversedBy} · match it again</span>
                     )}
                   </span>
                   <span className={`rm-amt${l.amount > 0 ? " in" : ""}`}>{signedRp(l.amount)}</span>
@@ -236,10 +194,26 @@ export function MatchPanels({ lines, candidates, spokenFor = 0, dir, onDir, cat 
           <span className="rm-pane-count">
             {klayRows.length} {sign < 0 ? "money out" : sign > 0 ? "money in" : "not matched"}
           </span>
+          <button type="button" className="rm-quick" disabled={!draftLine || !canQuickDraft} title={draftWhy} onClick={() => draftLine && onQuickDraft?.(draftLine)}>
+            + Quick draft
+          </button>
         </header>
+        {/* What Klay read into the ticked line, said where its counterpart is
+            looked for: a debit that is a bill less its PPh 23, never recorded. */}
+        {draftLine?.detector === "PPH_WITHHOLDING" && !draftLine.manual && (
+          <div className="rm-banner" role="status">
+            <span>
+              Looks like <strong>{draftLine.billId}</strong>{draftLine.vendorName ? <> ({draftLine.vendorName})</> : null} less PPh 23 —
+              the payment isn&rsquo;t recorded in Klay.
+            </span>
+            <span className="rm-banner-acts">
+              {canQuickDraft && <button type="button" className="rm-was-btn" onClick={() => onQuickDraft?.(draftLine)}>Quick draft it</button>}
+              <Link to="/payments" className="rm-was-btn">Record it in Payment</Link>
+            </span>
+          </div>
+        )}
         <div className="rm-tools">
           <SearchBox value={qKlay} onChange={setQKlay} placeholder="Search vendor, customer, reference or amount" />
-          <Segmented options={CATEGORY_FILTERS} value={cat} onChange={onCat} />
         </div>
         <div className="rm-table" role="table">
           <div className="rm-row rm-thead" role="row">
@@ -253,16 +227,12 @@ export function MatchPanels({ lines, candidates, spokenFor = 0, dir, onDir, cat 
               <div className="rm-empty">
                 {qKlay
                   ? "Nothing in Klay matches that search."
-                  : cat !== "all"
-                    ? `No ${CATEGORIES[cat].lbl} transaction left to match${sign ? " in this direction" : ""}.`
-                  : sign < 0
-                    ? "No payment left to match on this account. If its payment was never recorded, record it in Payment first."
-                    : sign > 0
-                      ? "No open invoice names this customer or comes within 3% of the amount. Search for one by number, customer or amount."
-                      : "Nothing left in Klay to match in this direction."}
+                  : sign
+                    ? <>No cash journal left to match on this account.{draftLine && canQuickDraft ? <> <button type="button" className="rm-was-btn" onClick={() => onQuickDraft?.(draftLine)}>Quick draft it</button></> : null}</>
+                    : "Nothing left in Klay to match in this direction."}
               </div>
             )}
-            {klayRows.map(({ r, named, exact, near, gap }) => {
+            {klayRows.map(({ r, named, exact, gap }) => {
               const on = selRecords.has(r.id);
               return (
                 <label key={r.id} className={`rm-row${on ? " on" : ""}`} role="row">
@@ -270,18 +240,16 @@ export function MatchPanels({ lines, candidates, spokenFor = 0, dir, onDir, cat 
                   <span className="rm-date">{shortDate(r.date)}</span>
                   <span className="rm-main">
                     <span className="rm-ref">
-                      <CategoryChip cat={categoryOfRecord(r)} />
                       {r.ref}{r.billId && r.billId !== r.ref ? <span className="rm-ref-sub"> · {r.billId}</span> : null}
                     </span>
                     <span className="rm-sub">{KIND_LABEL[r.kind] || "Record"} · {r.counterparty || r.label}</span>
                     {r.original != null && (
-                      <span className="rm-part">{r.kind === "invoice" ? "Part-paid" : "Partly matched"} · {signedRp(r.amount).replace("−", "")} left of {signedRp(r.original).replace("−", "")}</span>
+                      <span className="rm-part">Partly matched · {signedRp(r.amount).replace("−", "")} left of {signedRp(r.original).replace("−", "")}</span>
                     )}
-                    {(named || exact || near || gap > 0) && pickedLines.length > 0 && (
+                    {(named || exact || gap > 0) && pickedLines.length > 0 && (
                       <span className="rm-hints">
                         {named && <span className="recon-tag">Same name</span>}
                         {exact && <span className="recon-tag">Same amount</span>}
-                        {near && <span className="recon-tag">Within 3%</span>}
                         {gap > 0 && <span className="rm-gap">{gap}d apart</span>}
                       </span>
                     )}
@@ -290,16 +258,9 @@ export function MatchPanels({ lines, candidates, spokenFor = 0, dir, onDir, cat 
                 </label>
               );
             })}
-            {!qKlay && (hiddenInvoices > 0 || spokenFor > 0) && (
+            {!qKlay && spokenFor > 0 && (
               <div className="rm-note">
-                {hiddenInvoices > 0 && (
-                  <span>
-                    {hiddenInvoices} open invoice{hiddenInvoices === 1 ? "" : "s"} not listed — choose AR to see them all, tick a receipt to see that customer's, or search by number, customer or amount.
-                  </span>
-                )}
-                {spokenFor > 0 && (
-                  <span>{spokenFor} more {spokenFor === 1 ? "is" : "are"} already suggested for a bank line in Need confirmation.</span>
-                )}
+                <span>{spokenFor} more {spokenFor === 1 ? "is" : "are"} already suggested for a bank line in To reconcile.</span>
               </div>
             )}
           </div>
@@ -358,8 +319,11 @@ function TraySide({ title, total, rows, empty, onRemove }) {
 // The bar under the page while To match is open: the difference between the
 // two sides and the one button. Each side's own total sits in the tray above,
 // under its column.
-export function MatchBar({ lineCount, recordCount, balance, diffAccounts, diffAcct, onDiffAcct, mode = "open", onMode, onReconcile, onExclude, onClear, preview = null, canMatch = true }) {
-  const { left, inRange, gap, short, booking, leaving, balanced, idle, openOn } = balance;
+// `preview` lists the journals Reconcile would post — a booked
+// difference — shown before it does. `canPost` is false when this person
+// can't post them.
+export function MatchBar({ lineCount, recordCount, balance, diffAccounts, diffAcct, onDiffAcct, mode = "open", onMode, onReconcile, onLater, onClear, preview = null, canMatch = true, canPost = true }) {
+  const { left, gap, short, booking, leaving, balanced, idle, openOn } = balance;
   const any = lineCount + recordCount > 0;
   const gapRp = signedRp(Math.abs(left)).replace("−", "");
   const picker = diffAccounts.length === 0 ? (
@@ -380,8 +344,6 @@ export function MatchBar({ lineCount, recordCount, balance, diffAccounts, diffAc
     status = <span className="rm-bar-status warn">The bank amount runs out before {idle[0].ref} — untick it</span>;
   } else if (left === 0) {
     status = <span className="rm-bar-status ok"><CheckIcon /> Balanced</span>;
-  } else if (inRange) {
-    status = <span className="rm-bar-status ok"><CheckIcon /> Within {Math.round(AR_TOLERANCE * 100)}% of the invoice{recordCount > 1 ? "s" : ""}</span>;
   } else if (short) {
     // The bank paid less than Klay holds: by default the rest stays open on
     // the Klay item — nothing is unexplained yet, only unfinished.
@@ -406,25 +368,25 @@ export function MatchBar({ lineCount, recordCount, balance, diffAccounts, diffAc
       <div className="rm-bar-figs">
         <span className="rm-bar-fig">
           <span className="lg-footer-lbl">Difference</span>
-          <span className={`lg-footer-total${left !== 0 && recordCount && !inRange ? " rm-bar-off" : ""}`}>{signedRp(lineCount || recordCount ? left : 0)}</span>
+          <span className={`lg-footer-total${left !== 0 && recordCount ? " rm-bar-off" : ""}`}>{signedRp(lineCount || recordCount ? left : 0)}</span>
         </span>
         {status}
-        {/* What Match will draft — receipts, a booked difference — before it does. */}
-        {preview && (
-          <span className="rm-bar-draft" title={preview.map((l) => `${l.debit ? "Dr" : "Cr"} ${l.account_code} ${l.account_name} ${signedRp(l.debit || l.credit)}`).join("\n")}>
-            <span className="lg-footer-lbl">Drafts</span>
-            {preview.map((l, i) => <span key={i} className="rm-bar-draft-l">{l.debit ? "Dr" : "Cr"} {l.account_code} <b>{signedRp(l.debit || l.credit).replace("Rp ", "")}</b></span>)}
+        {/* Every journal Reconcile posts, before it does: a booked
+            difference, posted with the match. */}
+        {preview && preview.map((j) => (
+          <span key={j.jeNumber} className="rm-bar-draft" title={j.lines.map((l) => `${l.debit ? "Dr" : "Cr"} ${l.account_code} ${l.account_name} ${signedRp(l.debit || l.credit)}`).join("\n")}>
+            <span className="lg-footer-lbl">Posts {j.jeNumber}</span>
+            {j.lines.map((l, i) => <span key={i} className="rm-bar-draft-l">{l.debit ? "Dr" : "Cr"} {l.account_code} <b>{signedRp(l.debit || l.credit).replace("Rp ", "")}</b></span>)}
           </span>
-        )}
+        ))}
       </div>
       <div className="lg-footer-right">
-        {lineCount > 0 && canMatch && <ExcludeMenu dark onPick={onExclude} />}
+        {lineCount > 0 && canMatch && <LaterButton dark onClick={onLater} />}
         {any && <button type="button" className="lg-footer-bulk-btn" onClick={onClear}>Clear</button>}
-        {/* Matching never posts: when the match needs a journal, it drafts one
-            for Review & post journals, and the button says so. */}
-        <button type="button" className="rm-bar-go" disabled={!lineCount || !balanced || !canMatch}
-          title={canMatch ? undefined : "Matching needs the Reconcile bank permission"} onClick={onReconcile}>
-          {preview ? "Match & draft journal" : "Match"}{lineCount + recordCount > 2 ? ` ${lineCount} ↔ ${recordCount}` : ""}
+        <button type="button" className="rm-bar-go" disabled={!lineCount || !balanced || !canMatch || (!!preview && !canPost)}
+          title={!canMatch || (preview && !canPost) ? "Needs the Reconcile bank permission" : undefined}
+          onClick={onReconcile}>
+          Reconcile{lineCount + recordCount > 2 ? ` ${lineCount} ↔ ${recordCount}` : ""}
         </button>
       </div>
     </div>

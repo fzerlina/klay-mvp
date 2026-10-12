@@ -40,25 +40,18 @@ export function BankReconProvider({ children }) {
   // somebody edited but has not posted yet. Unedited lines use Klay's draft.
   const [drafts, setDrafts] = useState({});
   // { [exceptionId]: true } — a line whose suggestion somebody set aside to
-  // reconcile it by hand. It is still undecided; it just sits in To match now,
+  // match it by hand. It is still undecided; it just sits in To match now,
   // and its suggested record is free to pair with anything.
   const [manual, setManual] = useState({});
-  // { [draftId]: draft } — journals a match drafted (a receipt, a difference),
-  // waiting in Review & post journals for somebody who can post to the ledger. Keyed
-  // apart from `drafts`, which are edits to fee and interest lines.
-  const [matchDrafts, setMatchDrafts] = useState({});
-
-  const saveMatchDraft = useCallback((id, draft) => {
-    setMatchDrafts((prev) => ({ ...prev, [id]: draft }));
-  }, []);
-
-  const removeMatchDraft = useCallback((id) => {
-    setMatchDrafts((prev) => {
-      if (!prev[id]) return prev;
-      const next = { ...prev };
-      delete next[id];
-      return next;
-    });
+  // { [recordId]: record } — cash journals posted from To match's Quick draft,
+  // for a statement line nothing in Klay explained. Each is a book record in the
+  // shape bankLedger.js gives (plus accountId, period, lineId), held here
+  // because the seed ledger the engine reads never sees it. It is not paired
+  // with its line automatically: it appears on the Klay side, and the line is
+  // reconciled to it by hand.
+  const [quickDrafts, setQuickDrafts] = useState({});
+  const addQuickDraft = useCallback((record) => {
+    setQuickDrafts((prev) => ({ ...prev, [record.id]: record }));
   }, []);
 
   const setManualFor = useCallback((id, on) => {
@@ -93,7 +86,7 @@ export function BankReconProvider({ children }) {
   // A batch is one state write, not N. Writing off four fees one at a time
   // would re-render (and re-derive every account's state) four times, and the
   // intermediate states are ones nobody decided on.
-  // Takes a decision back — Undo on a match, Restore on an excluded line.
+  // Takes a decision back — Undo on a match, Move back on a line marked for later.
   const unresolve = useCallback((id) => {
     setResolutions((prev) => {
       const next = { ...prev };
@@ -111,13 +104,16 @@ export function BankReconProvider({ children }) {
   //
   // A posted journal is never undone here; it is reversed on the Journal Entry
   // page. This page follows: a line whose journal was reversed is no longer
-  // reconciled.
+  // reconciled, and reopens where it started.
   //
-  //   fee or interest   the line reopens in Review & post journals, with a
-  //                     fresh draft — the bank line still has to be booked
-  //   a match's journal the match stands; the line needs a new journal, so
-  //                     the one that was reversed comes back as a draft to
-  //                     correct and post again
+  //   fee or interest   back in To post, with a fresh draft — the bank line
+  //                     still has to be booked
+  //   a booked          back in To match with the rest of its match: the
+  //     difference      difference was part of how the lines balanced, so the
+  //                     match goes with it
+  //   a matched cash    the same — the line was reconciled to something the
+  //     journal         books no longer hold. A quick-drafted journal that was
+  //                     reversed also drops off the Klay side
   //
   // Derived, not stored: what the GL says wins, every render, for every screen
   // that reads this context (the close board included).
@@ -132,31 +128,27 @@ export function BankReconProvider({ children }) {
     return out;
   }, [entries]);
 
-  const { effective, effectiveDrafts, reopened } = useMemo(() => {
+  const { effective, reopened } = useMemo(() => {
     const eff = { ...resolutions };
-    const drafted = { ...matchDrafts };
     const back = {};
     for (const [id, r] of Object.entries(resolutions)) {
-      const rev = r?.jeNumber && reversedBy[r.jeNumber];
-      if (!rev) continue;
-      const info = { je: r.jeNumber, reversedBy: rev.je, by: rev.by };
-      back[id] = info;
-      if (r.action === "post-journal") {
-        delete eff[id];
-        continue;
-      }
-      eff[id] = {
-        ...r, pendingJournal: true, jeNumber: undefined, journals: (r.journals || []).filter((j) => j !== r.jeNumber), reversed: info,
-        note: `${r.note} ${r.jeNumber} reversed in GL by ${rev.je}${rev.by ? ` (${rev.by})` : ""} — needs a new journal.`,
-      };
-      if (r.draftId && r.postedDraft && !drafted[r.draftId]) drafted[r.draftId] = { ...r.postedDraft, id: r.draftId, reversed: info };
+      if (!r || r.action === "later") continue;
+      const je = [r.jeNumber, ...(r.journals || [])].find((n) => n && reversedBy[n]);
+      if (!je) continue;
+      back[id] = { je, reversedBy: reversedBy[je].je, by: reversedBy[je].by };
+      delete eff[id];
     }
-    return { effective: eff, effectiveDrafts: drafted, reopened: back };
-  }, [resolutions, matchDrafts, reversedBy]);
+    return { effective: eff, reopened: back };
+  }, [resolutions, reversedBy]);
+
+  const liveQuickDrafts = useMemo(
+    () => Object.fromEntries(Object.entries(quickDrafts).filter(([, r]) => !reversedBy[r.ref])),
+    [quickDrafts, reversedBy],
+  );
 
   const value = useMemo(
-    () => ({ resolutions: effective, uploaded, drafts, manual, matchDrafts: effectiveDrafts, reopened, resolve, unresolve, resolveMany, markUploaded, saveDraft, setManualFor, saveMatchDraft, removeMatchDraft }),
-    [effective, uploaded, drafts, manual, effectiveDrafts, reopened, resolve, unresolve, resolveMany, markUploaded, saveDraft, setManualFor, saveMatchDraft, removeMatchDraft],
+    () => ({ resolutions: effective, uploaded, drafts, manual, reopened, quickDrafts: liveQuickDrafts, resolve, unresolve, resolveMany, markUploaded, saveDraft, setManualFor, addQuickDraft }),
+    [effective, uploaded, drafts, manual, reopened, liveQuickDrafts, resolve, unresolve, resolveMany, markUploaded, saveDraft, setManualFor, addQuickDraft],
   );
 
   return <BankReconContext.Provider value={value}>{children}</BankReconContext.Provider>;

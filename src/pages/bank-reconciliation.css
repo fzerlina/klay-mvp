@@ -525,11 +525,6 @@
 }
 
 /* ── CATEGORY CHIP — AP / AR / Bank / Other ─────────────────────────── */
-.recon-cat{display:inline-block;margin-right:6px;padding:0 5px;border-radius:4px;border:1px solid;font-family:var(--font-sans);font-size:9.5px;font-weight:700;letter-spacing:.03em;line-height:15px;vertical-align:1px}
-.recon-cat.ap{background:var(--color-warning-surface);color:var(--color-warning-text);border-color:var(--color-warning-border)}
-.recon-cat.ar{background:var(--color-success-surface);color:var(--color-success-text);border-color:var(--color-success-border)}
-.recon-cat.bank{background:var(--color-action-wash);color:var(--color-action);border-color:var(--color-action-subtle)}
-.recon-cat.other{background:var(--color-surface-sunken);color:var(--color-text-secondary);border-color:var(--color-border-default)}
 
 /* ── EXCLUDE — the link and its reasons ──────────────────────────────── */
 .recon-excl{position:relative;display:inline-flex}
@@ -649,3 +644,27 @@
 .rm-bar-go{padding:7px 18px;border-radius:var(--radius-sm);border:1px solid var(--color-action);background:var(--color-action);color:#fff;font-family:var(--font-sans);font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap}
 .rm-bar-go:hover:not(:disabled){background:var(--color-action-hover);border-color:var(--color-action-hover)}
 .rm-bar-go:disabled{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.15);color:rgba(255,255,255,.4);cursor:not-allowed}
+
+/* Quick draft — the Klay pane's button and the form it opens */
+.rm-quick{margin-left:auto;align-self:center;font-family:var(--font-sans);font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:var(--radius-sm);border:1px solid var(--color-action);background:var(--color-surface-raised);color:var(--color-action);cursor:pointer;white-space:nowrap}
+.rm-quick:hover:not(:disabled){background:var(--color-action-wash)}
+.rm-quick:disabled{border-color:var(--color-border-default);color:var(--color-text-tertiary);cursor:not-allowed}
+.qd-modal{width:min(720px,calc(100vw - 32px))}
+.qd-bank{display:flex;align-items:baseline;gap:12px;padding:10px 12px;border-radius:var(--radius-sm);background:var(--color-surface-sunken);font-size:12px;color:var(--color-text-secondary)}
+.qd-bank strong{margin-left:auto;font-family:var(--font-mono);font-size:13px;color:var(--color-text-primary)}
+.qd-bank strong.in{color:var(--color-success-text)}
+.qd-types{display:flex;flex-direction:column;gap:6px}
+.qd-lbl{font-size:11px;font-weight:600;color:var(--color-text-secondary)}
+.qd-types .recon-dir{align-self:flex-start}
+.qd-memo{flex-basis:100%}
+.qd-warn{padding:9px 12px;border-radius:var(--radius-sm);border:1px solid var(--color-warning-border);background:var(--color-warning-surface);color:var(--color-warning-text);font-size:12px;line-height:1.45}
+.rm-banner{display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;margin:0 18px 10px;padding:9px 12px;border-radius:var(--radius-sm);border:1px solid var(--color-warning-border);background:var(--color-warning-surface);color:var(--color-warning-text);font-size:12px;line-height:1.45}
+.rm-banner-acts{display:inline-flex;gap:12px;margin-left:auto;white-space:nowrap}
+/* The done tabs — Reconciled, Posted — sit apart on the right */
+.recon-card .bp-tab.recon-tab-done-first{margin-left:auto}
+/* Ending balance by the bank and by Klay, and the difference */
+.bank-card-bals{display:grid;grid-template-columns:auto 1fr;column-gap:10px;row-gap:2px;align-items:baseline}
+.bank-card-bal-lbl{font-size:10.5px;font-weight:600;color:var(--color-text-tertiary)}
+.bank-card-bal{font-family:var(--font-mono);font-size:12.5px;font-weight:600;color:var(--color-text-primary);text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bank-card-bal.diff{color:var(--color-warning-text);cursor:help}
+.bank-card-bal.diff.zero{color:var(--color-success-text)}

@@ -1,12 +1,16 @@
 // The matching engine.
 //
 // It takes two lists that describe the same events — the bank's (`bankStatement.js`)
-// and Klay's (`bankLedger.js` for recorded payments and receipts, plus open
-// invoices and bills) — and works out which line is which record.
+// and Klay's (`bankLedger.js`: the cash journals on this account — recorded
+// payments and posted journals through it) — and works out which line is which.
+//
+// Only cash journals are candidates. An invoice or a bill is not cash: until a
+// receipt or payment is recorded against it, there is nothing on this account
+// for a bank line to be, and the line stays in To match with no counterpart.
 //
 // Nothing is matched automatically. For every statement line the engine either
 // SUGGESTS what it is, or says it found nothing. A person reconciles each line:
-// confirms the suggestion, reconciles it by hand, or parks it. That keeps the
+// confirms the suggestion, matches it by hand, or marks it for later. That keeps the
 // engine honest about what it is — a guess built from amounts — and keeps the
 // decision with somebody who can be asked about it.
 //
@@ -22,23 +26,15 @@
 //     3  a small debit the bank describes as a fee — a drafted journal to post
 //
 //   Money in (AR)
-//     1  a recorded receipt of exactly this amount
-//     2  an open invoice whose subtotal is exactly this amount
-//     3  interest the bank describes as interest — a drafted journal to post
-//     4  an open invoice whose subtotal is within 3% of this amount, either
-//        way. Customers withhold 2% PPh 23 and round; the difference is said
-//        in rupiah and percent, never hidden
-//
-// A bill or invoice counts as paid in full when what arrived falls short of it
-// by no more than the 2% PPh 23 withholding.
+//     1  a recorded receipt or posted journal of exactly this amount
+//     2  interest the bank describes as interest — a drafted journal to post
 //
 // No score reaches the caller. A suggestion is a sentence built from the
-// record's own numbers — "Rp 880.000 (2%) under INV005's subtotal, the PPh 23
-// the customer withholds" — rather than a percentage of confidence, because
-// 0.87 tells a Finance Manager nothing they can act on.
+// record's own numbers — "Exact amount · the only record with it" — rather
+// than a percentage of confidence, because 0.87 tells a Finance Manager
+// nothing they can act on.
 
 import { BILLS } from "../data/seed/bills";
-import { INVOICES } from "../data/seed/invoices";
 import { VENDORS } from "../data/seed/vendors";
 import { CUSTOMERS } from "../data/seed/customers";
 import { KNOWN_NAMES } from "../data/seed/bankKnownNames";
@@ -56,14 +52,6 @@ import { dayDiff, addBusinessDays } from "./clock";
 
 // Now per bank (data/seed/bankFees.js); this stays the fallback.
 export const FEE_CEILING = DEFAULT_FEE_CEILING;
-
-// How far a customer receipt may sit from an invoice's subtotal, either way,
-// and still be suggested for it.
-export const AR_TOLERANCE = 0.03;
-
-// PPh 23 withheld by the payer. Paying the total less this much settles the
-// bill or invoice in full.
-export const WITHHOLDING_RATE = 0.02;
 
 const FEE_PATTERNS = /(biaya|admin|adm\b|fee|charge|provisi)/i;
 const INTEREST_PATTERNS = /(bunga|interest)/i;
@@ -84,10 +72,6 @@ const d = (iso) => {
   const [y, m, day] = iso.split("-");
   return `${parseInt(day, 10)} ${MONTHS[parseInt(m, 10) - 1]} ${y}`;
 };
-
-// True when `received` settles `due` in full: short by no more than the 2%
-// withholding. Anything above it (an overpayment) settles it too.
-export const paysInFull = (received, due) => received >= Math.round(due * (1 - WITHHOLDING_RATE));
 
 // Loose name comparison. Bank statements truncate, upper-case and drop the
 // legal form, so "PT PENYEDIA LAYANAN KON" has to be able to reach
@@ -145,11 +129,6 @@ export const EXCEPTION_TYPES = {
 
 // ── Candidates ───────────────────────────────────────────────────────────────
 
-// An invoice a receipt can be for: sent to the customer, not yet paid, and
-// dated no later than the money arrived.
-const openInvoices = () => INVOICES.filter((i) => i.approval === "sent" && i.payStatus !== "paid" && (i.dpp || i.total) > 0);
-const subtotalOf = (inv) => inv.dpp || inv.total;
-
 // Records of exactly this amount, best first: the party named in the bank text,
 // then the nearest date.
 function recordCandidates(line, pool, read) {
@@ -158,20 +137,6 @@ function recordCandidates(line, pool, read) {
     .map((r) => ({ r, named: !!read.name && nameAgrees(read.name, r.counterparty), gap: Math.abs(dayDiff(line.date, r.date)) }))
     .sort((a, b) => Number(b.named) - Number(a.named) || a.gap - b.gap)
     .map((x) => x.r);
-}
-
-// Open invoices a receipt could settle, best first: the customer named in the
-// bank text, then the smallest difference from the subtotal.
-function invoiceCandidates(line, invoices, read, { exact }) {
-  return invoices
-    .filter((i) => !i._taken && i.date <= line.date)
-    .map((i) => {
-      const sub = subtotalOf(i);
-      const diff = line.amount - sub;
-      return { i, sub, diff, ratio: diff / sub, named: !!read.name && nameAgrees(read.name, i.customerName) };
-    })
-    .filter((x) => (exact ? x.diff === 0 : Math.abs(x.ratio) <= AR_TOLERANCE))
-    .sort((a, b) => Number(b.named) - Number(a.named) || Math.abs(a.diff) - Math.abs(b.diff));
 }
 
 // ── How strong a suggestion is ───────────────────────────────────────────────
@@ -183,10 +148,8 @@ function invoiceCandidates(line, invoices, read, { exact }) {
 //            that amount, or the name in the description settles a tie. Also
 //            bank fees and interest, which the bank labels as such
 //   likely   one fact is missing: an exact amount shared by several records
-//            with no name to pick between them, an invoice within range whose
-//            customer the description names, or a bill less its PPh 23
-//   weak     an invoice within range and nothing else — no name, or several
-//            invoices close enough to be it
+//            with no name to pick between them, or a bill less its PPh 23
+//   weak     reserved for a suggestion resting on less than an exact amount
 //
 // It changes where a line is grouped, never whether it needs a yes.
 
@@ -226,53 +189,7 @@ function suggestRecord(line, record, alternates, read) {
     strength,
     basis,
     suggestion: { kind: "record", recordId: record.id, ref: record.ref, billId: record.billId || null, basis: "exact", party: record.counterparty || "", label: record.label || "" },
-    actions: ["reconcile", "manual-match", "exclude"],
-  };
-}
-
-function suggestInvoice(line, hit, alternates) {
-  const { i: inv, sub, diff, ratio, named } = hit;
-  inv._taken = true;
-  const ref = inv.invNo && inv.invNo !== "—" ? inv.invNo : inv.id;
-  const full = paysInFull(line.amount, sub);
-  const exact = diff === 0;
-  const strength = exact
-    ? (alternates === 0 || named ? "strong" : "likely")
-    : named ? "likely" : "weak";
-  const basis = exact
-    ? alternates === 0 ? "Exact subtotal · the only open invoice with it" : named ? "Exact subtotal · customer named in the description" : `Exact subtotal · ${alternates + 1} open invoices share it`
-    : named
-      ? `Within ${pct(AR_TOLERANCE)} of the subtotal · customer named in the description`
-      : `Within ${pct(AR_TOLERANCE)} of the subtotal · no name to confirm the customer${alternates ? `, ${alternates + 1} invoices in range` : ""}`;
-
-  let gap = "";
-  if (!exact) {
-    const dir = diff < 0 ? "under" : "over";
-    const withholding = diff < 0 && full ? `, within the ${pct(WITHHOLDING_RATE)} PPh 23 ${inv.customerName} withholds` : "";
-    gap = `${rp(diff)} (${pct(ratio)}) ${dir} the subtotal${withholding}. `;
-  }
-  const outcome = full
-    ? `Reconciling it marks ${inv.id} paid in full.`
-    : `That is more than the ${pct(WITHHOLDING_RATE)} withholding, so reconciling it leaves ${rp(sub - line.amount)} open on ${inv.id}.`;
-
-  return {
-    type: EXCEPTION_TYPES.SUGGESTED.key,
-    detector: exact ? "INVOICE_EXACT" : "INVOICE_RANGE",
-    brief: exact
-      ? `${inv.id} (${inv.customerName}). Same as the subtotal.`
-      : `${inv.id} (${inv.customerName}). ${pct(ratio)} ${diff < 0 ? "under" : "over"} the ${rp(sub)} subtotal.`,
-    title: `${inv.id} — ${rp(line.amount)}`,
-    explanation:
-      `${rp(line.amount)} arrived on ${d(line.date)}. ${inv.id} to ${inv.customerName} (${ref}, ${d(inv.date)}) has a subtotal of ${rp(sub)}` +
-      `${exact ? " — the same amount. " : `. ${gap}`}${outcome}${others(alternates)}`,
-    counterparty: inv.customerName,
-    strength,
-    basis,
-    suggestion: {
-      kind: "invoice", invoiceId: inv.id, ref: inv.id, basis: exact ? "exact" : "range",
-      subtotal: sub, diff, paysInFull: full, customerName: inv.customerName,
-    },
-    actions: ["reconcile", "manual-match", "exclude"],
+    actions: ["reconcile", "manual-match", "later"],
   };
 }
 
@@ -303,7 +220,7 @@ function suggestUnrecordedPayment(line, read) {
     strength: "likely",
     basis: named.length === 1 ? "Bill total less its PPh 23 · vendor named in the description" : "Bill total less its PPh 23 · the only open bill it fits",
     counterparty: bill.vendorName,
-    actions: ["record-payment", "manual-match", "exclude"],
+    actions: ["record-payment", "manual-match", "later"],
   };
 }
 
@@ -323,7 +240,7 @@ function suggestBankFee(line, account) {
     explanation:
       `${rp(line.amount)} on ${d(line.date)}, described by the bank as "${line.description}". Nothing in Klay raises a bill for it, ` +
       `so Klay drafted the journal. Post it as it is, or edit it first.`,
-    actions: ["post-journal", "edit-journal", "manual-match", "exclude"],
+    actions: ["post-journal", "edit-journal", "manual-match", "later"],
   };
 }
 
@@ -339,7 +256,7 @@ function suggestInterestTax(line) {
     explanation:
       `${rp(line.amount)} on ${d(line.date)}, described by the bank as "${line.description}". The final tax (PPh Final) the bank ` +
       `withholds on interest — 20% on giro interest. Nothing in Klay raises it, so Klay drafted the journal. Post it as it is, or edit it first.`,
-    actions: ["post-journal", "edit-journal", "exclude"],
+    actions: ["post-journal", "edit-journal", "later"],
   };
 }
 
@@ -354,11 +271,11 @@ function suggestBankInterest(line) {
     explanation:
       `${rp(line.amount)} credited on ${d(line.date)}, described by the bank as "${line.description}". Interest the bank paid; nothing in ` +
       `Klay raises an invoice for it, so Klay drafted the journal. Post it as it is, or edit it first.`,
-    actions: ["post-journal", "edit-journal", "manual-match", "exclude"],
+    actions: ["post-journal", "edit-journal", "manual-match", "later"],
   };
 }
 
-// The registry is deferred, so a VA credit that matched no invoice by amount
+// The registry is deferred, so a VA credit with no receipt recorded for it
 // cannot yet be resolved to a customer. Say exactly why.
 function unregisteredVa(line) {
   if (line.amount <= 0) return null;
@@ -369,10 +286,10 @@ function unregisteredVa(line) {
     detector: "VA_UNREGISTERED",
     title: `Virtual Account credit — VA ${vaNumber} is not in the registry`,
     explanation:
-      `${rp(line.amount)} arrived on ${d(line.date)} tagged with Virtual Account ${vaNumber} and no customer name. No open invoice is within ` +
-      `${pct(AR_TOLERANCE)} of this amount, and the VA number is not mapped to a customer, so there is nothing to suggest.`,
+      `${rp(line.amount)} arrived on ${d(line.date)} tagged with Virtual Account ${vaNumber} and no customer name. No receipt recorded in Klay ` +
+      `has this amount, and the VA number is not mapped to a customer, so there is nothing to suggest.`,
     vaNumber,
-    actions: ["manual-match", "exclude"],
+    actions: ["manual-match", "later"],
   };
 }
 
@@ -386,7 +303,6 @@ export function reconcile({ statement, books = [] }) {
   // Private copies: `_taken` marks a record as suggested so two bank lines are
   // never pointed at the same one — which is what makes a duplicate visible.
   const pool = books.filter((r) => r.accountId === statement.account.id).map((r) => ({ ...r, _taken: false }));
-  const invoices = openInvoices().map((i) => ({ ...i, _taken: false }));
   // Amounts already suggested for an earlier line, for spotting a second copy.
   const suggestedAmounts = new Map();
 
@@ -398,19 +314,13 @@ export function reconcile({ statement, books = [] }) {
     let spec = null;
 
     // Descriptions that say fee or interest are taken at their word before any
-    // amount is compared: a Rp 1.85M interest credit is not a customer paying
-    // an invoice that happens to be close to it.
+    // amount is compared: a Rp 1.85M interest credit is not a customer receipt
+    // that happens to be the same amount.
     spec = suggestInterestTax(line) || suggestBankFee(line, statement.account) || suggestBankInterest(line);
 
     if (!spec) {
       const records = recordCandidates(line, pool, read);
       if (records.length) spec = suggestRecord(line, records[0], records.length - 1, read);
-    }
-
-    if (!spec && line.amount > 0) {
-      const exact = invoiceCandidates(line, invoices, read, { exact: true });
-      const hits = exact.length ? exact : invoiceCandidates(line, invoices, read, { exact: false });
-      if (hits.length) spec = suggestInvoice(line, hits[0], hits.length - 1);
     }
 
     if (!spec) spec = suggestUnrecordedPayment(line, read);
@@ -429,7 +339,7 @@ export function reconcile({ statement, books = [] }) {
           `${rp(line.amount)} ${line.amount < 0 ? "left" : "arrived in"} the account on ${d(line.date)}, the same amount as the line on ${d(first.date)}` +
           `${read.name ? ` (both read as ${read.name})` : ""}, and Klay holds one record of that amount. Either it was sent twice or one of ` +
           `them belongs to something not yet entered. Verify before reconciling.`,
-        actions: ["manual-match", "exclude"],
+        actions: ["manual-match", "later"],
       };
     }
 
@@ -444,13 +354,13 @@ export function reconcile({ statement, books = [] }) {
           `${rp(line.amount)} ${line.amount < 0 ? "left" : "arrived in"} the account on ${d(line.date)}. ` +
           (line.amount < 0
             ? `No payment recorded in Klay has this amount within ${MATCH_WINDOW_DAYS} days`
-            : `No receipt recorded in Klay has this amount, and no open invoice is within ${pct(AR_TOLERANCE)} of it`) +
+            : `No receipt or journal recorded in Klay has this amount within ${MATCH_WINDOW_DAYS} days`) +
           (read.raw
             ? read.name ? `, though the description names ${read.name}. ` : `, and "${read.raw}" isn't a vendor or customer Klay knows. `
             : `, and the description carries no name. `) +
-          `Reconcile it manually if it covers several records.`,
+          `Match it by hand if it covers several records; if it is not in Klay yet, record it first.`,
         counterparty: read.name,
-        actions: ["manual-match", "exclude"],
+        actions: ["manual-match", "later"],
       };
     }
 
@@ -504,7 +414,7 @@ function buildException(line, spec) {
     amount: line.amount,
     counterparty: line.counterparty || "",
     description: line.description,
-    resolution: null, // { action, at, by, note, jeNumber, recordIds, invoiceIds }
+    resolution: null, // { action, at, by, note, jeNumber, recordIds }
     suggestion: null,
     ...spec,
   };
@@ -533,13 +443,12 @@ function emptyCounts() {
   return { total: 0, reconciled: 0, suggested: 0, anomaly: 0, genuine: 0, unclassified: 0, systematic: 0, fee: 0, blocking: 0, open: 0 };
 }
 
-// "Mark for later" parks an item without deciding it. It is recorded like any
-// other decision, but it is still open: parking must never be a way to get a
-// month marked reconciled.
-// A line is open until it is matched (and any journal the match drafted is
-// posted) or excluded. A match waiting on its journal still holds the account
-// open — it is matched, not yet reconciled.
-export const isOpen = (e) => !e.resolution || !!e.resolution.pendingJournal;
+// A line is open until it is matched to a cash journal or its bank charge or
+// interest journal is posted. "Mark for later" parks a line without deciding
+// it: it is recorded like any other decision, but it is still open — parking
+// must never be a way to get a month marked reconciled.
+export const isLater = (e) => e.resolution?.action === "later";
+export const isOpen = (e) => !e.resolution || isLater(e);
 
 // Counts over a run's exceptions, with or without this session's decisions
 // laid over them.
@@ -560,4 +469,4 @@ export function countOf(rows, exceptions) {
   };
 }
 
-export { nameAgrees, openInvoices, subtotalOf };
+export { nameAgrees };

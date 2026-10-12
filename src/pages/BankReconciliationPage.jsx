@@ -1,16 +1,16 @@
 // Bank Reconciliation — every statement line, reconciled by a person.
 //
 // Nothing is reconciled automatically. For each line the engine
-// (lib/bankMatching.js) either suggests what it is — a recorded payment or
-// receipt of the same amount, an open invoice within range, a bank fee or
-// interest with its journal already drafted — or says it found nothing. A
-// person confirms the suggestion, reconciles the line by hand, or parks it.
+// (lib/bankMatching.js) either suggests what it is — a cash journal of the
+// same amount on this account, or a bank fee or interest with its journal
+// already drafted — or says it found nothing. A person confirms the
+// suggestion, matches the line by hand, or marks it for later.
 //
 // Rules kept deliberately:
 //
 //   No confidence scores. Every suggestion carries a sentence built from the
-//   record's own numbers. "2% under INV005's subtotal" is checkable; "93%" is
-//   an invitation to accept something you have not read.
+//   record's own numbers. "Exact amount · the only record with it" is
+//   checkable; "93%" is an invitation to accept something you have not read.
 //
 //   Reconciliation ends. There is a finish line, it is disabled until every
 //   line is decided, and crossing it is what closes Gate 4 on the close board.
@@ -23,20 +23,26 @@ import "./bank-reconciliation.css";
 import { COMPANY_BANK_ACCOUNTS, bankAccountById, maskOf } from "../data/seed/bankAccounts";
 import { periodLabel, statementLabel, statementFor, nextStatementThrough, coverageOf, CURRENT_PERIOD } from "../data/seed/bankStatement";
 import { PERIODS } from "../lib/bankReconHistory";
-import { EXCEPTION_TYPES, isOpen, countOf, paysInFull, subtotalOf } from "../lib/bankMatching";
+import { EXCEPTION_TYPES, isOpen, countOf } from "../lib/bankMatching";
 import { runReconciliation, stateOf, reconcilable } from "../lib/bankRecon";
-import { draftEntry, draftProblem, postedEntry, postedNote, matchEntry } from "../lib/reconJournal";
+import { draftEntry, draftProblem, postedEntry, postedNote, differenceEntry } from "../lib/reconJournal";
 import { useJournalEntries } from "../state/JournalEntriesContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
 import { usePayments } from "../state/PaymentsContext";
-import { useInvoices } from "../state/InvoicesContext";
 import { useBankRecon } from "../state/BankReconContext";
 import { useClosePeriod } from "../state/ClosePeriodContext";
 import { useAccountingSettings } from "../state/AccountingSettingsContext";
-import { MatchPanels, MatchBar, CategoryChip, ExcludeMenu, EXCLUDE_REASONS, Segmented } from "../components/ReconMatchView";
-import { categoryOfLine } from "../lib/reconCategory";
+import { MatchPanels, MatchBar, LaterButton, Segmented } from "../components/ReconMatchView";
 import { matchBalance, allocate, DIRECTIONS, inDirection } from "../lib/manualMatch";
 import ReconJournalModal from "../components/ReconJournalModal";
+import QuickDraftModal from "../components/QuickDraftModal";
+import { balancesOf } from "../lib/bankBalance";
+import { bookRecordsFor } from "../lib/bankLedger";
+import { useBills } from "../state/BillsContext";
+import { useVendors } from "../state/VendorsContext";
+import { useCustomers } from "../state/CustomersContext";
+import { useInvoices } from "../state/InvoicesContext";
+import { auditTextFor, breakdownTotal } from "../lib/paymentBreakdown";
 import { TODAY } from "../lib/clock";
 
 const TODAY_ISO = TODAY.toISOString().slice(0, 10);
@@ -93,83 +99,85 @@ const fmtIsoLong = (iso) => {
 
 // ── Tabs ─────────────────────────────────────────────────────────────────────
 //
-// Each tab is a stage, and every bank line is in exactly one of them, left to
-// right in the order of the work:
+// Each tab is a stage, and every bank line is in exactly one of them. The work
+// sits on the left, in the order it is done; the two "done" tabs sit apart on
+// the right, one for each way a line gets finished:
 //
-//   Need confirmation   Klay suggests which record or invoice the line is,
-//                       shown bank side | Klay side
-//   To match            Klay has no suggestion; a person pairs the line with
-//                       Klay transactions in a side-by-side view
-//   Review & post       waiting on a journal: a bank fee or interest, or a
-//     journals          match that drafted one (a receipt, a difference). One
-//                       row per journal — a receipt can cover several lines
-//   Reconciled          done: matched to what the books already hold, or its
-//                       journal posted. A posted journal is never undone here;
-//                       a wrong one is reversed in the GL, and the line comes
-//                       back to Review & post journals
-//   Excluded            set aside as not needing a Klay record: a line the
-//                       statement printed twice, a transfer the bank reversed
+//   To reconcile      Klay suggests which cash journal on this account the
+//                     line is, shown bank side | Klay side
+//   To match          Klay has no suggestion; a person pairs the line with
+//                     cash journals in a side-by-side view. A line with no
+//                     cash journal in Klay has nothing to pair with yet
+//   To post           bank charges and interest, each with the journal Klay
+//                     drafted. Posting it is what finishes the line
+//   Marked for later  parked, not decided — it still holds the account open
+//   ── done ──
+//   Reconciled        matched to a cash journal
+//   Posted            a bank charge or interest whose journal is posted
 //
-// An account is reconciled once every line is Reconciled or Excluded.
+// A posted journal is never undone here; it is reversed in the GL, and the
+// line comes back to where it started. An account is reconciled once every
+// line is Reconciled or Posted.
 
-// The Klay type filter lives only in To match's Klay pane.
-const NO_FILTER = { dir: "all", cat: "all", search: "" };
-// No Money in/out chips: Reconciled is a record read top to bottom, and Need
-// confirmation is worked strongest-first with its search box.
+const NO_FILTER = { dir: "all", search: "" };
+// No Money in/out chips: Reconciled is a record read top to bottom, and To
+// reconcile is worked strongest-first with its search box.
 const UNFILTERED_TABS = new Set(["reconciled", "confirm"]);
 
 const JOURNAL_DETECTORS = new Set(["FEE_PATTERN", "INTEREST_CREDIT", "INTEREST_TAX"]);
 // A bill paid from the bank but never recorded (PPH_WITHHOLDING) has nothing
 // in Klay to match yet, so it waits in To match until its payment is recorded.
-const CONFIRM_DETECTORS = new Set(["EXACT_AMOUNT", "INVOICE_EXACT", "INVOICE_RANGE", ...JOURNAL_DETECTORS]);
+const CONFIRM_DETECTORS = new Set(["EXACT_AMOUNT"]);
 
 function tabOf(ex) {
-  if (ex.resolution?.action === "exclude") return "excluded";
-  // Matched, waiting on its journal: shown as that journal's row.
-  if (ex.resolution?.pendingJournal) return "journals";
+  if (ex.resolution?.action === "later") return "later";
+  if (ex.resolution?.action === "post-journal") return "posted";
   if (ex.resolution) return "reconciled";
-  // A fee or interest line whose posted journal was reversed in the GL.
-  if (ex.reopened) return "journals";
   // Its suggestion was set aside to match it by hand.
   if (ex.manual) return "tomatch";
+  // A fee or interest line — its journal not posted yet, or posted and then
+  // reversed in the GL — waits in To post.
   if (JOURNAL_DETECTORS.has(ex.detector)) return "journals";
   return CONFIRM_DETECTORS.has(ex.detector) ? "confirm" : "tomatch";
 }
 
 const TABS = [
-  { k: "confirm",      lbl: "Need confirmation" },
+  { k: "confirm",      lbl: "To reconcile" },
   { k: "tomatch",      lbl: "To match" },
-  { k: "reconciled",   lbl: "Reconciled" },
-  { k: "excluded",     lbl: "Excluded" },
-  { k: "journals",     lbl: "Review & post journals" },
+  { k: "journals",     lbl: "To post" },
+  { k: "later",        lbl: "Marked for later" },
+  // Done — right-aligned.
+  { k: "reconciled",   lbl: "Reconciled", done: true },
+  { k: "posted",       lbl: "Posted",     done: true },
 ];
 
-// Need confirmation is ordered by how strong the match is (STRENGTHS in
+// To reconcile is ordered by how strong the match is (STRENGTHS in
 // lib/bankMatching.js), strongest first. The strength itself is never shown —
 // each row's basis line says in words why it sits where it does. Every line
-// still needs a yes; Confirm all gives it to every row in view at once.
+// still needs a yes; Reconcile all gives it to every row in view at once.
 const CONFIRM_SECTIONS = ["strong", "likely", "weak"].map((k) => ({ k, test: (e) => (e.strength || "weak") === k }));
 
-// Review & post journals: everything waiting to be posted, by where it came from.
-// Bank charges and interest are drafted when the statement loads; the rest by
-// a match (a customer receipt, a difference somebody chose to book).
+// To post: the bank's own charges and interest, drafted when the statement
+// loads. Posting one reconciles its line.
 const JOURNAL_SECTIONS = [
-  { k: "bank",  lbl: "Bank charges & interest", test: (e) => !e.isMatchDraft },
-  { k: "match", lbl: "From matches",            test: (e) => !!e.isMatchDraft },
+  { k: "fees",     lbl: "Bank charges", test: (e) => e.detector === "FEE_PATTERN" },
+  { k: "interest", lbl: "Interest",     test: (e) => e.detector !== "FEE_PATTERN" },
 ];
 
 // ── Who may do what ──────────────────────────────────────────────────────────
 //
-// Two capabilities, two steps. Matching needs bank.reconcile; posting a
-// journal to the ledger needs gl.post. Somebody who holds both does both.
-// Editing a draft is preparation, so either is enough for it.
+// One capability, bank.reconcile, covers the whole page: matching and
+// reconciling lines, and posting the journals reconciliation writes (bank
+// charges and interest, booked differences, quick drafts). It does not need
+// gl.post — those journals exist only to explain a bank line.
 // `postBlock(row)` says why this person can't post this particular journal, or
-// null: the capability, and segregation of duties.
+// null: only the capability — Enforced and Relaxed segregation of duties treat
+// the page alike.
 const Perm = createContext({ canMatch: true, canPost: true, postBlock: () => null });
-const NEEDS = { "post-journal": "post", reconcile: "match", "manual-match": "match", undo: "match", "restore-excluded": "match", restore: "match" };
+const NEEDS = { "post-journal": "post", reconcile: "match", "manual-match": "match", undo: "match", later: "match", "move-back": "match", restore: "match" };
 const WHY_NOT = {
-  post: "Posting needs the Post to ledger permission",
-  match: "Matching needs the Reconcile bank permission",
+  post: "Needs the Reconcile bank permission",
+  match: "Needs the Reconcile bank permission",
 };
 const allowed = (perm, a) => {
   const need = NEEDS[a];
@@ -180,9 +188,31 @@ const allowed = (perm, a) => {
 
 // The selected card is the page's header — there is no second strip
 // repeating it above the table.
-// Name, number, state, the bank's closing balance and the statement it holds.
-// No progress figures — the state pill says whether there is work left.
-function AccountCard({ run, selected, onSelect }) {
+// Name, number, state, then the account's ending balance by the bank and by
+// Klay, and the difference (lib/bankBalance.js) — hover it for what explains
+// it. No progress figures — the state pill says whether there is work left.
+function BalanceRows({ bal }) {
+  const why = bal.diff == null ? undefined
+    : `${bal.notInKlay.n} bank line${bal.notInKlay.n === 1 ? "" : "s"} not in Klay yet: ${fmtAmt(bal.notInKlay.amount)}\n`
+      + `${bal.notOnBank.n} Klay entr${bal.notOnBank.n === 1 ? "y" : "ies"} not on the statement yet: ${fmtAmt(bal.notOnBank.amount)}`
+      + (bal.explained ? "\nThe difference is fully explained by these." : "");
+  return (
+    <div className="bank-card-bals">
+      <span className="bank-card-bal-lbl">Bank</span>
+      <span className="bank-card-bal">{bal.bank == null ? "No statement" : `Rp ${fmtRp(bal.bank)}`}</span>
+      <span className="bank-card-bal-lbl">Klay</span>
+      <span className="bank-card-bal">Rp {fmtRp(bal.klay)}</span>
+      {bal.diff != null && (
+        <>
+          <span className="bank-card-bal-lbl">Diff</span>
+          <span className={`bank-card-bal diff${bal.diff === 0 ? " zero" : ""}`} title={why}>{fmtAmt(bal.diff)}</span>
+        </>
+      )}
+    </div>
+  );
+}
+
+function AccountCard({ run, bal, selected, onSelect }) {
   const { account, statement } = run;
   const scoped = statement.loaded && reconcilable(account);
   // "Apr 1–20" — the month menu above already says the year.
@@ -203,7 +233,7 @@ function AccountCard({ run, selected, onSelect }) {
         </div>
         {(scoped || statement.awaitingUpload) && <span className={`recon-state-pill ${run.state.tone}`}>{run.state.label}</span>}
       </div>
-      <div className="bank-card-amt">Rp {fmtRp(statement.closingBalance)}</div>
+      {bal ? <BalanceRows bal={bal} /> : <div className="bank-card-amt">Rp {fmtRp(statement.closingBalance)}</div>}
       {scoped ? (
         <div className="bank-card-stmt">{span} · {statement.lines.length} lines</div>
       ) : statement.awaitingUpload ? (
@@ -239,10 +269,10 @@ function TableHead() {
   );
 }
 
-// A row's buttons, then — on an undecided line — Exclude with its reasons. A
-// button the person lacks the capability for stays visible, disabled, and
-// says which permission it needs.
-function RowActions({ ex, actions, onAction, exclude = false }) {
+// A row's buttons, then — on an undecided line — Mark for later. A button the
+// person lacks the capability for stays visible, disabled, and says which
+// permission it needs.
+function RowActions({ ex, actions, onAction, later = false }) {
   const perm = useContext(Perm);
   return (
     <div className="recon-td-acts">
@@ -257,7 +287,7 @@ function RowActions({ ex, actions, onAction, exclude = false }) {
           </button>
         );
       })}
-      {exclude && perm.canMatch && <ExcludeMenu onPick={(reason) => onAction("exclude", ex, reason)} />}
+      {later && perm.canMatch && <LaterButton onClick={() => onAction("later", ex)} />}
     </div>
   );
 }
@@ -287,13 +317,8 @@ const Result = ({ tone = "info", head, sub, children }) => (
   </>
 );
 
-const pctOf = (s) => `${Number((Math.abs(s.diff / s.subtotal) * 100).toFixed(1))}%`;
-
 const PRIMARY = {
-  EXACT_AMOUNT: { a: "reconcile", label: "Match" },
-  // Matching an invoice drafts its receipt journal, so the button says so.
-  INVOICE_EXACT: { a: "reconcile", label: "Match & draft" },
-  INVOICE_RANGE: { a: "reconcile", label: "Match & draft" },
+  EXACT_AMOUNT: { a: "reconcile", label: "Reconcile" },
   FEE_PATTERN: { a: "post-journal", label: "Post" },
   INTEREST_CREDIT: { a: "post-journal", label: "Post" },
   INTEREST_TAX: { a: "post-journal", label: "Post" },
@@ -360,13 +385,12 @@ function JournalRow({ ex, onAction, draftOf, selected = false, onToggle = null }
       <div className="recon-td-result"><JournalSide lines={draft.lines.filter((l) => l.debit)} /></div>
       <div className="recon-td-result"><JournalSide lines={draft.lines.filter((l) => l.credit)} /></div>
       <div className="recon-td-amt">{fmtAmt(ex.amount)}</div>
-      {/* A match's draft goes away by undoing the match, not by excluding. */}
-      <RowActions ex={ex} actions={actions} onAction={onAction} exclude={!ex.isMatchDraft} />
+      <RowActions ex={ex} actions={actions} onAction={onAction} later />
     </div>
   );
 }
 
-// ── Need confirmation: bank side | Klay side ─────────────────────────────────
+// ── To reconcile: bank side | Klay side ──────────────────────────────────────
 //
 // A suggestion is a claim that two things are the same, so the row shows both
 // things — the statement line on the left, the Klay transaction on the right,
@@ -418,7 +442,7 @@ function ConfirmRow({ ex, onAction, klay }) {
       <div className="cf-side klay">
         <span className="recon-td-date">{klay.date ? fmtDateShort(klay.date) : "—"}</span>
         <div className="recon-td-result">
-          <span className="cf-ref">{klay.cat && <CategoryChip cat={klay.cat} />}{klay.ref}{klay.refSub && <span className="cf-ref-sub"> · {klay.refSub}</span>}</span>
+          <span className="cf-ref">{klay.ref}{klay.refSub && <span className="cf-ref-sub"> · {klay.refSub}</span>}</span>
           <span className="recon-res-sub" title={klay.sub}>{klay.sub}</span>
           <span className="cf-why-line">
             {klay.why && <span className={`cf-why ${klay.tone || ""}`}>{klay.why}</span>}
@@ -428,7 +452,7 @@ function ConfirmRow({ ex, onAction, klay }) {
         </div>
         <span className="recon-td-amt">{klay.amount == null ? "—" : fmtAmt(klay.amount)}</span>
       </div>
-      <RowActions ex={ex} actions={actions} onAction={onAction} exclude />
+      <RowActions ex={ex} actions={actions} onAction={onAction} later />
     </div>
   );
 }
@@ -438,7 +462,7 @@ function ConfirmRow({ ex, onAction, klay }) {
 // posted journal is reversed in the GL, never undone here.
 const UNDOABLE = new Set(["reconcile", "manual-match"]);
 const RESOLVED_HEAD = { "post-journal": "Journal posted", reconcile: "Matched", "manual-match": "Matched manually" };
-function ReconciledRow({ ex, onAction, cat }) {
+function ReconciledRow({ ex, onAction }) {
   const r = ex.resolution;
   const actions = UNDOABLE.has(r.action) && !r.jeNumber ? [{ a: "undo", label: "Undo", kind: "link" }] : [];
   const journals = r.journals?.length ? r.journals : r.jeNumber ? [r.jeNumber] : [];
@@ -448,22 +472,41 @@ function ReconciledRow({ ex, onAction, cat }) {
       onAction={onAction}
       actions={actions}
       journal={journals.length ? journals.map((j) => <span key={j} className="recon-td-jeno">{j}</span>) : <span className="recon-td-none">—</span>}
-      result={<Result tone="ok" head={<>{cat && <CategoryChip cat={cat} />}{RESOLVED_HEAD[r.action] || "Matched"}</>} sub={r.note} />}
+      result={<Result tone="ok" head={RESOLVED_HEAD[r.action] || "Matched"} sub={r.note} />}
     />
   );
 }
 
-// A line set aside as needing no Klay record, and why. Restore puts it back
-// where it came from.
-function ExcludedRow({ ex, onAction }) {
+// A bank charge or interest line whose journal is posted: the entry as it went
+// to the ledger, with its number. Reversed in the GL, never undone here.
+function PostedRow({ ex, posted }) {
+  const [open, setOpen] = useState(false);
   const r = ex.resolution;
+  return (
+    <div className="recon-trow recon-jrow" role="row">
+      <div className="recon-td-date recon-jsel">{fmtDateShort(ex.date)}</div>
+      <button type="button" className="recon-td-line" onClick={() => setOpen((v) => !v)} aria-expanded={open} title="Show how it was posted">
+        <span className="recon-td-desc">{ex.description}</span>
+        {r.jeNumber && <span className="recon-td-jeno">{r.jeNumber}</span>}
+        {open && <span className="recon-td-more">{r.note}</span>}
+      </button>
+      <div className="recon-td-result"><JournalSide lines={posted.lines.filter((l) => l.debit)} /></div>
+      <div className="recon-td-result"><JournalSide lines={posted.lines.filter((l) => l.credit)} /></div>
+      <div className="recon-td-amt">{fmtAmt(ex.amount)}</div>
+      <div className="recon-td-acts" />
+    </div>
+  );
+}
+
+// A line parked for later — still open. Move back returns it to where it was.
+function LaterRow({ ex, onAction }) {
   return (
     <TableRow
       ex={ex}
       onAction={onAction}
-      actions={[{ a: "restore-excluded", label: "Restore", kind: "link" }]}
+      actions={[{ a: "move-back", label: "Move back", kind: "link" }]}
       journal={<span className="recon-td-none">—</span>}
-      result={<Result tone="muted" head={EXCLUDE_REASONS.find((x) => x.k === r.reason)?.lbl || "Excluded"} sub={r.note} />}
+      result={<Result tone="muted" head="Marked for later" sub={ex.resolution.note} />}
     />
   );
 }
@@ -671,18 +714,23 @@ function UploadModal({ open, account, run, period, onUpload, onDone, onClose }) 
 
 export default function BankReconciliationPage() {
   const { user, hasCapability } = useCurrentUser();
-  // Matching needs bank.reconcile, posting needs gl.post (see Perm above).
+  // bank.reconcile covers matching and posting alike (see Perm above).
   const canMatch = hasCapability("bank.reconcile");
-  const canPost = hasCapability("gl.post");
-  const { addJournalEntry, peekNextJeNumber } = useJournalEntries();
-  const { payments: allPayments } = usePayments();
-  const { invoices, recordReceipt, undoReceipt } = useInvoices();
+  const canPost = canMatch;
+  const { entries: jeEntries, addJournalEntry, peekNextJeNumber } = useJournalEntries();
+  const { payments: allPayments, recordPayment } = usePayments();
+  const { bills, updateBill } = useBills();
+  const { vendors } = useVendors();
+  const { customers } = useCustomers();
+  const { invoices, recordReceipt } = useInvoices();
 
   const [selectedAccount, setSelectedAccount] = useState("bca-op");
   const [accountListOpen, setAccountListOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
   // The fee or interest line whose journal is being edited, or null.
   const [journalFor, setJournalFor] = useState(null);
+  // The To match line a cash journal is being quick-drafted for, or null.
+  const [quickFor, setQuickFor] = useState(null);
   // null = let the page pick: the first tab with something in it.
   const [tab, setTab] = useState(null);
   // The month being reconciled. Earlier months open as they were left and can
@@ -706,7 +754,7 @@ export default function BankReconciliationPage() {
   // A shortfall: leave it open on the Klay items ("open"), or book it ("book").
   const [matchMode, setMatchMode] = useState("open");
   const clearMatch = useCallback(() => { setSelLines(new Set()); setSelRecords(new Set()); setDiffAcct(""); setMatchMode("open"); }, []);
-  // Review & post journals: the ticked rows, for posting several at once.
+  // To post: the ticked rows, for posting several at once.
   const [selJournals, setSelJournals] = useState(() => new Set());
   const [toast, setToast] = useState("");
   const toastTmr = useRef(null);
@@ -714,9 +762,9 @@ export default function BankReconciliationPage() {
   // Decisions live in a context, not here. The engine is a pure function of the
   // statement and the ledger; what a person decided is laid over the top. They
   // sit outside this component because the close board asks the same question.
-  const { resolutions, drafts, manual, matchDrafts, reopened, uploaded, markUploaded, resolve, unresolve, resolveMany, saveDraft, setManualFor, saveMatchDraft, removeMatchDraft } = useBankRecon();
+  const { resolutions, drafts, manual, reopened, quickDrafts, uploaded, markUploaded, resolve, unresolve, resolveMany, saveDraft, setManualFor, addQuickDraft } = useBankRecon();
   const { isLocked, nextOpenPeriod } = useClosePeriod();
-  const { reconDifferenceAccounts, sodMode } = useAccountingSettings();
+  const { reconDifferenceAccounts } = useAccountingSettings();
   // The first open month, for journals from a month whose books are closed.
   const openPostDate = `${nextOpenPeriod}-01`;
 
@@ -743,8 +791,8 @@ export default function BankReconciliationPage() {
     (accountId, p = CURRENT_PERIOD) => {
       const run = runReconciliation(accountId, { extraPayments: livePayments, period: p });
       if (!run) return null;
-      // A fee or interest line whose journal was reversed in the GL carries
-      // `reopened` (and `reversed`, for its row's badge).
+      // A line whose journal was reversed in the GL carries `reopened` (and
+      // `reversed`, for its row's badge).
       const exceptions = run.exceptions.map((e) => (resolutions[e.id] || manual[e.id] || reopened[e.id]
         ? {
           ...e,
@@ -761,6 +809,19 @@ export default function BankReconciliationPage() {
 
   const runs = useMemo(() => COMPANY_BANK_ACCOUNTS.map((a) => overlaid(a.id, period)).filter(Boolean), [overlaid, period]);
 
+  // Each account's ending balance by the bank and by Klay. An account still
+  // waiting for its statement has no run records, so its books are read
+  // directly — Klay's side is known before the bank's is.
+  const balanceById = useMemo(() => Object.fromEntries(runs
+    .filter((r) => reconcilable(r.account) && (r.statement.loaded || r.statement.awaitingUpload))
+    .map((r) => {
+      const books = r.statement.loaded
+        ? r.records
+        : bookRecordsFor(r.accountId, { from: r.statement.from, to: r.statement.through, extraPayments: livePayments });
+      const quick = Object.values(quickDrafts).filter((q) => q.accountId === r.accountId && q.period === period);
+      return [r.accountId, balancesOf({ statement: r.statement, exceptions: r.exceptions, records: [...books, ...quick] })];
+    })), [runs, quickDrafts, period, livePayments]);
+
   // Each month's standing, for the month menu.
   const monthStatus = useMemo(() => Object.fromEntries(PERIODS.map((p) => {
     const scoped = COMPANY_BANK_ACCOUNTS.map((a) => overlaid(a.id, p)).filter((r) => r && (r.statement.loaded || r.statement.awaitingUpload) && reconcilable(r.account));
@@ -768,7 +829,12 @@ export default function BankReconciliationPage() {
   })), [overlaid]);
   const runById = useMemo(() => Object.fromEntries(runs.map((r) => [r.accountId, r])), [runs]);
   const run = runById[selectedAccount];
-  const recordById = useMemo(() => Object.fromEntries((run?.records || []).map((r) => [r.id, r])), [run]);
+  // The account's cash journals: the run's, plus any quick-drafted this session.
+  const records = useMemo(() => [
+    ...(run?.records || []),
+    ...Object.values(quickDrafts).filter((r) => r.accountId === selectedAccount && r.period === period),
+  ], [run, quickDrafts, selectedAccount, period]);
+  const recordById = useMemo(() => Object.fromEntries(records.map((r) => [r.id, r])), [records]);
   const account = run?.account || bankAccountById(selectedAccount);
 
   const filteredAccounts = runs;
@@ -780,32 +846,15 @@ export default function BankReconciliationPage() {
   const accountsDone = inScope.filter((r) => r.state.key === "RECONCILED").length;
   const allLeft = inScope.reduce((sum, r) => sum + openMoney(r.exceptions).total, 0);
 
-  // Journals a match drafted, as rows of Review & post journals. Each stands for the
-  // bank line(s) it came from; its amount is the bank side of the entry.
-  const draftRows = useMemo(() => Object.values(matchDrafts)
-    .filter((d) => d.accountId === selectedAccount && d.period === period)
-    .map((d) => ({
-      id: d.id, isMatchDraft: true, kind: d.kind || "journal", date: d.date, description: d.description, amount: d.bankAmount, lineId: d.primaryLineId,
-      reversed: d.reversed || null,
-      explanation: d.reversed
-        ? `${d.reversed.je} was reversed in the GL by ${d.reversed.reversedBy}. The match stands — correct this journal and post it again.`
-        : `Drafted when ${d.lineIds.length > 1 ? "these bank lines were" : "this bank line was"} matched to ${d.refs}.`,
-    })), [matchDrafts, selectedAccount, period]);
-
   // Every row in its stage, before any filter. Tab counts come from here, so a
   // filter on one tab never changes the number on another.
   const allByTab = useMemo(() => {
-    const out = { confirm: [], journals: [], tomatch: [], reconciled: [], excluded: [] };
-    for (const e of run?.exceptions || []) {
-      // A match waiting on its journal is shown by the journal's row.
-      if (e.resolution?.pendingJournal) continue;
-      out[tabOf(e)].push(e);
-    }
-    out.journals.push(...draftRows);
+    const out = { confirm: [], journals: [], tomatch: [], reconciled: [], posted: [], later: [] };
+    for (const e of run?.exceptions || []) out[tabOf(e)].push(e);
     const rank = (e) => EXCEPTION_TYPES[e.type]?.rank ?? 9;
     out.tomatch.sort((a, b) => rank(a) - rank(b) || (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
     return out;
-  }, [run, draftRows]);
+  }, [run]);
 
   // What each tab shows: its rows narrowed by its own filters.
   const byTab = useMemo(() => {
@@ -826,14 +875,13 @@ export default function BankReconciliationPage() {
   const activeTab = tab || ["confirm", "tomatch", "journals"].find((k) => tabCount[k] > 0) || "reconciled";
 
   // The open tab's filters, and setters that only ever touch that tab.
-  const { dir, cat, search } = filters[activeTab] || NO_FILTER;
+  const { dir, search } = filters[activeTab] || NO_FILTER;
   const setTabFilter = (patch) => setFilters((prev) => ({ ...prev, [activeTab]: { ...(prev[activeTab] || NO_FILTER), ...patch } }));
   const setSearch = (v) => setTabFilter({ search: v });
-  const setCat = (v) => setTabFilter({ cat: v });
   // Choosing a direction points the Klay filter at what usually moves that
   // way: money in is mostly AR, money out mostly AP. Only a default — interest
   // (Bank) and QRIS takings (Other) are money in too, a tap away.
-  const pickDir = (d) => setTabFilter({ dir: d, cat: d === "in" ? "ar" : d === "out" ? "ap" : "all" });
+  const pickDir = (d) => setTabFilter({ dir: d });
   // A new account starts again from the first tab with work in it.
   useEffect(() => { setTab(null); }, [selectedAccount, period]);
   // A selection belongs to one account, one month, one direction.
@@ -847,30 +895,22 @@ export default function BankReconciliationPage() {
 
   // The journal a fee or interest line would post: the one somebody edited, or
   // Klay's draft from the account mapping.
-  // A match's draft is its own; it is "edited" once somebody saved changes.
   const draftOf = useCallback(
-    (ex) => ex.isMatchDraft
-      ? { draft: matchDrafts[ex.id], edited: !!matchDrafts[ex.id]?.edited }
-      : drafts[ex.id] ? { draft: drafts[ex.id], edited: true } : { draft: draftEntry({ exception: ex, account }), edited: false },
-    [drafts, matchDrafts, account],
+    (ex) => drafts[ex.id] ? { draft: drafts[ex.id], edited: true } : { draft: draftEntry({ exception: ex, account }), edited: false },
+    [drafts, account],
   );
+  // What a posted bank charge or interest line went to the ledger as: the
+  // journal itself where it is in the GL, else (an earlier month's, settled
+  // before this session) the entry Klay drafts for it.
+  const postedOf = (ex) => jeEntries.find((j) => j.je_number === ex.resolution?.jeNumber) || draftOf(ex).draft;
 
   // ── Who may post this ─────────────────────────────────────────────────────
   //
-  // A journal's preparer is whoever matched the line (a match's draft) or
-  // edited the draft (a fee or interest line); Klay's own untouched drafts have
-  // no human preparer. Under ENFORCED segregation of duties (Settings → Access
-  // policy) the preparer cannot post it — two people. RELAXED lets them, and
-  // the posting is flagged for audit.
-  const preparerOf = (row) => (row.isMatchDraft ? matchDrafts[row.id]?.draftedBy : drafts[row.id]?.editedBy) || null;
-  const selfPosting = (row) => preparerOf(row) === user.name;
-  const postBlock = (row) => {
-    if (!canPost) return WHY_NOT.post;
-    if (sodMode === "ENFORCED" && selfPosting(row)) return "Segregation of duties is enforced — you prepared this journal, so someone else posts it";
-    return null;
-  };
+  // Whoever holds bank.reconcile, under Enforced and Relaxed segregation of
+  // duties alike: the one capability covers reconciling and posting, so the
+  // person who edits a draft may post it too.
+  const postBlock = () => (canPost ? null : WHY_NOT.post);
   const perm = { canMatch, canPost, postBlock };
-  const SELF_FLAG = " Posted by its preparer under Relaxed segregation of duties — flagged for audit.";
 
   // ── Deciding ───────────────────────────────────────────────────────────────
 
@@ -883,71 +923,11 @@ export default function BankReconciliationPage() {
     const je = postedEntry({ draft, exception: ex, jeNumber, by: user.name, today: TODAY_ISO, postDate });
     addJournalEntry(je);
     const moved = postDate ? ` Dated ${fmtIsoLong(postDate)} — ${periodLabel(draft.je_date.slice(0, 7))} is closed.` : "";
-    const flag = selfPosting(ex) ? SELF_FLAG : "";
-    return { action: "post-journal", at: TODAY_ISO, by: user.name, note: postedNote(ex, je.je_number, user.name) + moved + flag, jeNumber: je.je_number };
-  }
-
-  // The journal a match needs, drafted into Review & post journals; returns its id,
-  // or null when the match needs none (it matched records already posted).
-  const DRAFTED = " Journal drafted — post it from Review & post journals.";
-  function draftForMatch({ lines, receipts = [], diff = null, refs }) {
-    const primary = lines[0];
-    const description = lines.map((l) => l.description).join(" + ");
-    const entry = matchEntry({ account, date: primary.date, description, refs, receipts, diff });
-    if (!entry) return null;
-    const id = `JD-${primary.id}`;
-    saveMatchDraft(id, { ...entry, id, accountId: account.id, period, lineIds: lines.map((l) => l.id), primaryLineId: primary.lineId, date: primary.date, description, refs, draftedBy: user.name });
-    return id;
-  }
-
-  // Where a customer's overpayment goes by default: the first income account
-  // among the difference accounts. Only a draft — Edit changes it.
-  const overpayAccount = reconDifferenceAccounts.find((c) => c.startsWith("4")) || reconDifferenceAccounts[0] || "4-2300";
-
-  // Posts a match's draft. Returns the resolution updates for its line(s) —
-  // matched, now reconciled — or null when the draft can't post.
-  function postMatchDraft(d, jeNumber) {
-    const pseudo = { amount: d.bankAmount, lineId: d.primaryLineId };
-    const problem = draftProblem(d, pseudo);
-    if (problem) { showToast(problem); return null; }
-    const flag = selfPosting({ isMatchDraft: true, id: d.id }) ? SELF_FLAG : "";
-    const postDate = isLocked(d.je_date) ? openPostDate : null;
-    const je = postedEntry({ draft: d, exception: pseudo, jeNumber, by: user.name, today: TODAY_ISO, postDate });
-    addJournalEntry(je);
-    removeMatchDraft(d.id);
-    const updates = {};
-    for (const id of d.lineIds) {
-      const r = resolutions[id];
-      if (!r) continue;
-      const { id: _id, edited: _ed, reversed: _rv, ...postedDraft } = d;
-      updates[id] = {
-        ...r, pendingJournal: false, jeNumber: je.je_number, journals: [...(r.journals || []), je.je_number], postedDraft,
-        note: `${r.note.replace(DRAFTED, "").replace(" — needs a new journal.", ".")} Journal ${je.je_number} posted by ${user.name}.${flag}`,
-      };
-    }
-    return { updates, je };
+    return { action: "post-journal", at: TODAY_ISO, by: user.name, note: postedNote(ex, je.je_number, user.name) + moved, jeNumber: je.je_number };
   }
 
   function reconcileSuggestion(ex) {
     const s = ex.suggestion;
-    if (s.kind === "invoice") {
-      recordReceipt(s.invoiceId, { amount: ex.amount, date: ex.date, lineId: ex.lineId, by: user.name, paysInFull: s.paysInFull });
-      const outcome = s.paysInFull ? `${s.invoiceId} is paid` : `${s.invoiceId} is part-paid`;
-      // Paid short by the PPh 23 the customer withheld: the invoice is settled
-      // in full and the tax is a prepayment. Paid over: the invoice is settled
-      // and the extra goes to income — a draft, so Edit can move it.
-      const over = Math.max(0, ex.amount - s.subtotal);
-      const receipt = {
-        invoiceId: s.invoiceId, customerName: s.customerName, cash: ex.amount - over,
-        withheld: s.paysInFull && ex.amount < s.subtotal ? s.subtotal - ex.amount : 0,
-      };
-      const draftId = draftForMatch({ lines: [ex], receipts: [receipt], diff: over ? { accountCode: overpayAccount, amount: over } : null, refs: s.invoiceId });
-      return {
-        action: "reconcile", at: TODAY_ISO, by: user.name, invoiceIds: [s.invoiceId], matchId: ex.id,
-        note: `Matched to ${s.invoiceId} by ${user.name}. ${outcome}.${DRAFTED}`,
-        ...(draftId ? { draftId, pendingJournal: true } : {}),
-      };
-    }
     return { action: "reconcile", at: TODAY_ISO, by: user.name, recordIds: [s.recordId], journals: [s.ref], note: `Matched to ${s.ref}${s.billId && s.billId !== s.ref ? ` (${s.billId})` : ""} by ${user.name}.` };
   }
 
@@ -958,22 +938,18 @@ export default function BankReconciliationPage() {
     return null;
   }
 
-  // Excluded: the line needs no Klay record. It counts as decided — the
-  // account can reconcile with it — and the reason stays on the line.
-  const excludeRes = (reason) => {
-    const lbl = EXCLUDE_REASONS.find((x) => x.k === reason)?.lbl || "Excluded";
-    return { action: "exclude", reason, at: TODAY_ISO, by: user.name, note: `Excluded by ${user.name} — ${lbl.toLowerCase()}.` };
-  };
+  // Marked for later: parked, not decided. It still holds the account open.
+  const laterRes = () => ({ action: "later", at: TODAY_ISO, by: user.name, note: `Marked for later by ${user.name}.` });
 
-  function onAction(action, ex, arg) {
-    if (action === "exclude") {
-      resolve(ex.id, excludeRes(arg));
-      showToast(`Excluded — the ${fmtDateShort(ex.date)} line is in Excluded. Restore it from there.`);
+  function onAction(action, ex) {
+    if (action === "later") {
+      resolve(ex.id, laterRes());
+      showToast(`The ${fmtDateShort(ex.date)} line is in Marked for later — it still needs reconciling.`);
       return;
     }
-    if (action === "restore-excluded") {
+    if (action === "move-back") {
       unresolve(ex.id);
-      showToast(`Restored — the ${fmtDateShort(ex.date)} line is back in ${TABS.find((t) => t.k === tabOf({ ...ex, resolution: null }))?.lbl}.`);
+      showToast(`Moved back — the ${fmtDateShort(ex.date)} line is in ${TABS.find((t) => t.k === tabOf({ ...ex, resolution: null }))?.lbl}.`);
       return;
     }
     // Match manually: set the suggestion aside and take the line to To match,
@@ -988,24 +964,13 @@ export default function BankReconciliationPage() {
     if (action === "restore") {
       setManualFor(ex.id, false);
       setSelLines((prev) => { const next = new Set(prev); next.delete(ex.id); return next; });
-      showToast("Suggestion restored — the line is back in Need confirmation.");
-      return;
-    }
-    if (action === "post-journal" && ex.isMatchDraft) {
-      const out = postMatchDraft(matchDrafts[ex.id], peekNextJeNumber());
-      if (!out) return;
-      resolveMany(out.updates);
-      const n = Object.keys(out.updates).length;
-      showToast(`Journal ${out.je.je_number} posted — ${n} bank line${n === 1 ? "" : "s"} reconciled.`);
+      showToast("Suggestion restored — the line is back in To reconcile.");
       return;
     }
     if (action === "undo") {
-      // Lines matched together come back together, and an unposted draft the
-      // match made goes with them.
+      // Lines matched together come back together.
       const r = ex.resolution || {};
-      if (r.draftId) removeMatchDraft(r.draftId);
       (r.group || [ex.id]).forEach(unresolve);
-      if (r.invoiceIds?.length) undoReceipt(r.receiptLineId || ex.lineId);
       const where = TABS.find((t) => t.k === tabOf({ ...ex, resolution: null }))?.lbl;
       showToast(r.group?.length > 1
         ? `Undone — ${r.group.length} bank lines are back.`
@@ -1026,22 +991,15 @@ export default function BankReconciliationPage() {
       return m ? `JE-${m[1]}-${String(parseInt(m[2], 10) + i).padStart(4, "0")}` : `${n}-${i}`;
     };
     let n = 0;
-    let drafted = 0;
     let skipped = 0;
     items.forEach((ex) => {
       const a = action === "primary" ? PRIMARY[ex.detector]?.a : action;
       if (!a) return;
-      // Journals this person may not post (segregation of duties, permissions)
-      // are left for someone who may.
+      // Journals this person may not post are left for someone who may.
       if (a === "post-journal" && postBlock(ex)) { skipped++; return; }
       // Only journals take a number, so the sequence advances per journal.
-      if (a === "post-journal" && ex.isMatchDraft) {
-        const out = postMatchDraft(matchDrafts[ex.id], bump(base, n++));
-        if (out) Object.assign(next, out.updates);
-        return;
-      }
       const res = decide(a, ex, bump(base, a === "post-journal" ? n++ : n));
-      if (res) { next[ex.id] = res; if (res.pendingJournal) drafted++; }
+      if (res) next[ex.id] = res;
     });
     const plural = (k, w) => `${k} ${w}${k === 1 ? "" : "s"}`;
     const left = skipped ? ` ${plural(skipped, "journal")} left for someone else to post.` : "";
@@ -1049,28 +1007,17 @@ export default function BankReconciliationPage() {
     resolveMany(next);
     showToast(action === "post-journal"
       ? `${plural(n, "journal")} posted.${left}`
-      : `${plural(Object.keys(next).length, "line")} matched${drafted ? `, ${plural(drafted, "journal")} drafted for Review & post journals` : ""}.`);
+      : `${plural(Object.keys(next).length, "line")} reconciled.`);
   }
 
   function onJournalSave(draft) {
-    if (journalFor.isMatchDraft) saveMatchDraft(journalFor.id, { ...matchDrafts[journalFor.id], ...draft, edited: true });
-    else saveDraft(journalFor.id, { ...draft, editedBy: user.name });
+    saveDraft(journalFor.id, { ...draft, editedBy: user.name });
     setJournalFor(null);
     showToast("Draft saved. Post it when it's right.");
   }
 
   function onJournalPost(draft) {
     const ex = journalFor;
-    if (ex.isMatchDraft) {
-      const d = { ...matchDrafts[ex.id], ...draft, edited: true };
-      saveMatchDraft(ex.id, d);
-      const out = postMatchDraft(d, peekNextJeNumber());
-      if (!out) return;
-      resolveMany(out.updates);
-      setJournalFor(null);
-      showToast(`Journal ${out.je.je_number} posted.`);
-      return;
-    }
     saveDraft(ex.id, { ...draft, editedBy: user.name });
     const res = postJournal(ex, draft, peekNextJeNumber());
     if (!res) return;
@@ -1079,18 +1026,17 @@ export default function BankReconciliationPage() {
     showToast(res.note);
   }
 
-  // What a line could be matched to by hand: records on this account and open
-  // invoices, each at what is still unmatched on it. A record matched in part
-  // (a payment whose second transfer has not arrived) stays with the rest; an
-  // invoice part-paid stays with its balance. Suggestions for other lines are
-  // not decisions, so their records stay available.
+  // What a line could be matched to by hand: the cash journals on this account,
+  // each at what is still unmatched on it. A record matched in part (a payment
+  // whose second transfer has not arrived) stays with the rest. Suggestions
+  // for other lines are not decisions, so their records stay available.
   const manualCandidates = useMemo(() => {
     if (!run) return [];
     const used = {};
     const seen = new Set();
     for (const e of run.exceptions) {
       const r = e.resolution;
-      if (!r || r.action === "exclude") continue;
+      if (!r || r.action === "later") continue;
       // Lines matched together share one decision — count it once.
       const key = r.matchId || e.id;
       if (seen.has(key)) continue;
@@ -1098,32 +1044,19 @@ export default function BankReconciliationPage() {
       if (r.recordAlloc) for (const [id, amt] of Object.entries(r.recordAlloc)) used[id] = (used[id] || 0) + amt;
       else for (const id of r.recordIds || []) used[id] = recordById[id]?.amount || 0;
     }
-    const records = (run.records || []).flatMap((r) => {
+    return records.flatMap((r) => {
       const rest = r.amount - (used[r.id] || 0);
       if (Math.abs(rest) < 1) return [];
       return used[r.id] ? [{ ...r, amount: rest, original: r.amount }] : [r];
     });
-    const open = invoices
-      .filter((i) => i.approval === "sent" && i.payStatus !== "paid")
-      .flatMap((i) => {
-        const sub = subtotalOf(i);
-        const received = (i.receipts || []).reduce((t, x) => t + x.amount, 0);
-        const rest = sub - received;
-        if (rest < 1) return [];
-        return [{
-          id: `inv:${i.id}`, kind: "invoice", invoiceId: i.id, ref: i.id, billId: null,
-          counterparty: i.customerName, label: `Invoice to ${i.customerName}`, amount: rest, date: i.date,
-          ...(received ? { original: sub } : {}),
-        }];
-      });
-    return [...records, ...open];
-  }, [run, invoices, recordById]);
+  }, [run, records, recordById]);
 
-  // Matches bank lines to Klay items by hand, from To match. `diff` is
+  // Matches bank lines to cash journals by hand, from To match. `diff` is
   // { accountCode, amount } when the person booked the gap to a difference
-  // account; amount is signed like the statement. Without one, a shortfall
-  // stays open on the Klay items (lib/manualMatch.js). Several lines matched
-  // together share one decision; undoing any of them undoes all of them.
+  // account; amount is signed like the statement, and its journal is posted
+  // with the match. Without one, a shortfall stays open on the Klay items
+  // (lib/manualMatch.js). Several lines matched together share one decision;
+  // undoing any of them undoes all of them.
   function reconcileLines(lines, picked, diff = null) {
     if (!lines.length) return null;
     const primary = lines[0];
@@ -1135,40 +1068,31 @@ export default function BankReconciliationPage() {
     // What the Klay items account for: the bank lines, less any booked
     // difference — applied oldest first, so the newest carries what stays open.
     const settledAmount = ex.amount - (diff?.amount || 0);
-    const alloc = allocate(settledAmount, picked).filter((a) => a.share !== 0);
-    const records = alloc.filter((a) => a.item.kind !== "invoice");
-    const invs = alloc.filter((a) => a.item.kind === "invoice");
+    const records = allocate(settledAmount, picked).filter((a) => a.share !== 0);
     const restOf = (a) => `Rp ${fmtRp(Math.abs(a.item.amount - a.share))} left open`;
-    const receipts = [];
-    const settled = invs.map((a) => {
-      // Paid in full by the suggestions' rule: short by no more than PPh 23,
-      // which the receipt journal books as a prepayment.
-      const full = paysInFull(a.share, a.item.amount);
-      recordReceipt(a.item.invoiceId, { amount: a.share, date: ex.date, lineId: ex.lineId, by: user.name, paysInFull: full });
-      receipts.push({
-        invoiceId: a.item.invoiceId, customerName: a.item.counterparty, cash: a.share,
-        withheld: full && a.share < a.item.amount ? a.item.amount - a.share : 0,
-      });
-      return full ? a.item.invoiceId : `${a.item.invoiceId} (part-paid, ${restOf(a)})`;
-    });
-    const refs = [...records.map((a) => (a.full ? a.item.ref : `${a.item.ref} (${restOf(a)})`)), ...settled].join(" + ");
+    const refs = records.map((a) => (a.full ? a.item.ref : `${a.item.ref} (${restOf(a)})`)).join(" + ");
     const together = lines.length > 1 ? ` together with ${lines.length - 1} other bank line${lines.length === 2 ? "" : "s"}` : "";
     let note = `Matched manually${together} to ${refs} by ${user.name}.`;
-    // Receipts and any booked difference go into one draft; matching never
-    // posts. Records already in the books need nothing.
-    if (diff) note += ` Rp ${fmtRp(Math.abs(diff.amount))} difference to ${diff.accountCode}.`;
-    const draftId = draftForMatch({ lines, receipts, diff, refs });
-    if (draftId) note += DRAFTED;
+    // A booked difference is posted with the match — the bar showed it first.
+    let je = null;
+    if (diff) {
+      const entry = differenceEntry({ account, date: primary.date, description: lines.map((l) => l.description).join(" + "), refs, diff });
+      const pseudo = { amount: diff.amount, lineId: primary.lineId };
+      const problem = draftProblem(entry, pseudo);
+      if (problem) { showToast(problem); return null; }
+      const postDate = isLocked(entry.je_date) ? openPostDate : null;
+      je = postedEntry({ draft: entry, exception: pseudo, jeNumber: peekNextJeNumber(), by: user.name, today: TODAY_ISO, postDate });
+      addJournalEntry(je);
+      note += ` Rp ${fmtRp(Math.abs(diff.amount))} difference posted to ${diff.accountCode} as ${je.je_number}.`;
+    }
     const res = {
       action: "manual-match", at: TODAY_ISO, by: user.name, note, matchId: primary.id,
       recordIds: records.map((a) => a.item.id),
       // How much of each record this match used; the rest stays matchable.
       recordAlloc: Object.fromEntries(records.map((a) => [a.item.id, a.share])),
-      journals: records.map((a) => a.item.ref),
-      invoiceIds: invs.map((a) => a.item.invoiceId),
-      ...(diff ? { difference: { accountCode: diff.accountCode, amount: diff.amount } } : {}),
-      ...(draftId ? { draftId, pendingJournal: true } : {}),
-      ...(lines.length > 1 ? { group: lines.map((l) => l.id), receiptLineId: primary.lineId } : {}),
+      journals: [...records.map((a) => a.item.ref), ...(je ? [je.je_number] : [])],
+      ...(diff ? { difference: { accountCode: diff.accountCode, amount: diff.amount }, jeNumber: je.je_number } : {}),
+      ...(lines.length > 1 ? { group: lines.map((l) => l.id) } : {}),
     };
     resolveMany(Object.fromEntries(lines.map((l) => [l.id, res])));
     showToast(note);
@@ -1178,7 +1102,7 @@ export default function BankReconciliationPage() {
   // ── To match ───────────────────────────────────────────────────────────────
 
   // The Klay side of To match is what a person could still pair a line with:
-  // not what Klay already proposes for a line in Need confirmation (that record
+  // not what Klay already proposes for a line in To reconcile (that record
   // is spoken for — confirming or reconciling that line manually is where it
   // gets decided), and nothing dated after the statement ends, which cannot be
   // on it. A line moved here by Reconcile manually frees its suggestion.
@@ -1188,7 +1112,6 @@ export default function BankReconciliationPage() {
     for (const e of run.exceptions) {
       if (!isOpen(e) || !e.suggestion || e.manual) continue;
       if (e.suggestion.recordId) claimed.add(e.suggestion.recordId);
-      if (e.suggestion.invoiceId) claimed.add(`inv:${e.suggestion.invoiceId}`);
     }
     const through = run.statement.through;
     const inWindow = manualCandidates.filter((r) => !through || r.date <= through);
@@ -1206,19 +1129,13 @@ export default function BankReconciliationPage() {
     return next;
   });
 
-  // What Match would draft, for the bar to show before anything happens: the
-  // same allocation and receipt rules as reconcileLines, without side effects.
+  // Every journal Reconcile would post, for the bar to show before
+  // anything happens: today only a booked difference.
   const matchPreview = useMemo(() => {
-    if (!matchLines.length || !matchRecords.length || !matchBal.balanced) return null;
-    const diff = matchBal.booking ? { accountCode: diffAcct, amount: matchBal.left } : null;
-    const alloc = allocate(matchBankTotal - (diff?.amount || 0), matchRecords).filter((a) => a.share !== 0 && a.item.kind === "invoice");
-    const receipts = alloc.map((a) => ({
-      invoiceId: a.item.invoiceId, customerName: a.item.counterparty, cash: a.share,
-      withheld: paysInFull(a.share, a.item.amount) && a.share < a.item.amount ? a.item.amount - a.share : 0,
-    }));
-    const entry = matchEntry({ account, date: matchLines[0].date, description: "", refs: "", receipts, diff });
-    return entry ? entry.lines : null;
-  }, [matchLines, matchRecords, matchBal, diffAcct, matchBankTotal, account]);
+    if (!matchLines.length || !matchRecords.length || !matchBal.balanced || !matchBal.booking) return null;
+    const entry = differenceEntry({ account, date: matchLines[0].date, description: "", refs: "", diff: { accountCode: diffAcct, amount: matchBal.left } });
+    return entry ? [{ jeNumber: peekNextJeNumber(), lines: entry.lines }] : null;
+  }, [matchLines, matchRecords, matchBal, diffAcct, account, peekNextJeNumber]);
 
   function onMatchReconcile() {
     if (!matchLines.length || !matchBal.balanced) return;
@@ -1226,17 +1143,55 @@ export default function BankReconciliationPage() {
     clearMatch();
   }
 
-  function onMatchExclude(reason) {
+  // ── Quick draft ──────────────────────────────────────────────────────────
+  //
+  // Posts the cash journal a To match line was missing (components/
+  // QuickDraftModal.jsx says what each type writes). The journal then sits on
+  // the Klay side, ticked next to its line — reconciling the two is still a
+  // person's Reconcile, the same as any manual match.
+  function onQuickPost(p) {
+    const line = quickFor;
+    const by = user.name;
+    const base = { accountId: account.id, period, date: line.date, amount: line.amount, counterparty: p.party, quick: true, lineId: line.lineId };
+    let record;
+    if (p.kind === "bill-payment") {
+      const index = allPayments[p.bill.id]?.history?.length || 0;
+      const jeBy = recordPayment([{ id: p.bill.id, breakdown: p.breakdown, paysInFull: p.full, date: line.date, fromBank: { lineId: line.lineId, accountId: account.id } }], by, { unapproved: true });
+      const open = p.bill.sisa != null ? p.bill.sisa : p.bill.total;
+      updateBill(p.bill.id, p.full ? { pay: "paid", sisa: 0 } : { sisa: open - breakdownTotal(p.breakdown) }, {
+        type: "paid", by, date: line.date, time: "",
+        action: `${auditTextFor(p.breakdown, p.full, { sourceName: account.name })} — recorded from the bank statement without an approval`,
+      });
+      record = { ...base, id: `${p.bill.id}:${index}`, kind: "ap_payment", ref: jeBy[p.bill.id], label: `Payment to ${p.party}`, billId: p.bill.id };
+    } else {
+      const postDate = isLocked(line.date) ? openPostDate : null;
+      const jeNumber = peekNextJeNumber();
+      addJournalEntry({
+        je_number: jeNumber, je_date: postDate || line.date, status: "posted", memo: p.memo,
+        reference_type: "bank_quick_draft", reference_id: line.lineId,
+        created_by: by, created_date: TODAY_ISO, posted_by: by, posted_date: TODAY_ISO,
+        lines: p.entry.lines.map((l) => ({ account_code: l.account_code, account_name: l.account_name, debit: l.debit || 0, credit: l.credit || 0, description: l.description || "" })),
+      });
+      if (p.invoice) recordReceipt(p.invoice.id, { amount: Math.abs(line.amount), date: line.date, lineId: line.lineId, by, paysInFull: p.paysInFull });
+      record = { ...base, id: `${jeNumber}:qd`, kind: "je", ref: jeNumber, label: p.memo, contraCodes: [p.contra], billId: null };
+    }
+    addQuickDraft(record);
+    setSelLines(new Set([line.id]));
+    setSelRecords(new Set([record.id]));
+    setQuickFor(null);
+    showToast(`${record.ref} posted — it's ticked on the Klay side. Reconcile to finish.`);
+  }
+
+  function onMatchLater() {
     if (!matchLines.length) return;
-    const res = excludeRes(reason);
+    const res = laterRes();
     resolveMany(Object.fromEntries(matchLines.map((l) => [l.id, res])));
-    showToast(`${matchLines.length} line${matchLines.length === 1 ? "" : "s"} excluded. Restore from Excluded.`);
+    showToast(`${matchLines.length} line${matchLines.length === 1 ? "" : "s"} marked for later. Move ${matchLines.length === 1 ? "it" : "them"} back from Marked for later.`);
     clearMatch();
   }
 
   // The Klay side of a suggestion: what the engine thinks the bank line is,
   // with its own date and amount so the two can be read against each other.
-  const invoiceById = useMemo(() => Object.fromEntries(invoices.map((i) => [i.id, i])), [invoices]);
   function klayOf(ex) {
     const s = ex.suggestion;
     if (ex.detector === "EXACT_AMOUNT") {
@@ -1247,14 +1202,6 @@ export default function BankReconciliationPage() {
         sub: `${r?.kind === "je" ? "Journal" : ex.amount < 0 ? "Payment" : "Receipt"} · ${s.party || s.label}`,
         // The basis already opens with "Exact amount".
         why: ex.basis ? null : "Same amount",
-      };
-    }
-    if (ex.detector === "INVOICE_EXACT" || ex.detector === "INVOICE_RANGE") {
-      return {
-        date: invoiceById[s.invoiceId]?.date, amount: s.subtotal, ref: s.invoiceId,
-        sub: `Open invoice · ${s.customerName}`,
-        why: (s.basis === "exact" ? "Same as invoice subtotal" : `${pctOf(s)} ${s.diff < 0 ? "under" : "over"} invoice subtotal`)
-          + (s.paysInFull ? "" : " · leaves a balance open"),
       };
     }
     return { date: null, amount: null, ref: "—", sub: ex.brief || "", why: "" };
@@ -1293,7 +1240,7 @@ export default function BankReconciliationPage() {
     activeTab === "journals" && byTab.journals.length > 1
       ? { action: "post-journal", items: byTab.journals, label: `Post all ${byTab.journals.length} journals`, ok: perm.canPost, why: WHY_NOT.post }
       : activeTab === "confirm" && byTab.confirm.length > 1
-        ? { action: "primary", items: byTab.confirm, label: `Confirm all ${byTab.confirm.length}`, ok: perm.canMatch, why: WHY_NOT.match }
+        ? { action: "primary", items: byTab.confirm, label: `Reconcile all ${byTab.confirm.length}`, ok: perm.canMatch, why: WHY_NOT.match }
         : null;
 
 
@@ -1366,7 +1313,7 @@ export default function BankReconciliationPage() {
                 return (
                   <>
                     {visible.map((r) => (
-                      <AccountCard key={r.accountId} run={r} selected={selectedAccount === r.accountId} onSelect={setSelectedAccount} />
+                      <AccountCard key={r.accountId} run={r} bal={balanceById[r.accountId]} selected={selectedAccount === r.accountId} onSelect={setSelectedAccount} />
                     ))}
                     {remaining > 0 && (
                       <button type="button" className="bank-card bank-card-more" onClick={() => setAccountListOpen(true)}>
@@ -1395,8 +1342,8 @@ export default function BankReconciliationPage() {
           <div className="lg-card recon-card">
             {run?.statement.loaded && run.counts.total > 0 && (
               <div className="bp-tabs-row">
-                {TABS.map((t) => (
-                  <button key={t.k} type="button" className={`bp-tab${activeTab === t.k ? " active" : ""}`} onClick={() => setTab(t.k)}>
+                {TABS.map((t, i) => (
+                  <button key={t.k} type="button" className={`bp-tab${activeTab === t.k ? " active" : ""}${t.done ? " recon-tab-done" : ""}${t.done && !TABS[i - 1]?.done ? " recon-tab-done-first" : ""}`} onClick={() => setTab(t.k)}>
                     {t.lbl}
                     <span className="bp-tab-count">{tabCount[t.k]}</span>
                   </button>
@@ -1452,34 +1399,38 @@ export default function BankReconciliationPage() {
                 onRestore={(ex) => onAction("restore", ex)}
                 dir={dir}
                 onDir={pickDir}
-                cat={cat}
-                onCat={setCat}
                 selLines={selLines}
                 selRecords={selRecords}
                 onToggleLine={toggleIn(setSelLines)}
                 onToggleRecord={toggleIn(setSelRecords)}
                 onSetLines={(ids) => setSelLines(new Set(ids))}
+                canQuickDraft={perm.canMatch}
+                onQuickDraft={(l) => setQuickFor(l)}
               />
             ) : (
               <div className="recon-groups" role="table">
-                {tabCount[activeTab] > 0 && (activeTab === "journals" ? <JournalHead sel={selOf(byTab.journals)} /> : activeTab === "confirm" ? <ConfirmHead /> : <TableHead />)}
+                {tabCount[activeTab] > 0 && (activeTab === "journals" ? <JournalHead sel={selOf(byTab.journals)} /> : activeTab === "posted" ? <JournalHead /> : activeTab === "confirm" ? <ConfirmHead /> : <TableHead />)}
                 {activeTab === "confirm" && CONFIRM_SECTIONS.map((sec) => (
                   <Section key={sec.k} items={byTab.confirm.filter(sec.test)}
-                    render={(ex) => <ConfirmRow key={ex.id} ex={ex} onAction={onAction} klay={{ ...klayOf(ex), cat: categoryOfLine(ex, recordById) }} />} />
+                    render={(ex) => <ConfirmRow key={ex.id} ex={ex} onAction={onAction} klay={klayOf(ex)} />} />
                 ))}
                 {activeTab === "journals" && JOURNAL_SECTIONS.map((sec) => (
                   <Section key={sec.k} label={sec.lbl} items={byTab.journals.filter(sec.test)} sel={selOf(byTab.journals.filter(sec.test))}
                     render={(ex) => <JournalRow key={ex.id} ex={ex} onAction={onAction} draftOf={draftOf} selected={selJournals.has(ex.id)} onToggle={toggleJournal} />} />
                 ))}
-                {activeTab === "excluded" && (
-                  <Section items={byTab.excluded} render={(ex) => <ExcludedRow key={ex.id} ex={ex} onAction={onAction} />} />
+                {activeTab === "later" && (
+                  <Section items={byTab.later} render={(ex) => <LaterRow key={ex.id} ex={ex} onAction={onAction} />} />
                 )}
                 {activeTab === "reconciled" && (
-                  <Section items={byTab.reconciled} render={(ex) => <ReconciledRow key={ex.id} ex={ex} onAction={onAction} cat={categoryOfLine(ex, recordById)} />} />
+                  <Section items={byTab.reconciled} render={(ex) => <ReconciledRow key={ex.id} ex={ex} onAction={onAction} />} />
                 )}
+                {activeTab === "posted" && JOURNAL_SECTIONS.map((sec) => (
+                  <Section key={sec.k} label={sec.lbl} items={byTab.posted.filter(sec.test)}
+                    render={(ex) => <PostedRow key={ex.id} ex={ex} posted={postedOf(ex)} />} />
+                ))}
                 {byTab[activeTab].length === 0 && (
                   <div className="recon-empty">
-                    {tabCount[activeTab] > 0 ? "Nothing here matches this tab's filters." : activeTab === "reconciled" ? "Nothing reconciled yet. A line is reconciled once it is matched and any journal it needs is posted." : activeTab === "excluded" ? "Nothing excluded. Exclude a line that needs no Klay record — say, one the statement printed twice." : "Nothing here."}
+                    {tabCount[activeTab] > 0 ? "Nothing here matches this tab's filters." : activeTab === "reconciled" ? "Nothing reconciled yet. A line is reconciled once it is matched to a cash journal." : activeTab === "posted" ? "Nothing posted yet. Bank charges and interest land here once their journal is posted from To post." : activeTab === "later" ? "Nothing marked for later. Park a line here when it needs looking into — it still has to be reconciled." : "Nothing here."}
                   </div>
                 )}
               </div>
@@ -1513,6 +1464,7 @@ export default function BankReconciliationPage() {
       ) : activeTab === "tomatch" && run?.statement.loaded ? (
         <MatchBar
           canMatch={perm.canMatch}
+          canPost={perm.canPost}
           preview={matchPreview}
           lineCount={matchLines.length}
           recordCount={matchRecords.length}
@@ -1523,18 +1475,19 @@ export default function BankReconciliationPage() {
           mode={matchMode}
           onMode={setMatchMode}
           onReconcile={onMatchReconcile}
-          onExclude={onMatchExclude}
+          onLater={onMatchLater}
           onClear={clearMatch}
         />
       ) : (
       <div className="lg-footer">
         <div className="lg-footer-left">
           {[
-            ["confirm", "to confirm"],
+            ["confirm", "to reconcile"],
             ["tomatch", "to match"],
+            ["journals", "to post"],
+            ...(tabCount.later ? [["later", "marked for later"]] : []),
             ["reconciled", "reconciled"],
-            ...(tabCount.excluded ? [["excluded", "excluded"]] : []),
-            ["journals", "journals to post"],
+            ["posted", "posted"],
           ].map(([k, lbl], i) => (
             <span key={k} className="recon-foot-item">
               {i > 0 && <span className="lg-footer-sep">·</span>}
@@ -1594,6 +1547,20 @@ export default function BankReconciliationPage() {
         </>
       )}
 
+      {quickFor && (
+        <QuickDraftModal
+          line={quickFor}
+          account={account}
+          vendors={vendors}
+          customers={customers}
+          bills={bills}
+          invoices={invoices}
+          paymentHistoryOf={(id) => allPayments[id]?.history || []}
+          canPost={perm.canPost}
+          onPost={onQuickPost}
+          onClose={() => setQuickFor(null)}
+        />
+      )}
       {journalFor && (
         <ReconJournalModal
           canPost={!postBlock(journalFor)}

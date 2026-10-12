@@ -105,7 +105,7 @@ export default function ReconJournalModal({ exception, draft, onSave, onPost, on
           <div className={`mm-foot-sum${problem ? " rj-problem" : ""}`}>{problem || "Balanced. The bank line equals the statement line."}</div>
           <button type="button" className="recon-ex-btn" onClick={onClose}>Cancel</button>
           <button type="button" className="recon-ex-btn" disabled={!!problem} onClick={() => onSave(next)}>Save draft</button>
-          <button type="button" className="recon-ex-btn primary" disabled={!!problem || !canPost} title={canPost ? undefined : "Posting needs the Post to ledger permission"} onClick={() => onPost(next)}>Post</button>
+          <button type="button" className="recon-ex-btn primary" disabled={!!problem || !canPost} title={canPost ? undefined : "Needs the Reconcile bank permission"} onClick={() => onPost(next)}>Post</button>
         </div>
       </div>
     </div>
