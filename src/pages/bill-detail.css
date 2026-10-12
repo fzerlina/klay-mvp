@@ -1179,3 +1179,7 @@
 
 /* A withheld amount reads as money leaving the vendor, not as a cost. */
 .bd-rate-amt.deduct { color: var(--color-success-text, #1a7a3c); }
+
+/* A payment recorded from the bank statement without an approval */
+.bd-pay-unapproved{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:4px;font-size:11px;font-weight:600;color:var(--color-warning-text)}
+.bd-pay-review{background:none;border:0;padding:0;font:inherit;font-weight:700;color:var(--color-action);cursor:pointer}

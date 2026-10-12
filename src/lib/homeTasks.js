@@ -95,7 +95,7 @@ function billsTasks(ctx) {
 // AP · Payments — the payment stage this role owns (request → approve → pay),
 // off the AP Aging decision queue (POSTED-only). Mirrors ApAgingPage payMode.
 function paymentTasks(ctx) {
-  const { agingLines, requestStatusOf, hasCapability } = ctx;
+  const { agingLines, requestStatusOf, hasCapability, payments = {} } = ctx;
   const payMode = hasCapability("payment.approve") ? "approve"
     : hasCapability("payment.request") ? "request"
     : hasCapability("payment.execute") ? "execute"
@@ -117,6 +117,19 @@ function paymentTasks(ctx) {
     out.push({ ...g, id: `pay:${payMode}`, label: STAGE_META.label, count: stageRows.length,
       amount: sum(stageRows, (l) => l.remaining), sub: STAGE_META.sub, tag: null,
       severity: "action", to: "/payments", cta: STAGE_META.cta });
+  }
+
+  // Payment approvers — payments found on the bank statement and recorded in
+  // bank reconciliation (Quick draft) skipped the approval, so the approvers
+  // are told and review each one on its bill.
+  if (payMode === "approve") {
+    const unreviewed = Object.entries(payments).flatMap(([id, p]) =>
+      (p?.history || []).filter((h) => h.unapproved && !h.reviewed).map((h) => ({ id, h })));
+    if (unreviewed.length) {
+      out.push({ ...g, id: "pay:unapproved", label: "Paid without approval", count: unreviewed.length,
+        amount: sum(unreviewed, (x) => x.h.cleared), sub: "Recorded from the bank statement — review each payment",
+        tag: { text: "no approval", tone: "danger" }, severity: "action", to: `/bills/${unreviewed[0].id}?tab=payment`, cta: "Review" });
+    }
   }
 
   // Finance Staff — settle the overdue first.

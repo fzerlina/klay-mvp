@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState, useRef } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { VENDORS } from "../data/seed/vendors";
 import { useBills } from "../state/BillsContext";
 import { useVendors } from "../state/VendorsContext";
@@ -65,6 +65,9 @@ const PAY_LABEL      = { paid: "Paid", unpaid: "Unpaid", overdue: "Overdue" };
 function PaymentTab({ bill, detail }) {
   const navigate = useNavigate();
   const { resolutions } = useBankRecon();
+  const { reviewUnapproved } = usePayments();
+  const { user, hasCapability } = useCurrentUser();
+  const canReview = hasCapability("payment.approve");
   const isPosted = !!bill.je_number || workflowStatus(bill) === "POSTED" || workflowStatus(bill) === "PAID";
   const total = bill.total || 0;
   const remaining = bill.sisa != null ? bill.sisa : total;
@@ -89,6 +92,9 @@ function PaymentTab({ bill, detail }) {
         ref: h.breakdown?.giroNumber || null,
         withheld: withheldTax(h.breakdown),
         jeNumber: h.je_number || null,
+        // Recorded from the bank statement (bank reconciliation's Quick draft)
+        // without an approval — until a payment approver has looked at it.
+        unapproved: h.unapproved ? { index: i, reviewed: h.reviewed || null } : null,
         recon: reconOf({ ...h, billId: bill.id, index: i }, resolutions),
         journal: paymentJournalLines(h.breakdown, { vendorName: bill.vendorName }),
       }));
@@ -198,6 +204,18 @@ function PaymentTab({ bill, detail }) {
                         <div className="bd-pay-sub">{[p.source, p.ref].filter(Boolean).join(" · ")}</div>
                       )}
                       {p.detail && <div className="bd-pay-sub">{p.detail}</div>}
+                      {p.unapproved && (
+                        <div className="bd-pay-unapproved">
+                          {p.unapproved.reviewed
+                            ? <>Paid without approval · reviewed by {p.unapproved.reviewed.by}</>
+                            : <>Paid without approval — recorded from the bank statement.</>}
+                          {!p.unapproved.reviewed && canReview && (
+                            <button type="button" className="bd-pay-review" onClick={(e) => { e.stopPropagation(); reviewUnapproved(bill.id, p.unapproved.index, user.name); }}>
+                              Mark reviewed
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td className="r bd-pay-amt">
                       {p.amount != null ? formatRupiah(p.amount) : "—"}
@@ -1311,7 +1329,9 @@ export default function BillDetailPage() {
   const { closedThrough, autoAssignLateBills, nextOpenPeriod } = useClosePeriod();
   const { hasLevel, hasCapability, level, user } = useCurrentUser();
   const { vendorById, versionsOf } = useVendors();
-  const [tab, setTab] = useState("detail");
+  // ?tab=payment opens straight on a tab (the task hub links there).
+  const [searchParams] = useSearchParams();
+  const [tab, setTab] = useState(() => searchParams.get("tab") || "detail");
   const [docView, setDocView] = useState("invoice");
   const [toast, setToast] = useState("");
   const [paying, setPaying] = useState(false);

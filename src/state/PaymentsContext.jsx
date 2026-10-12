@@ -189,16 +189,23 @@ export function PaymentsProvider({ children }) {
   // request status returns to "notyet" so a remaining balance can be requested
   // again, and the payment status advances.
   //
-  //   entries: [{ id, breakdown, paysInFull, date? }] — `date` is the payment
-  //   date (defaults to today); the journal entry and the history are dated by it.
+  //   entries: [{ id, breakdown, paysInFull, date?, fromBank? }] — `date` is the
+  //   payment date (defaults to today); the journal entry and the history are
+  //   dated by it.
+  //
+  // `unapproved` is the one way past the approval guard: a payment that already
+  // left the bank and was found on the statement (bank reconciliation's Quick
+  // draft). It is recorded as it happened, flagged `unapproved`, and the
+  // payment approvers get a task to review it. `fromBank` names the statement
+  // line, so the bank ledger does not derive a second bank line from it.
   //
   // Returns { [id]: je_number } for the payments it recorded.
-  const recordPayment = useCallback((entries, by) => {
+  const recordPayment = useCallback((entries, by, { unapproved = false } = {}) => {
     // Nobody executes a payment that was never approved. The guard runs here,
     // against the current state, rather than inside the updater below: the
     // journal entries are written outside it, and they must be written for
     // exactly the payments that land.
-    const eligible = entries.filter((e) => payments[e.id]?.request === "approved");
+    const eligible = unapproved ? entries : entries.filter((e) => payments[e.id]?.request === "approved");
     if (eligible.length === 0) return {};
 
     // One journal entry per payment, written into the ledger now rather than
@@ -262,7 +269,11 @@ export function PaymentsProvider({ children }) {
         // counterparty from it, and a journal payable has no bill to look up.
         // Dated by the payment date the user entered (Record payment), not the
         // day it was keyed in.
-        const history = [...(cur.history || []), { at: e.date || TODAY_ISO, by, breakdown: e.breakdown, cleared, je_number: jeById[e.id], vendorName: payeeById[e.id] }];
+        const history = [...(cur.history || []), {
+          at: e.date || TODAY_ISO, by, breakdown: e.breakdown, cleared, je_number: jeById[e.id], vendorName: payeeById[e.id],
+          ...(unapproved ? { unapproved: true } : {}),
+          ...(e.fromBank ? { fromBank: e.fromBank } : {}),
+        }];
         next[e.id] = {
           ...cur,
           request: "notyet",
@@ -309,6 +320,16 @@ export function PaymentsProvider({ children }) {
     }));
   }, []);
 
+  // A payment approver has looked at a payment made without approval.
+  const reviewUnapproved = useCallback((id, index, by) => {
+    setPayments((prev) => {
+      const cur = prev[id];
+      if (!cur?.history?.[index]) return prev;
+      const history = cur.history.map((h, i) => (i === index ? { ...h, reviewed: { by, at: TODAY_ISO } } : h));
+      return { ...prev, [id]: { ...cur, history } };
+    });
+  }, []);
+
   const value = useMemo(() => ({
     payments,
     // The request axis only. The payment axis is derived from the ledger
@@ -326,7 +347,8 @@ export function PaymentsProvider({ children }) {
     recordPayment,
     markPaid,
     acknowledgeFlag,
-  }), [payments, requestPayment, approvePayment, returnRequest, recordPayment, markPaid, acknowledgeFlag]);
+    reviewUnapproved,
+  }), [payments, requestPayment, approvePayment, returnRequest, recordPayment, markPaid, acknowledgeFlag, reviewUnapproved]);
 
   return <PaymentsContext.Provider value={value}>{children}</PaymentsContext.Provider>;
 }

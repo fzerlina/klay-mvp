@@ -170,7 +170,7 @@ export default function CommandCenterPage() {
   const { bills } = useBills();
   const { invoices } = useInvoices();
   const { entries } = useJournalEntries();
-  const { requestStatusOf } = usePayments();
+  const { requestStatusOf, payments } = usePayments();
   const { closedThrough, autoAssignLateBills } = useClosePeriod();
   // Bank-rec decisions taken this session, so a written-off fee stops being a
   // task here the moment it stops being one on the reconciliation page.
@@ -181,12 +181,12 @@ export default function CommandCenterPage() {
   const taskHub = useMemo(
     () => computeHomeTasks({
       bills, invoices, entries, agingLines,
-      requestStatusOf,
+      requestStatusOf, payments,
       closedThrough, autoAssignLateBills,
       hasCapability,
       reconOverlay,
     }),
-    [bills, invoices, entries, agingLines, requestStatusOf, closedThrough, autoAssignLateBills, hasCapability, reconOverlay],
+    [bills, invoices, entries, agingLines, requestStatusOf, payments, closedThrough, autoAssignLateBills, hasCapability, reconOverlay],
   );
   const insightHub = useMemo(
     () => computeHomeInsights({ agingLines, invoices, can }),

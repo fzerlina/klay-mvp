@@ -145,6 +145,10 @@ function paymentBookRecords(history = PAYMENT_HISTORY_SEED, { from, to } = {}) {
   const out = [];
   for (const [billId, payments] of Object.entries(history || {})) {
     (payments || []).forEach((p, i) => {
+      // Recorded from a statement line (Quick draft in bank reconciliation):
+      // the line is already on the statement, and reconciliation holds this
+      // record itself. Reading it here would print the payment a second time.
+      if (p.fromBank) return;
       const account = bankAccountById(p.breakdown?.sourceAccountId);
       if (!account) return;
       if (from && p.at < from) return;
