@@ -1,21 +1,25 @@
 import { useMemo, useRef, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import "./modules.css";
 import "./invoices-ledger.css";
 import "./settings-pages.css";
 import "./roles-users.css";
 import {
   ROLES,
-  MODULES,
-  ROLE_CAPS,
-  CAPABILITIES,
   evaluateSod,
+  sodDecision,
+  approvalLimitFor as limitFor,
   USERS as SEED_USERS,
 } from "../data/seed/roles";
+import { useAccountingSettings } from "../state/AccountingSettingsContext";
+import { useCurrentUser } from "../state/CurrentUserContext";
+import { useRoles } from "../state/RolesContext";
+import SodRiskAcceptance, { riskAccepted } from "../components/SodRiskAcceptance";
+import { DIM_BY_KEY } from "../data/seed/dimensions";
 
-// Plain-language label for a capability id (verb or named cap).
-function capLabel(cap) {
-  return CAPABILITIES[cap]?.label || cap;
-}
+// A user's department is a value of the Department dimension (Settings →
+// Dimensions), so org structure and transaction tagging share one list.
+const DEPARTMENTS = (DIM_BY_KEY.dept?.values || []).filter((v) => v !== "—");
 
 function initials(name) {
   if (!name) return "?";
@@ -24,16 +28,6 @@ function initials(name) {
 
 function roleName(key) {
   return ROLES.find((r) => r.key === key)?.name || key;
-}
-
-// Highest approval limit across a user's roles (null = none).
-function limitFor(roleKeys) {
-  let max = null;
-  for (const k of roleKeys) {
-    const r = ROLES.find((x) => x.key === k);
-    if (r?.approval_limit != null) max = Math.max(max ?? 0, r.approval_limit);
-  }
-  return max;
 }
 
 function fmtLimit(n) {
@@ -53,8 +47,12 @@ function UserDrawer({ open, mode, user, onClose, onSave, onAction }) {
   const isInvite = mode === "invite";
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [department, setDepartment] = useState("");
   const [roleKeys, setRoleKeys] = useState([]);
   const [justification, setJustification] = useState("");
+  const [riskOwner, setRiskOwner] = useState("");
+  const { sodMode } = useAccountingSettings();
+  const { user: me } = useCurrentUser();
 
   const lastKeyRef = useRef(null);
   if (open) {
@@ -63,27 +61,45 @@ function UserDrawer({ open, mode, user, onClose, onSave, onAction }) {
       lastKeyRef.current = key;
       setName(isInvite ? "" : user?.name || "");
       setEmail(isInvite ? "" : user?.email || "");
+      setDepartment(isInvite ? "" : user?.department || "");
       setRoleKeys(isInvite ? [] : [...(user?.roleKeys || [])]);
-      setJustification(isInvite ? "" : user?.justification || "");
+      setJustification("");
+      setRiskOwner("");
     }
   } else if (lastKeyRef.current !== null) {
     lastKeyRef.current = null;
   }
 
-  const sod = useMemo(() => evaluateSod(roleKeys), [roleKeys]);
+  // Segregation of duties follows the entity mode (Access policy), as the
+  // backend does on role assignment: only conflicts this change INTRODUCES are
+  // decided — ENFORCED blocks HARD ones, RELAXED lets relaxable HARD ones
+  // through with an accepted risk, SOFT ones always need an accepted risk.
+  // Conflicts the user already had stay as they were accepted.
+  const sod = useMemo(() => {
+    const extraCaps = isInvite ? [] : user?.extraCaps || [];
+    const now = evaluateSod(roleKeys, { extraCaps }).all;
+    const before = isInvite ? [] : evaluateSod(user?.roleKeys || [], { extraCaps }).all;
+    const had = new Set(before.map((r) => r.id));
+    const fresh = now.filter((r) => !had.has(r.id));
+    return { existing: now.filter((r) => had.has(r.id)), decision: sodDecision(fresh, sodMode) };
+  }, [roleKeys, user, isInvite, sodMode]);
 
   if (!open) return null;
 
   const toggleRole = (key) => {
     setRoleKeys((cur) => (cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key]));
     setJustification("");
+    setRiskOwner("");
   };
 
+  // The approval limit is set on roles, never per person: a user gets the
+  // highest limit among the roles they hold.
   const limit = limitFor(roleKeys);
+  const limitSource = limit == null ? null : ROLES.find((r) => roleKeys.includes(r.key) && r.approval_limit === limit);
   const baseValid = roleKeys.length > 0 && (!isInvite || (name.trim() && /\S+@\S+\.\S+/.test(email)));
-  const blockedHard = sod.level === "hard";
-  const needsJust = sod.level === "soft";
-  const canSave = baseValid && !blockedHard && (!needsJust || justification.trim().length >= 8);
+  const blocked = sod.decision.level === "blocked";
+  const needsRisk = sod.decision.level === "risk";
+  const canSave = baseValid && !blocked && (!needsRisk || riskAccepted(justification, riskOwner));
 
   function handleSave() {
     if (!canSave) return;
@@ -92,9 +108,10 @@ function UserDrawer({ open, mode, user, onClose, onSave, onAction }) {
       id: user?.id,
       name: name.trim(),
       email: email.trim(),
+      department: department || null,
       roleKeys,
       approval_limit: limit,
-      justification: needsJust ? justification.trim() : null,
+      risk: needsRisk ? { rules: sod.decision.risk, justification: justification.trim(), ownerId: riskOwner } : null,
     });
   }
 
@@ -129,6 +146,17 @@ function UserDrawer({ open, mode, user, onClose, onSave, onAction }) {
           )}
 
           <div className="ba-section">
+            <div className="ba-section-title">Department</div>
+            <div className="ba-field" style={{ marginBottom: 0 }}>
+              <select className="ru-dept-select" value={department} onChange={(e) => setDepartment(e.target.value)} aria-label="Department">
+                <option value="">Not set</option>
+                {DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
+              <span className="ba-help">Where this person sits in the organisation. It doesn't grant any access — roles do.</span>
+            </div>
+          </div>
+
+          <div className="ba-section">
             <div className="ba-section-title">Roles <span className="ba-req">*</span></div>
             <p className="ba-help" style={{ marginBottom: 10 }}>
               Select one or more roles. Segregation of duties is checked live.
@@ -144,10 +172,8 @@ function UserDrawer({ open, mode, user, onClose, onSave, onAction }) {
                     </span>
                     <span className="ru-role-check-body">
                       <span className="ru-role-check-name">
-                        <span className={`ru-role-dot ${r.control_role ? "control" : "op"}`} />
                         {r.name}
                       </span>
-                      <span className="ru-role-check-desc">{r.control_role ? "Control role" : "Operational role"}</span>
                     </span>
                   </label>
                 );
@@ -156,34 +182,38 @@ function UserDrawer({ open, mode, user, onClose, onSave, onAction }) {
           </div>
 
           {/* Live SoD feedback */}
-          {sod.level === "hard" && (
+          {blocked && (
             <div className="ru-sod-banner hard">
               <div className="ru-sod-banner-hdr">
                 <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12" y2="16"/></svg>
                 Segregation of duties conflict — blocked
               </div>
-              <p>{sod.message}</p>
-              <p className="ru-sod-banner-note">This combination cannot be saved. Remove one of the conflicting roles.</p>
+              <p>{sod.decision.blocked.map((r) => r.label).join("; ")} can't be held by one person.</p>
+              <p className="ru-sod-banner-note">
+                {sod.decision.blocked.some((r) => r.forbidden)
+                  ? "This capability is never allowed. Remove the role that grants it."
+                  : sodMode === "RELAXED"
+                    ? "This combination can't be accepted even in Relaxed mode. Remove one of the conflicting roles."
+                    : "This entity is in Enforced mode, so hard conflicts can't be saved. Remove one of the conflicting roles, or switch the entity to Relaxed in Access policy."}
+              </p>
             </div>
           )}
-          {sod.level === "soft" && (
-            <div className="ru-sod-banner soft">
-              <div className="ru-sod-banner-hdr">
-                <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12" y2="17"/></svg>
-                Segregation of duties warning
-              </div>
-              <p>{sod.message}</p>
-              <div className="ba-field" style={{ marginTop: 10, marginBottom: 0 }}>
-                <label>Justification <span className="ba-req">*</span></label>
-                <textarea
-                  rows={3}
-                  value={justification}
-                  onChange={(e) => setJustification(e.target.value)}
-                  placeholder="Explain why this combination is needed (e.g. small team, manager oversight)…"
-                />
-                <span className="ba-help">At least 8 characters. The justification is recorded for the audit trail.</span>
-              </div>
-            </div>
+          {!blocked && needsRisk && (
+            <SodRiskAcceptance
+              rules={sod.decision.risk}
+              justification={justification}
+              setJustification={setJustification}
+              ownerId={riskOwner}
+              setOwnerId={setRiskOwner}
+              excludeIds={[me.id, user?.id].filter(Boolean)}
+            />
+          )}
+          {sod.existing.length > 0 && (
+            <p className="ba-help" style={{ marginTop: 10 }}>
+              Already accepted for this user: {sod.existing.map((r) => r.label).join("; ")}
+              {user?.justification ? ` — “${user.justification}”` : ""}
+              {user?.riskOwner ? ` (owner: ${user.riskOwner})` : ""}.
+            </p>
           )}
 
           {roleKeys.length > 0 && (
@@ -195,7 +225,14 @@ function UserDrawer({ open, mode, user, onClose, onSave, onAction }) {
               </div>
               <div className="drawer-row">
                 <span className="drawer-label">Approval limit</span>
-                <span className="drawer-value">{fmtLimit(limit)}</span>
+                <span className="drawer-value">
+                  {fmtLimit(limit)}
+                  {limitSource && (
+                    <span className="ru-limit-src">
+                      set on <Link to={`/roles/${limitSource.key}`} className="ru-inline-link">{limitSource.name}</Link>
+                    </span>
+                  )}
+                </span>
               </div>
             </div>
           )}
@@ -241,113 +278,24 @@ function UserDrawer({ open, mode, user, onClose, onSave, onAction }) {
   );
 }
 
-// ── Read-only role detail drawer (opened from a role chip) ───────────────
-// Roles are seeded constants in MVP (no custom-role builder until v2), so this
-// surfaces a role's definition on demand instead of as its own nav page.
-function RoleDetailDrawer({ roleKey, userCount, onClose }) {
-  if (!roleKey) return null;
-  const role = ROLES.find((r) => r.key === roleKey);
-  if (!role) return null;
-
-  const caps = ROLE_CAPS[role.key] || {};
-
-  return (
-    <>
-      <div className="drawer-overlay" onClick={onClose} />
-      <div className="drawer">
-        <div className="drawer-head">
-          <div
-            className="drawer-av"
-            style={{ background: role.control_role ? "var(--color-action)" : "var(--color-text-tertiary)" }}
-          >
-            <span className={`ru-role-dot ${role.control_role ? "control" : "op"}`} style={{ width: 14, height: 14 }} />
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div className="drawer-title">{role.name}</div>
-            <div className="drawer-sub">
-              {role.control_role ? "Control role" : "Operational role"}
-              {role.is_system && " · System (built-in)"}
-            </div>
-          </div>
-          <button className="drawer-close" onClick={onClose}>✕</button>
-        </div>
-
-        <div className="drawer-body">
-          <div className="ba-section">
-            <p className="ba-help" style={{ margin: 0 }}>{role.description}</p>
-          </div>
-
-          <div className="ba-section">
-            <div className="ba-section-title">At a glance</div>
-            <div className="drawer-row">
-              <span className="drawer-label">Users holding this role</span>
-              <span className="drawer-value">{userCount}</span>
-            </div>
-            <div className="drawer-row">
-              <span className="drawer-label">Approval limit</span>
-              <span className="drawer-value">{fmtLimit(role.approval_limit)}</span>
-            </div>
-            <div className="drawer-row">
-              <span className="drawer-label">Type</span>
-              <span className="drawer-value">{role.is_system ? "System role — cannot be deleted" : "Custom role"}</span>
-            </div>
-          </div>
-
-          <div className="ba-section">
-            <div className="ba-section-title">Capabilities by module</div>
-            <div className="rd-perm-list">
-              {MODULES.filter((m) => !m.internal).map((m) => {
-                const list = caps[m.key] || [];
-                return (
-                  <div key={m.key} className="rd-perm-row">
-                    <span className="rd-perm-mod">{m.label}</span>
-                    <span className="rd-perm-caps">
-                      {list.length === 0 ? (
-                        <span className="rd-perm-none">—</span>
-                      ) : (
-                        list.map((c) => (
-                          <span key={c} className="ru-role-chip" title={CAPABILITIES[c]?.desc || ""}>
-                            {capLabel(c)}
-                          </span>
-                        ))
-                      )}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-
-        <div className="drawer-footer">
-          <button className="drawer-btn ghost" onClick={onClose}>Close</button>
-        </div>
-      </div>
-    </>
-  );
-}
-
 export default function UsersPage() {
   const [users, setUsers] = useState(() => SEED_USERS.map((u) => ({ ...u, roleKeys: [...u.roleKeys] })));
+  const { acceptRisks } = useRoles();
+  const { sodMode } = useAccountingSettings();
+  const { user: me } = useCurrentUser();
   const [statusFilter, setStatusFilter] = useState("all");
-  const [roleFilter, setRoleFilter] = useState("all");
-  const [approvalFilter, setApprovalFilter] = useState("all"); // all | has | none
+  // A role page's "Manage in Users" link lands here pre-filtered (?role=key).
+  const [searchParams] = useSearchParams();
+  const [roleFilter, setRoleFilter] = useState(() => {
+    const k = searchParams.get("role");
+    return k && ROLES.some((r) => r.key === k) ? k : "all";
+  });
+  const navigate = useNavigate();
+  const [deptFilter, setDeptFilter] = useState("all"); // all | none | <department>
   const [search, setSearch] = useState("");
   const [drawer, setDrawer] = useState(null); // { mode, user }
-  const [roleDrawer, setRoleDrawer] = useState(null); // roleKey (read-only detail)
   const [toast, setToast] = useState("");
   const toastTmr = useRef(null);
-
-  // Active+invited users holding each role (drives the role-detail count).
-  const roleCounts = useMemo(() => {
-    const counts = {};
-    for (const r of ROLES) counts[r.key] = 0;
-    for (const u of users) {
-      if (u.status === "Inactive") continue;
-      for (const k of u.roleKeys) if (counts[k] != null) counts[k] += 1;
-    }
-    return counts;
-  }, [users]);
 
   function showToast(msg) {
     setToast(msg);
@@ -355,20 +303,11 @@ export default function UsersPage() {
     toastTmr.current = setTimeout(() => setToast(""), 2200);
   }
 
-  const stats = useMemo(() => {
-    const active = users.filter((u) => u.status === "Active").length;
-    const invited = users.filter((u) => u.status === "Invited").length;
-    const inactive = users.filter((u) => u.status === "Inactive").length;
-    return { all: users.length, active, invited, inactive };
-  }, [users]);
-
-  // Role tabs (All + one per role). Counts span every user holding the role.
-  const roleTabs = useMemo(() => [
+  // Status tabs (All + one per account status).
+  const statusTabs = useMemo(() => [
     { k: "all", lbl: "All", count: users.length },
-    ...ROLES.map((r) => ({
-      k: r.key,
-      lbl: r.name,
-      count: users.filter((u) => u.roleKeys.includes(r.key)).length,
+    ...["Active", "Invited", "Inactive"].map((st) => ({
+      k: st, lbl: STATUS_LABELS[st], count: users.filter((u) => u.status === st).length,
     })),
   ], [users]);
 
@@ -377,16 +316,17 @@ export default function UsersPage() {
     return users.filter((u) => {
       if (statusFilter !== "all" && u.status !== statusFilter) return false;
       if (roleFilter !== "all" && !u.roleKeys.includes(roleFilter)) return false;
-      if (approvalFilter === "has" && u.approval_limit == null) return false;
-      if (approvalFilter === "none" && u.approval_limit != null) return false;
+      if (deptFilter === "none" && u.department) return false;
+      if (deptFilter !== "all" && deptFilter !== "none" && u.department !== deptFilter) return false;
       if (!q) return true;
       return (
         u.name.toLowerCase().includes(q) ||
+        (u.department || "").toLowerCase().includes(q) ||
         u.email.toLowerCase().includes(q) ||
         u.roleKeys.some((k) => roleName(k).toLowerCase().includes(q))
       );
     });
-  }, [users, statusFilter, roleFilter, approvalFilter, search]);
+  }, [users, statusFilter, roleFilter, deptFilter, search]);
 
   function handleRowAction(action, user) {
     if (action === "deactivate") {
@@ -403,16 +343,25 @@ export default function UsersPage() {
   }
 
   function handleSave(data) {
+    const id = data.mode === "invite" ? `U${String(Date.now()).slice(-6)}` : data.id;
+    // An accepted SoD risk goes to the risk register and stays on the user.
+    const owner = data.risk ? SEED_USERS.find((u) => u.id === data.risk.ownerId) : null;
+    const riskFields = owner ? { justification: data.risk.justification, riskOwner: owner.name } : {};
+    if (owner) {
+      acceptRisks({
+        rules: data.risk.rules, subject: `User · ${data.name}`, userId: id,
+        justification: data.risk.justification, owner: owner.name, by: me.name, mode: sodMode,
+      });
+    }
     if (data.mode === "invite") {
-      const id = `U${String(Date.now()).slice(-6)}`;
       setUsers((cur) => [
-        { id, name: data.name, email: data.email, roleKeys: data.roleKeys, status: "Invited", approval_limit: data.approval_limit, lastActive: null, invitedOn: "2026-06-07", justification: data.justification },
+        { id, name: data.name, email: data.email, department: data.department, roleKeys: data.roleKeys, status: "Invited", approval_limit: data.approval_limit, lastActive: null, invitedOn: "2026-06-07", ...riskFields },
         ...cur,
       ]);
       showToast(`Invitation sent to ${data.email}.`);
     } else {
-      setUsers((cur) => cur.map((u) => (u.id === data.id ? { ...u, roleKeys: data.roleKeys, approval_limit: data.approval_limit, justification: data.justification } : u)));
-      showToast(data.justification ? "Roles updated with justification recorded." : "Roles updated.");
+      setUsers((cur) => cur.map((u) => (u.id === id ? { ...u, department: data.department, roleKeys: data.roleKeys, approval_limit: data.approval_limit, ...riskFields } : u)));
+      showToast(owner ? `User updated — risk accepted by ${owner.name}.` : "User updated.");
     }
     setDrawer(null);
   }
@@ -426,7 +375,8 @@ export default function UsersPage() {
               <h1 className="lg-title">Users</h1>
               <p className="settings-sub">
                 Manage who has access and which roles they hold. Role assignments are checked against the
-                segregation-of-duties rules — click any role chip to see that role's definition and permissions.
+                segregation-of-duties rules — click any role chip to open that role's capabilities in{" "}
+                <Link to="/roles" className="ru-inline-link">Roles</Link>.
               </p>
             </div>
             <div className="lg-head-actions">
@@ -436,35 +386,17 @@ export default function UsersPage() {
               </button>
             </div>
           </div>
-
-          <div className="lg-kpi-strip kpi-3">
-            <button type="button" className="lg-kpi-cell" onClick={() => setStatusFilter("all")}>
-              <div className="lg-kpi-lbl">Total users</div>
-              <div className="lg-kpi-val">{stats.all}</div>
-              <div className="lg-kpi-sub">{stats.active} active</div>
-            </button>
-            <button type="button" className="lg-kpi-cell" onClick={() => setStatusFilter("Invited")}>
-              <div className="lg-kpi-lbl">Invited</div>
-              <div className="lg-kpi-val">{stats.invited}</div>
-              <div className="lg-kpi-sub">awaiting acceptance</div>
-            </button>
-            <button type="button" className="lg-kpi-cell" onClick={() => setStatusFilter("Inactive")}>
-              <div className="lg-kpi-lbl">Inactive</div>
-              <div className="lg-kpi-val">{stats.inactive}</div>
-              <div className="lg-kpi-sub">access revoked</div>
-            </button>
-          </div>
         </div>
 
         <div className="lg-table-wrap">
           <div className="lg-card lg-table-users">
             <div className="bp-tabs-row">
-              {roleTabs.map((t) => (
+              {statusTabs.map((t) => (
                 <button
                   key={t.k}
                   type="button"
-                  className={`bp-tab${roleFilter === t.k ? " active" : ""}`}
-                  onClick={() => setRoleFilter(t.k)}
+                  className={`bp-tab${statusFilter === t.k ? " active" : ""}`}
+                  onClick={() => setStatusFilter(t.k)}
                 >
                   {t.lbl}
                   <span className="bp-tab-count">{t.count}</span>
@@ -477,37 +409,35 @@ export default function UsersPage() {
                 <svg viewBox="0 0 14 14"><circle cx="6" cy="6" r="3.5"/><path d="M9 9l3 3" strokeLinecap="round"/></svg>
                 <input
                   type="text"
-                  placeholder="Search name, email, or role…"
+                  placeholder="Search name, email, department, or role…"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                 />
               </div>
               <select
                 className="ru-filter-select"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                aria-label="Filter by status"
+                value={roleFilter}
+                onChange={(e) => setRoleFilter(e.target.value)}
+                aria-label="Filter by role"
               >
-                <option value="all">Any status</option>
-                <option value="Active">Active</option>
-                <option value="Invited">Invited</option>
-                <option value="Inactive">Inactive</option>
+                <option value="all">Any role</option>
+                {ROLES.map((r) => <option key={r.key} value={r.key}>{r.name}</option>)}
               </select>
               <select
                 className="ru-filter-select"
-                value={approvalFilter}
-                onChange={(e) => setApprovalFilter(e.target.value)}
-                aria-label="Filter by approval authority"
+                value={deptFilter}
+                onChange={(e) => setDeptFilter(e.target.value)}
+                aria-label="Filter by department"
               >
-                <option value="all">Any approval authority</option>
-                <option value="has">Has approval limit</option>
-                <option value="none">No approval limit</option>
+                <option value="all">Any department</option>
+                {DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}
+                <option value="none">No department</option>
               </select>
-              {(statusFilter !== "all" || approvalFilter !== "all") && (
+              {(roleFilter !== "all" || deptFilter !== "all") && (
                 <button
                   type="button"
                   className="ru-filter-clear"
-                  onClick={() => { setStatusFilter("all"); setApprovalFilter("all"); }}
+                  onClick={() => { setRoleFilter("all"); setDeptFilter("all"); }}
                 >
                   Clear
                 </button>
@@ -516,9 +446,9 @@ export default function UsersPage() {
 
             <div className="lg-col-header ru-users-cols">
               <div>User</div>
+              <div>Department</div>
               <div>Roles</div>
               <div>Status</div>
-              <div style={{ textAlign: "right" }}>Approval limit</div>
             </div>
 
             {filtered.length === 0 && <div className="lg-empty">No users in this view.</div>}
@@ -538,14 +468,15 @@ export default function UsersPage() {
                       <span className="ru-user-email">{u.email}</span>
                     </span>
                   </div>
+                  <div className={u.department ? "ru-user-dept" : "lg-cell-em-dash"}>{u.department || "—"}</div>
                   <div className="ru-user-roles">
                     {u.roleKeys.map((k) => (
                       <button
                         key={k}
                         type="button"
                         className="ru-role-chip ru-role-chip-btn"
-                        title={`View ${roleName(k)} definition`}
-                        onClick={(e) => { e.stopPropagation(); setRoleDrawer(k); }}
+                        title={`Open the ${roleName(k)} role`}
+                        onClick={(e) => { e.stopPropagation(); navigate(`/roles/${k}`); }}
                       >
                         {roleName(k)}
                       </button>
@@ -553,7 +484,7 @@ export default function UsersPage() {
                     {sod.level !== "none" && (
                       <span
                         className={`ru-sod-ico ${sod.level}`}
-                        title={u.justification ? `${sod.message}\nJustification: ${u.justification}` : sod.message}
+                        title={u.justification ? `${sod.message}\nJustification: ${u.justification}${u.riskOwner ? `\nRisk owner: ${u.riskOwner}` : ""}` : sod.message}
                         aria-label="Segregation of duties warning"
                       >
                         <svg viewBox="0 0 24 24"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
@@ -561,11 +492,6 @@ export default function UsersPage() {
                     )}
                   </div>
                   <div><StatusBadge status={u.status} /></div>
-                  <div className="lg-cell-total">
-                    {u.approval_limit != null
-                      ? <><span className="lg-cell-total-rp">Rp</span>{u.approval_limit.toLocaleString("id-ID")}</>
-                      : <span className="lg-cell-em-dash">—</span>}
-                  </div>
                 </div>
               );
             })}
@@ -580,12 +506,6 @@ export default function UsersPage() {
         onClose={() => setDrawer(null)}
         onSave={handleSave}
         onAction={handleRowAction}
-      />
-
-      <RoleDetailDrawer
-        roleKey={roleDrawer}
-        userCount={roleDrawer ? roleCounts[roleDrawer] ?? 0 : 0}
-        onClose={() => setRoleDrawer(null)}
       />
 
       {toast && <div className="toast show">{toast}</div>}

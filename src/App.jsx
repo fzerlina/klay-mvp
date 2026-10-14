@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import Layout, { NoAccess } from "./layout/Layout";
 import { CurrentUserProvider, useCurrentUser } from "./state/CurrentUserContext";
+import { RolesProvider } from "./state/RolesContext";
 import CommandCenterPage from "./pages/CommandCenterPage";
 import PaymentsPage from "./pages/PaymentsPage";
 import ReportsPage from "./pages/ReportsPage";
@@ -34,6 +35,8 @@ import TaxReconciliationPage from "./pages/TaxReconciliationPage";
 import BankAccountsSettingsPage from "./pages/BankAccountsSettingsPage";
 import UsersPage from "./pages/UsersPage";
 import AccessPolicyPage from "./pages/AccessPolicyPage";
+import RolesPage from "./pages/RolesPage";
+import RoleDetailPage from "./pages/RoleDetailPage";
 import ApprovalSettingsPage from "./pages/ApprovalSettingsPage";
 import PostingPeriodsSettingsPage from "./pages/PostingPeriodsSettingsPage";
 import InventorySettingsPage from "./pages/InventorySettingsPage";
@@ -104,6 +107,7 @@ function RequireLevel({ module, level, action, children }) {
 
 export default function App() {
   return (
+    <RolesProvider>
     <CurrentUserProvider>
     <InvoicesProvider>
       <BillsProvider>
@@ -169,6 +173,8 @@ export default function App() {
                 <Route path="/tax-reconciliation" element={<TaxReconciliationPage />} />
                 <Route path="/bank-accounts" element={<BankAccountsSettingsPage />} />
                 <Route path="/users" element={<UsersPage />} />
+                <Route path="/roles" element={<RolesPage />} />
+                <Route path="/roles/:key" element={<RoleDetailPage />} />
                 <Route path="/access-policy" element={<AccessPolicyPage />} />
                 <Route path="/approval" element={<ApprovalSettingsPage />} />
                 <Route path="/posting-periods" element={<PostingPeriodsSettingsPage />} />
@@ -190,5 +196,6 @@ export default function App() {
       </BillsProvider>
     </InvoicesProvider>
     </CurrentUserProvider>
+    </RolesProvider>
   );
 }

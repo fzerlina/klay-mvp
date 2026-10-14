@@ -32,6 +32,21 @@ export const MODULES = [
 // "everything" grant and, on a financial module, expands to every verb.
 export const VERBS = ["view", "transact", "approve", "post", "full"];
 
+// Which verbs the role editor offers per module — the ones the app actually
+// gates on. Settings is named-capability only; Bank's real power is the named
+// bank.reconcile. Named capabilities attach to their `home` module below.
+export const MODULE_VERBS = {
+  gl: ["view", "transact", "approve", "post"],
+  ap: ["view", "transact", "approve", "post"],
+  ar: ["view", "transact", "approve", "post"],
+  purchasing: ["view", "transact", "approve"],
+  inventory: ["view", "transact"],
+  bank: ["view"],
+  reports: ["view", "full"],
+  settings: [],
+  migration: [],
+};
+
 export const CAPABILITIES = {
   // Verbs
   view: { label: "View", kind: "verb", desc: "Read only" },
@@ -49,7 +64,7 @@ export const CAPABILITIES = {
   "payment.request": { label: "Request payment", kind: "named", home: "ap", desc: "Request payment for a posted bill (AP Staff)" },
   "payment.approve": { label: "Approve payment", kind: "named", home: "ap", desc: "Approve a payment request (Finance Manager)" },
   "payment.execute": { label: "Execute payment", kind: "named", home: "ap", desc: "Execute the transfer off-system and mark the bill paid; upload the bank statement (Finance Staff)" },
-  "bank.reconcile": { label: "Reconcile bank", kind: "named", home: "bank", noDefaultHome: true, desc: "Reconcile bank statements against the ledger, and post the journals reconciliation writes (bank charges, interest, differences, quick drafts). Never bundled into a seeded role — granted explicitly per entity (see NOTE below)." },
+  "bank.reconcile": { label: "Reconcile bank", kind: "named", home: "bank", noDefaultHome: true, desc: "Reconcile bank statements against the ledger, and post the journals reconciliation writes (bank charges, interest, differences, quick drafts)." }, // granted deliberately — see NOTE below
   // Named settings / configuration capabilities (split so each grants independently)
   "coa.manage": { label: "Manage Chart of Accounts", kind: "named", home: "settings", desc: "Edit the Chart of Accounts (high-sensitivity changes route through approval)" },
   "dimensions.manage": { label: "Manage dimensions", kind: "named", home: "settings", desc: "Edit dimensions (branch, cost center, project)" },
@@ -137,99 +152,80 @@ export const ROLE_CAPS = {
 };
 
 // ── Roles (7 seeded customer templates, PRD build order) ────────────────────
-// is_system roles ship with Klay and cannot be deleted (custom roles arrive v2
-// as clone-from-template). approval_limit is the max Rupiah a role may approve.
-// control_role vs. operational drives the UI dot. name_id = Bahasa display label.
+// The starting set every company is provisioned with — after that they are
+// ordinary, editable roles (is_system only records provenance). approval_limit is the max Rupiah a role may approve.
 export const ROLES = [
   {
     key: "finance_manager",
     name: "Finance Manager",
-    name_id: "Manajer Keuangan",
     description: "The senior control and the approver pool. Approves and posts across GL/AP/AR, holds accounting configuration (CoA, dimensions, posting rules, period lock/reopen). In a lean team this is often the owner's own seat. Deliberately NOT user administration, vendor creation, or bank reconciliation.",
     is_system: true,
     is_internal: false,
     approval_limit: 100000000,
-    control_role: true,
   },
   {
     key: "accounting_manager",
     name: "Accounting Manager",
-    name_id: "Manajer Akuntansi",
     description: "The recorder. Posts journals to the general ledger and commits approved bills/invoices to the ledger, and reviews non-tax posting exceptions. Distinct from the Finance Manager, who authorises payment. Added for the AP payment pipeline (diverges from the PRD's 7 templates).",
     is_system: true,
     is_internal: false,
     approval_limit: null,
-    control_role: true,
   },
   {
     key: "ap_staff",
     name: "AP Staff",
-    name_id: "Staff AP",
     description: "Enters vendor bills and submits them for approval, and onboards vendor master records. Cannot approve or pay — so holding vendor.create is safe. The highest-volume daily role.",
     is_system: true,
     is_internal: false,
     approval_limit: null,
-    control_role: false,
   },
   {
     key: "finance_staff",
     name: "Finance Staff",
-    name_id: "Staff Keuangan",
     description: "Executes the actual bank transfer (done off-system) and uploads the daily bank statement to reconcile against the ledger. Holds bank reconciliation but no posting or approval authority. Added for the AP payment pipeline (diverges from the PRD's 7 templates).",
     is_system: true,
     is_internal: false,
     approval_limit: null,
-    control_role: false,
   },
   {
     key: "admin",
     name: "Admin",
-    name_id: "Admin",
     description: "User and access administration — invites users, assigns roles and scope, toggles SoD enforcement. Deliberately powerless over money: no posting or approval on any financial module.",
     is_system: true,
     is_internal: false,
     approval_limit: null,
-    control_role: true,
   },
   {
     key: "view_only",
     name: "View Only",
-    name_id: "Pemantau",
     description: "Read-only oversight — owner, CFO/director, external auditor, investor. Sees the modules and full reports; writes nothing. The productized form of the owner-reviews-the-books control; can be given a sensitivity scope to hide payroll / owner's-draw accounts.",
     is_system: true,
     is_internal: false,
     approval_limit: null,
-    control_role: false,
   },
   {
     key: "ar_staff",
     name: "AR Staff",
-    name_id: "Staff AR",
     description: "The AP Staff mirror on the receivables side. Enters and submits customer invoices, and onboards customer master records.",
     is_system: true,
     is_internal: false,
     approval_limit: null,
-    control_role: false,
   },
   {
     key: "purchasing_staff",
     name: "Purchasing Staff",
-    name_id: "Staff Pengadaan",
     description: "Raises purchase orders and procurement requests. No access to financial records.",
     is_system: true,
     is_internal: false,
     approval_limit: null,
-    control_role: false,
   },
   {
     key: "warehouse_staff",
     name: "Warehouse Staff",
-    name_id: "Staff Gudang",
     description: "Goods receipt and stock operations (GRN, stock opname). No access to the finance modules.",
     is_system: true,
     is_internal: false,
     approval_limit: null,
-    control_role: false,
   },
 ];
 
@@ -294,33 +290,52 @@ export const PERMISSION_MATRIX = Object.fromEntries(
 //   • "full"       → expands to every verb on that module
 //   • named caps   → the cap string as-is (e.g. "vendor.create", "bank.reconcile",
 //                    "users.manage", "coa.manage")
-export function effectiveCapabilities(roleKeys = [], extraCaps = []) {
+//
+// `override` ({ key, caps }) swaps one role's grants for a draft — the Roles
+// editor uses it to ask "what would each holder end up with if I saved this?".
+export function effectiveCapabilities(roleKeys = [], extraCaps = [], override = null) {
   const set = new Set();
-  const add = (module, cap) => {
-    if (VERBS.includes(cap)) {
-      if (cap === "full") for (const v of VERBS) set.add(`${module}.${v}`);
-      else set.add(`${module}.${cap}`);
-    } else {
-      set.add(cap); // named caps are already canonical
-    }
-  };
   for (const rk of roleKeys) {
-    const mods = ROLE_CAPS[rk] || {};
-    for (const [m, caps] of Object.entries(mods)) for (const c of caps) add(m, c);
+    const mods = override && override.key === rk ? override.caps : ROLE_CAPS[rk];
+    addModuleCaps(set, mods);
   }
   for (const c of extraCaps) set.add(c);
+  return set;
+}
+
+// Canonical capability ids for one { moduleKey: [cap, …] } grant map.
+export function capabilitySet(capsByModule) {
+  return addModuleCaps(new Set(), capsByModule);
+}
+
+function addModuleCaps(set, capsByModule = {}) {
+  for (const [module, caps] of Object.entries(capsByModule || {})) {
+    for (const cap of caps) {
+      if (VERBS.includes(cap)) {
+        if (cap === "full") for (const v of VERBS) set.add(`${module}.${v}`);
+        else set.add(`${module}.${cap}`);
+      } else {
+        set.add(cap); // named caps are already canonical
+      }
+    }
+  }
   return set;
 }
 
 // ── Segregation-of-Duties rules (capability-level, PRD §8.2 D6 — locked) ──────
 // Defined over CAPABILITIES, not role pairs, so a self-built fraud combo in a
 // future custom role is caught the moment it's defined. A rule fires when the
-// user's effective set intersects group `a` AND group `b`. HARD = assignment
-// refused; SOFT = allowed with a logged justification.
+// user's effective set intersects group `a` AND group `b`. What a hit means
+// depends on the entity's SoD mode (Settings → Access policy) — see sodDecision:
+//   forbidden          → always denied
+//   HARD, relaxable    → denied when ENFORCED; allowed with an accepted risk when RELAXED
+//   HARD, !relaxable   → always denied (none seeded today, mirroring the backend)
+//   SOFT               → allowed with an accepted risk in either mode
 export const SOD_RULES = [
   {
     id: 1,
     type: "HARD",
+    relaxable: true,
     a: ["vendor.create"],
     b: ["ap.approve", "ap.post"],
     label: "Create vendor + pay vendor",
@@ -329,6 +344,7 @@ export const SOD_RULES = [
   {
     id: 2,
     type: "HARD",
+    relaxable: true,
     a: ["ap.approve"],
     b: ["bank.reconcile"],
     label: "Approve payment + reconcile bank",
@@ -337,6 +353,7 @@ export const SOD_RULES = [
   {
     id: 3,
     type: "HARD",
+    relaxable: true,
     a: ["gl.post"],
     b: ["bank.reconcile"],
     label: "Post to ledger + reconcile bank",
@@ -345,6 +362,7 @@ export const SOD_RULES = [
   {
     id: 4,
     type: "HARD",
+    forbidden: true,
     a: ["user.edit_own_approval_limit"],
     b: null,
     label: "Edit own approval limit",
@@ -371,7 +389,11 @@ function roleName(key) {
 // Evaluate SoD for a set of roles (+ optional per-user extra capabilities).
 // Returns { level: 'none'|'soft'|'hard', message, conflicts:[rule] }. HARD wins.
 export function evaluateSod(roleKeys, opts = {}) {
-  const set = effectiveCapabilities(roleKeys || [], opts.extraCaps || []);
+  return evaluateSodSet(effectiveCapabilities(roleKeys || [], opts.extraCaps || [], opts.override || null));
+}
+
+// Same evaluation over an already-flattened capability set.
+export function evaluateSodSet(set) {
   const hits = SOD_RULES.filter((rule) => {
     const aHit = rule.a.some((c) => set.has(c));
     if (rule.b == null) return aHit; // single-capability forbidden rule
@@ -384,6 +406,7 @@ export function evaluateSod(roleKeys, opts = {}) {
       level: "hard",
       message: `Segregation of duties conflict: ${hard.map((h) => h.label).join("; ")} cannot be held by one person.`,
       conflicts: hard,
+      all: hits,
     };
   }
   const soft = hits.filter((h) => h.type === "SOFT");
@@ -392,9 +415,25 @@ export function evaluateSod(roleKeys, opts = {}) {
       level: "soft",
       message: `Segregation of duties warning: ${soft.map((h) => h.label).join("; ")} should be split across people. Provide a justification to proceed.`,
       conflicts: soft,
+      all: hits,
     };
   }
-  return { level: "none", message: "", conflicts: [] };
+  return { level: "none", message: "", conflicts: [], all: [] };
+}
+
+// What the entity's SoD mode does with a set of fired rules. Returns
+// { level: "blocked"|"risk"|"none", blocked: [rule], risk: [rule] } — blocked
+// rules refuse the change outright; risk rules let it through only once a
+// justification and an independent risk owner are recorded.
+export function sodDecision(rules = [], mode = "ENFORCED") {
+  const blocked = [];
+  const risk = [];
+  for (const r of rules) {
+    if (r.forbidden) blocked.push(r);
+    else if (r.type === "HARD" && (mode !== "RELAXED" || !r.relaxable)) blocked.push(r);
+    else risk.push(r);
+  }
+  return { level: blocked.length ? "blocked" : risk.length ? "risk" : "none", blocked, risk };
 }
 
 // Backwards-friendly alias used by drawer flows.
@@ -492,4 +531,60 @@ function buildGeneratedUsers() {
   });
 }
 
-export const USERS = [...ANCHOR_USERS, ...buildGeneratedUsers()];
+// Each person's home department — a value of the Department dimension
+// (Settings → Dimensions). It says where someone sits in the organisation and
+// grants nothing: access stays with roles, record scope with role assignments.
+// Seeded from the primary role; editable per user on the Users page.
+const DEPT_BY_ROLE = {
+  finance_manager: "Finance", accounting_manager: "Finance", ap_staff: "Finance", ar_staff: "Finance",
+  finance_staff: "Finance", purchasing_staff: "Procurement", warehouse_staff: "Operations",
+  admin: "Technology", view_only: "Executive",
+};
+
+export const USERS = [...ANCHOR_USERS, ...buildGeneratedUsers()].map((u) => ({
+  department: DEPT_BY_ROLE[u.roleKeys[0]] || null,
+  ...u,
+}));
+
+// ── Live role registry (customisable roles) ────────────────────────────────
+// ROLES and ROLE_CAPS above are the roles every company is provisioned with,
+// so nobody begins from an empty role, and they are also the live
+// registry. Every helper in this file (effectiveCapabilities, evaluateSod,
+// roleName) and CurrentUserContext read them at call time, so an edit made on
+// the Roles page takes effect app-wide without threading state through every
+// caller. RolesContext is the only writer; it bumps a revision so React
+// re-renders.
+export function cloneCaps(caps) {
+  return Object.fromEntries(Object.entries(caps || {}).map(([m, c]) => [m, [...c]]));
+}
+
+// A user's approval limit is the highest limit among the roles they hold
+// (null = no approval authority). The approval workflow decides WHO is asked;
+// this ceiling decides how much their signature can cover.
+export function approvalLimitFor(roleKeys = []) {
+  let max = null;
+  for (const k of roleKeys) {
+    const r = ROLES.find((x) => x.key === k);
+    if (r?.approval_limit != null) max = Math.max(max ?? 0, r.approval_limit);
+  }
+  return max;
+}
+
+// Insert or replace a role and its grants, then re-derive the approval limit of
+// everyone holding it.
+export function writeRole(role, caps) {
+  const i = ROLES.findIndex((r) => r.key === role.key);
+  if (i >= 0) ROLES[i] = { ...role };
+  else ROLES.push({ ...role });
+  ROLE_CAPS[role.key] = cloneCaps(caps);
+  for (const u of USERS) {
+    if (u.roleKeys.includes(role.key)) u.approval_limit = approvalLimitFor(u.roleKeys);
+  }
+}
+
+// Remove a custom role. Callers must ensure nobody holds it.
+export function removeRole(key) {
+  const i = ROLES.findIndex((r) => r.key === key);
+  if (i >= 0) ROLES.splice(i, 1);
+  delete ROLE_CAPS[key];
+}

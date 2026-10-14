@@ -8,6 +8,7 @@ import {
   legacyLevel,
   effectiveCapabilities,
 } from "../data/seed/roles";
+import { useRoles } from "./RolesContext";
 
 // Who is "logged in" for the prototype. A visible persona switcher (sidebar)
 // flips this so a demo can show how the app changes per role. Everything that
@@ -103,6 +104,7 @@ const ROUTE_MODULE = [
   ["/bank-accounts", "settings"],
   ["/dimensions", "settings"],
   ["/users", "settings"],
+  ["/roles", "settings"],
   ["/access-policy", "settings"],
   ["/posting-periods", "settings"],
 ];
@@ -133,9 +135,13 @@ export function CurrentUserProvider({ children }) {
     () => USERS.find((u) => u.id === userId) || PERSONAS[0],
     [userId],
   );
+  // Role definitions are editable (Settings → Roles); `rev` changes on every
+  // save so the signed-in persona's capabilities are re-derived at once.
+  const { rev: rolesRev } = useRoles();
   const caps = useMemo(
     () => capabilitiesByModule(user.roleKeys, user.extraCaps || []),
-    [user],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [user, rolesRev],
   );
   const modules = useMemo(
     () => {

@@ -11,10 +11,6 @@
 .ru-section-title{font-size:11px;font-weight:700;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:.1em}
 .ru-section-cnt{font-size:11px;color:var(--color-text-tertiary);font-family:var(--font-mono)}
 
-/* Role / control dot */
-.ru-role-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;display:inline-block}
-.ru-role-dot.control{background:var(--color-brand)}
-.ru-role-dot.op{background:var(--color-action)}
 
 /* ── Role cards ──────────────────────────────────────────────────────── */
 .ru-role-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;padding:0 32px}
@@ -73,7 +69,7 @@
 
 /* ── Users table ─────────────────────────────────────────────────────── */
 .users-page .lg-card.lg-table-users .lg-col-header.ru-users-cols,
-.users-page .lg-row.ru-users-cols{grid-template-columns:1fr 280px 120px 180px}
+.users-page .lg-row.ru-users-cols{grid-template-columns:1fr 150px 320px 120px}
 
 .ru-user-cell{display:flex;align-items:center;gap:10px;min-width:0}
 .ru-user-av{width:32px;height:32px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;background:var(--color-action)}
@@ -146,3 +142,22 @@
 
 .users-page .drawer-btn[disabled]{opacity:.5;cursor:not-allowed}
 .users-page .drawer-btn.primary[disabled]:hover{background:var(--color-action)}
+
+/* ── SoD risk acceptance (role editor save + user drawer) ────────────── */
+.sod-risk{display:flex;flex-direction:column;gap:10px;padding:12px 14px;border-radius:var(--radius-md);background:var(--warning-surface);border:1px solid var(--warning-border)}
+.sod-risk-hdr{font-size:12.5px;font-weight:700;color:var(--warning-text)}
+.sod-risk-rules{margin:0;padding-left:16px;font-size:11.5px;line-height:1.5;color:var(--color-text-secondary)}
+.sod-risk-rules b{color:var(--color-text-primary);font-weight:600}
+.sod-risk-field{display:flex;flex-direction:column;gap:5px;font-size:12px;font-weight:600;color:var(--color-text-secondary)}
+.sod-risk-field em{font-style:normal;font-weight:400;color:var(--color-text-tertiary);margin-left:4px}
+.sod-risk-field textarea,.sod-risk-field select{font-family:var(--font-sans);font-size:13px;font-weight:400;color:var(--color-text-primary);background:var(--color-surface-raised);border:1px solid var(--color-border-strong);border-radius:var(--radius-sm);padding:8px 10px;outline:none;resize:vertical}
+.sod-risk-field textarea:focus,.sod-risk-field select:focus{border-color:var(--color-action)}
+.sod-risk-field .sod-risk-none{margin:0;color:var(--danger-text);font-weight:500}
+.sod-risk-note{margin:0;font-size:11px;color:var(--color-text-tertiary)}
+
+/* Users: department column + drawer select */
+.ru-user-dept{font-size:12.5px;color:var(--color-text-secondary)}
+.ru-dept-select{width:100%;font-family:var(--font-sans);font-size:13px;color:var(--color-text-primary);background:var(--color-surface-raised);border:1px solid var(--color-border-default);border-radius:var(--radius-sm);padding:8px 10px;outline:none;cursor:pointer}
+.ru-dept-select:focus{border-color:var(--color-action)}
+.users-page .lg-head{padding-bottom:24px}
+.ru-limit-src{display:block;font-size:11px;font-weight:400;color:var(--color-text-tertiary);margin-top:2px;text-align:right}

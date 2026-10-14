@@ -8,11 +8,11 @@ import "./roles-users.css";
 import "./access-policy.css";
 
 // Entity-level Segregation-of-Duties enforcement mode (per the Role Management PRD).
-// One setting per entity: ENFORCED (default) or RELAXED. This is a separate lever
-// from the role matrix and the role-assignment SoD check on the Users page — it
-// governs the runtime submitter-≠-poster control at *posting* time, not who may
-// hold which roles. The mode lives in AccountingSettingsContext so the screens
-// that post can enforce it. Bank reconciliation is the exception: one capability
+// One setting per entity: ENFORCED (default) or RELAXED. It governs two things,
+// matching the backend (ADR-003, settings.sod.mode): the submitter-≠-poster
+// control at *posting* time, and what a segregation-of-duties conflict does when
+// roles are edited (Roles) or assigned (Users) — see sodDecision in roles.js.
+// The mode lives in AccountingSettingsContext so every screen reads the same value. Bank reconciliation is the exception: one capability
 // (bank.reconcile) reconciles and posts under both modes.
 
 const ENTITY = { name: "PT Sejahtera Makmur", id: "ENT-001" };
@@ -29,6 +29,7 @@ const MODES = {
       { ok: true, text: "Submitter must differ from the poster on every Pattern B posting." },
       { ok: true, text: "The DRAFT → APPROVED → POSTED chain is required; no step can be skipped." },
       { ok: true, text: "Self-posting is blocked outright — the post button is disabled for the submitter." },
+      { ok: true, text: "Hard segregation-of-duties conflicts can't be given to one person, in a role or an assignment." },
     ],
   },
   RELAXED: {
@@ -42,6 +43,7 @@ const MODES = {
       { ok: false, text: "The submitter-≠-poster check is skipped — one person can record and post." },
       { ok: false, text: "The approval step is optional; transactions may move DRAFT → POSTED directly." },
       { ok: true, text: "Every self-post is written to the audit log with action = self_posted." },
+      { ok: false, text: "Hard segregation-of-duties conflicts are allowed once an independent owner accepts the risk." },
     ],
   },
 };
@@ -114,9 +116,10 @@ export default function AccessPolicyPage() {
             <div style={{ flex: 1, minWidth: 0 }}>
               <h1 className="lg-title">Access policy</h1>
               <p className="settings-sub">
-                Entity-wide governance for how Klay enforces segregation of duties at posting time. This is set once
-                per entity and applies to every module. It is separate from the role matrix and the role-assignment
-                checks in <Link to="/users" className="ru-inline-link">Users</Link>.
+                Entity-wide governance for how Klay enforces segregation of duties — at posting time, and when
+                capabilities are combined in a <Link to="/roles" className="ru-inline-link">role</Link> or assigned
+                to a person in <Link to="/users" className="ru-inline-link">Users</Link>. This is set once per
+                entity and applies to every module.
               </p>
             </div>
           </div>
@@ -197,14 +200,15 @@ export default function AccessPolicyPage() {
             </div>
             <p>
               With Relaxed enforcement, one person can both record and post a transaction. This is acceptable for a
-              single-operator team, but it removes the structural guarantee that two people touch every posting. The
-              change is written to the audit log and attributed to you.
+              single-operator team, but it removes the structural guarantee that two people touch every posting. Hard
+              segregation-of-duties conflicts also become assignable, each one only after an independent owner accepts
+              the risk. The change is written to the audit log and attributed to you.
             </p>
             <label className="acp-ack">
               <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} />
               <span>
-                I understand {ENTITY.name} will skip the submitter-≠-poster check, and that self-posts will be
-                audit-flagged rather than blocked.
+                I understand {ENTITY.name} will skip the submitter-≠-poster check, that self-posts will be
+                audit-flagged rather than blocked, and that hard conflicts can be accepted as risks.
               </span>
             </label>
             <div className="acp-confirm-actions">
