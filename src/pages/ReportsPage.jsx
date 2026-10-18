@@ -5,7 +5,7 @@ import "./reports.css";
 // Reports — a hub, not a report. Each financial statement lives on its own
 // route; this page is the single nav entry that indexes them. AP Aging folds
 // in here too (it was a top-level nav item before the /reports consolidation).
-// MVP shows three reports; the General Ledger (/general-ledger)
+// MVP shows four reports; the General Ledger (/general-ledger)
 // and Inventory Sub-Ledger (/inventory) pages still exist but aren't listed.
 const REPORTS = [
   {
@@ -38,6 +38,17 @@ const REPORTS = [
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+      </svg>
+    ),
+  },
+  {
+    key: "tax-register",
+    title: "Tax Register",
+    blurb: "Every PPN and PPh line for a tax month — per vendor, per document, with DPP and tax — ready to export for the monthly recap.",
+    to: "/reports/tax-register",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M6 2h9l5 5v15H6z" /><path d="M14 2v6h6" /><line x1="9" y1="17" x2="15" y2="11" /><circle cx="9.5" cy="11.5" r="1" /><circle cx="14.5" cy="16.5" r="1" />
       </svg>
     ),
   },

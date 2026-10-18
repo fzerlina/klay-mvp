@@ -13,6 +13,7 @@ import BillCreatePage from "./pages/BillCreatePage";
 import BillDetailPage from "./pages/BillDetailPage";
 import CashflowReportPage from "./pages/CashflowReportPage";
 import ProfitLossPage from "./pages/ProfitLossPage";
+import TaxRegisterPage from "./pages/TaxRegisterPage";
 import InvoicesPage from "./pages/InvoicesPage";
 import InvoiceCreatePage from "./pages/InvoiceCreatePage";
 import VendorsPage from "./pages/VendorsPage";
@@ -177,6 +178,7 @@ export default function App() {
                 <Route path="/reports" element={<ReportsPage />} />
                 <Route path="/reports/cashflow" element={<CashflowReportPage />} />
                 <Route path="/reports/profit-loss" element={<ProfitLossPage />} />
+                <Route path="/reports/tax-register" element={<TaxRegisterPage />} />
                 <Route path="/trial-balance" element={<TrialBalancePage />} />
                 <Route path="/close" element={<ApCloseCommandCenterPage />} />
                 <Route path="/bank-reconciliation" element={<BankReconciliationPage />} />
