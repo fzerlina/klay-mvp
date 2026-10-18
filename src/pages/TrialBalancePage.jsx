@@ -11,9 +11,6 @@ import { downloadCsv, reportHeader, exportName, printReport } from "../lib/repor
 import {
   computeTrialBalance, ledgerBalance, netProfitForPeriod, unpostedInPeriod, periodCloseState,
 } from "../lib/trialBalance";
-import AiChatDrawer from "./AiChatDrawer";
-import SummaryDrawer from "./SummaryDrawer";
-import { computeTbInsights, makeTbAiContext } from "./ai-trialbalance-context";
 import "./modules.css";
 import "./invoices-ledger.css";
 import "./trial-balance.css";
@@ -129,54 +126,6 @@ function detectAnomalies(tb) {
 }
 
 // ── UI helpers ────────────────────────────────────────────────────────────
-
-function SparkleIcon({ size = 11 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M6 1.5l1.1 2.7L9.8 5l-2.7 0.8L6 8.5l-1.1-2.7L2.2 5l2.7-0.8L6 1.5z" />
-      <path d="M10 8.5l0.4 1L11.5 10l-1.1 0.4L10 11.5l-0.4-1.1L8.5 10l1.1-0.5L10 8.5z" />
-    </svg>
-  );
-}
-
-function AiSubtitle({ insights, onOpenSummary, onOpenChat, chatActive, summaryActive }) {
-  const [idx, setIdx] = useState(0);
-  const [fading, setFading] = useState(false);
-  useEffect(() => {
-    if (insights.length <= 1) return;
-    const id = setInterval(() => {
-      setFading(true);
-      setTimeout(() => {
-        setIdx((i) => (i + 1) % insights.length);
-        setFading(false);
-      }, 220);
-    }, 7000);
-    return () => clearInterval(id);
-  }, [insights.length]);
-  useEffect(() => { if (idx >= insights.length) setIdx(0); }, [insights.length, idx]);
-  const current = insights[idx] || insights[0];
-  return (
-    <div className={`lg-ai-subtitle no-print${summaryActive || chatActive ? " active" : ""}`}>
-      <p className={`lg-ai-text${fading ? " fading" : ""}`}>
-        <span className="lg-ai-sparkle"><SparkleIcon /></span>
-        {current?.node}
-      </p>
-      <div className="lg-ai-ctas">
-        <button type="button" className={`lg-ai-cta-primary${summaryActive ? " active" : ""}`} onClick={onOpenSummary}>
-          <SparkleIcon /> Summary
-        </button>
-        <button type="button" className={`lg-ai-cta-secondary${chatActive ? " active" : ""}`} onClick={onOpenChat}>
-          {chatActive ? "Continue chat" : "Ask Klay AI"} →
-        </button>
-        {insights.length > 1 && (
-          <div className="lg-ai-dots" aria-hidden>
-            {insights.map((_, i) => <span key={i} className={`lg-ai-dot${i === idx ? " on" : ""}`} />)}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 const SORT_LABELS = {
   "code-asc":     "Code A-Z",
@@ -316,10 +265,6 @@ export default function TrialBalancePage() {
   const [periodPopOpen, setPeriodPopOpen] = useState(false);
   const [exportPopOpen, setExportPopOpen] = useState(false);
 
-  const [aiOpen, setAiOpen] = useState(false);
-  const [aiSeedQuestion, setAiSeedQuestion] = useState(null);
-  const [summaryOpen, setSummaryOpen] = useState(false);
-
   const [collapsedGroups, setCollapsedGroups] = useState(() => new Set());
 
   const [toast, setToast] = useState("");
@@ -369,24 +314,6 @@ export default function TrialBalancePage() {
   const critCount = anomalies.filter((a) => a.severity === "critical").length;
   const warnCount = anomalies.filter((a) => a.severity === "warn").length;
   const nonZeroCount = useMemo(() => ALL_TB.filter((r) => r.has_activity).length, [ALL_TB]);
-
-  const insights = useMemo(() => computeTbInsights({
-    balance, anomalies, netIncome, totalRev, totalExp, margin, period: periodRange,
-  }), [balance, anomalies, netIncome, totalRev, totalExp, margin, periodRange]);
-
-  const aiContext = useMemo(() => makeTbAiContext({
-    balance, anomalies, netIncome, totalRev, totalExp, margin, period: periodRange,
-    userName: user?.name,
-    accountCount: nonZeroCount,
-    topAssets: [...ALL_TB].filter((r) => r.type === "asset" && r.closing_balance > 0).sort((a, b) => b.closing_balance - a.closing_balance).slice(0, 5),
-    topLiabilities: [...ALL_TB].filter((r) => r.type === "liability" && r.closing_balance > 0).sort((a, b) => b.closing_balance - a.closing_balance).slice(0, 5),
-  }), [balance, anomalies, netIncome, totalRev, totalExp, margin, periodRange, user?.name, nonZeroCount, ALL_TB]);
-
-  function askAi(question) {
-    setSummaryOpen(false);
-    setAiSeedQuestion(question);
-    setAiOpen(true);
-  }
 
   // KPI strip — 4 cells
   const kpis = [
@@ -616,13 +543,6 @@ export default function TrialBalancePage() {
           <div className="lg-head-top">
             <div style={{ flex: 1, minWidth: 0 }}>
               <h1 className="lg-title">Trial Balance</h1>
-              <AiSubtitle
-                insights={insights}
-                onOpenSummary={() => setSummaryOpen(true)}
-                onOpenChat={() => setAiOpen(true)}
-                chatActive={aiOpen}
-                summaryActive={summaryOpen}
-              />
             </div>
             <div className="lg-head-actions no-print">
               <div className="lg-meta-btn-wrap">
@@ -1008,22 +928,6 @@ export default function TrialBalancePage() {
           </div>
         </>
       )}
-
-      {/* ── Klay AI drawers ────────────────────────────────────────── */}
-      <div
-        className={`ai-backdrop${aiOpen || summaryOpen ? " open" : ""}`}
-        onClick={() => { setAiOpen(false); setSummaryOpen(false); }}
-        aria-hidden={!(aiOpen || summaryOpen)}
-      />
-      <SummaryDrawer open={summaryOpen} insights={insights} onClose={() => setSummaryOpen(false)} onAsk={askAi} />
-      <AiChatDrawer
-        open={aiOpen}
-        onClose={() => { setAiOpen(false); setAiSeedQuestion(null); }}
-        initialQuestion={aiSeedQuestion}
-        onConsumedInitialQuestion={() => setAiSeedQuestion(null)}
-        context={aiContext}
-        contextLabel="Trial Balance"
-      />
 
       {toast && <div className="toast show">{toast}</div>}
     </div>
