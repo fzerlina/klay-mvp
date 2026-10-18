@@ -60,3 +60,7 @@
   .tb-report .lg-row .badge,.tb-report .lg-anom-flag,.tb-report .lg-group-chevron{display:none}
   .tb-status-chip{border:1px solid #999}
 }
+.tb-report .lg-kpi-val.ok{color:var(--color-success-text)}
+/* The footing figures are long rupiah amounts: keep each on one line and let the size follow the viewport. */
+.tb-report .lg-kpi-cell{padding-left:18px;padding-right:18px;min-width:0}
+.tb-report .lg-kpi-val{white-space:nowrap;font-size:clamp(11px,1.2vw,19px)}

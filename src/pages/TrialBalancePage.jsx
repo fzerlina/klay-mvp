@@ -1,6 +1,5 @@
 import { useState, useMemo, useEffect, useRef, Fragment } from "react";
 import { useNavigate } from "react-router-dom";
-import { COA_BY_CODE } from "../data/seed/coa";
 import { COMPANY } from "../data/seed/company";
 import { useJournalEntries } from "../state/JournalEntriesContext";
 import { useAccountingSettings } from "../state/AccountingSettingsContext";
@@ -9,7 +8,7 @@ import { useClosePeriod } from "../state/ClosePeriodContext";
 import { periodPresets, rangeLabel, monthLabel } from "../lib/reportPeriods";
 import { downloadCsv, reportHeader, exportName, printReport } from "../lib/reportExport";
 import {
-  computeTrialBalance, ledgerBalance, netProfitForPeriod, unpostedInPeriod, periodCloseState,
+  computeTrialBalance, ledgerBalance, unpostedInPeriod, periodCloseState,
 } from "../lib/trialBalance";
 import "./modules.css";
 import "./invoices-ledger.css";
@@ -53,11 +52,7 @@ const TYPE_BADGE_CLS = {
   expense: "draft",
 };
 
-const SEVERITY_ICON = {
-  critical: <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 002 1.71 2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>,
-  warn: <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
-  info: <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>,
-};
+const REVIEW_ICON = <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>;
 const GL_ICON = <svg viewBox="0 0 24 24"><path d="M7 17L17 7"/><path d="M8 7h9v9"/></svg>;
 
 const rp = (v) => {
@@ -81,46 +76,47 @@ const sumRows = (rows) => ({
 // Drawer lists grow in pages of this many lines.
 const PAGE = 50;
 
-// ── Anomalies ─────────────────────────────────────────────────────────────
-// Rule-of-thumb checks on the closing balances, shown as row flags, KPI cards
-// and the drawer's AI Insight tab.
-function detectAnomalies(tb) {
-  const out = [];
-  const byCode = {};
-  tb.forEach((r) => { byCode[r.code] = r; });
+// ── Review checks ─────────────────────────────────────────────────────────
+// The checks an accountant runs on a trial balance, built from the chart's own
+// metadata (type, normal balance, name, active flag) so they hold for any
+// company's chart — no account codes or amounts are hard-coded.
+//   wrong side  An account ending on the opposite side to its normal balance:
+//               an overdrawn bank, a contra-asset with a debit balance, a
+//               payable with a debit balance. Equity is left out — a deficit in
+//               retained earnings is a result, not a posting error.
+//   clearing    A clearing or suspense account that isn't back at zero.
+//   inactive    An inactive account still carrying a balance.
+const CLEARING = /clearing|suspense/i;
 
-  tb.filter((r) => r.type === "contra_asset").forEach((r) => {
-    if (r.closing_balance < 0) {
-      out.push({ severity: "critical", code: r.code, name: r.name, title: "Contra asset balance has moved to the debit side", desc: `${r.name} closes at ${rp(r.closing_balance)} — a contra asset should carry a credit balance. Possibly a reversed journal entry.`, action: "Check the journal entries posted to this account." });
+function reviewChecks(tb) {
+  const out = [];
+  tb.forEach((r) => {
+    const normal = r.normal_balance;
+    const other = normal === "debit" ? "credit" : "debit";
+    if (r.closing_balance < 0 && r.type !== "equity") {
+      out.push({
+        code: r.code,
+        title: `Ending on the ${other} side`,
+        desc: `${r.name} ends with a ${other} balance of ${rp(-r.closing_balance)}; as ${/^[aeiou]/i.test(TYPE_NAMES[r.type]) ? "an" : "a"} ${TYPE_NAMES[r.type].toLowerCase()} account it normally carries a ${normal} balance.`,
+        action: "Look through the period's journal lines for a reversed, duplicated or misposted entry.",
+      });
     }
-  });
-  const ar = byCode["1-2100"];
-  const allowance = byCode["1-2200"];
-  if (ar && allowance && ar.closing_balance > 0 && allowance.closing_balance === 0) {
-    out.push({ severity: "critical", code: "1-2200", name: allowance.name, title: "Allowance for doubtful accounts not yet set up", desc: `${ar.name} stands at ${rp(ar.closing_balance)} while the allowance is still zero.`, action: "Estimate the allowance and record it." });
-  }
-  const totalRev = ["4-1100", "4-1200", "4-1300", "4-1400", "4-1500"].reduce((s, c) => s + (byCode[c]?.closing_balance || 0), 0);
-  if (ar && totalRev > 0 && ar.closing_balance > totalRev * 0.55) {
-    out.push({ severity: "warn", code: "1-2100", name: ar.name, title: "Trade receivables high relative to revenue", desc: `Receivables of ${rp(ar.closing_balance)} are ${Math.round(ar.closing_balance / totalRev * 100)}% of total revenue.`, action: "Review the receivables aging." });
-  }
-  const marketing = byCode["6-1200"];
-  if (marketing && marketing.opening_balance === 0 && marketing.period_debit > 15000000) {
-    out.push({ severity: "warn", code: "6-1200", name: marketing.name, title: "Spike in advertising spend with no prior balance", desc: `${marketing.name} took ${rp(marketing.period_debit)} in debits this period, from an opening balance of zero.`, action: "Confirm the spend was budgeted and approved." });
-  }
-  const ap = byCode["2-1100"];
-  if (ap && ap.closing_balance > 80000000) {
-    out.push({ severity: "warn", code: "2-1100", name: ap.name, title: "Trade payables above threshold", desc: `${ap.name} stands at ${rp(ap.closing_balance)} — above the internal threshold of Rp 80 million.`, action: "Review the payables aging." });
-  }
-  const proSvc = byCode["6-2700"];
-  if (proSvc && proSvc.period_debit >= 25000000) {
-    out.push({ severity: "warn", code: "6-2700", name: proSvc.name, title: "Possible duplicate billing from a consultant", desc: `${plural(proSvc.entries.length, "consultant line")} posted in the same period.`, action: "Match against the contract and the original invoices." });
-  }
-  const vatIn = byCode["1-5100"];
-  if (vatIn && vatIn.closing_balance > 10000000) {
-    out.push({ severity: "info", code: "1-5100", name: vatIn.name, title: "Input VAT (PPN) not yet credited", desc: `Input VAT of ${rp(vatIn.closing_balance)} is still held as an asset.`, action: "Coordinate with the tax team." });
-  }
-  tb.filter((r) => r.opening_balance !== 0 && r.closing_balance === 0 && r.type === "liability").forEach((r) => {
-    out.push({ severity: "info", code: r.code, name: r.name, title: "Liability fully settled in the period", desc: `${r.name} was paid down to zero this period.`, action: "Archive the settlement evidence." });
+    if (CLEARING.test(r.name) && r.closing_balance !== 0) {
+      out.push({
+        code: r.code,
+        title: "Clearing account not at zero",
+        desc: `${r.name} still holds ${rp(Math.abs(r.closing_balance))}. A clearing account should empty once each item is moved to where it belongs.`,
+        action: "Clear the open items before closing the period.",
+      });
+    }
+    if (!r.is_active && r.closing_balance !== 0) {
+      out.push({
+        code: r.code,
+        title: "Inactive account with a balance",
+        desc: `${r.name} is inactive but ends at ${rp(Math.abs(r.closing_balance))}.`,
+        action: "Move the balance to an active account, or reactivate this one.",
+      });
+    }
   });
   return out;
 }
@@ -293,49 +289,25 @@ export default function TrialBalancePage() {
     [dateFrom, dateTo, JOURNAL_ENTRIES, fiscalYearStart],
   );
   const balance = useMemo(() => ledgerBalance(ALL_TB), [ALL_TB]);
-  const anomalies = useMemo(() => detectAnomalies(ALL_TB), [ALL_TB]);
-  const anomaliesByCode = useMemo(() => {
+  const findings = useMemo(() => reviewChecks(ALL_TB), [ALL_TB]);
+  const findingsByCode = useMemo(() => {
     const m = {};
-    anomalies.forEach((a) => { (m[a.code] ||= []).push(a); });
+    findings.forEach((f) => { (m[f.code] ||= []).push(f); });
     return m;
-  }, [anomalies]);
-
-  // Same rule as Profit & Loss (lib/trialBalance.js → netProfitForPeriod).
-  const { revenue: totalRev, expenses: totalExp, netProfit: netIncome } = useMemo(
-    () => netProfitForPeriod({ from: dateFrom, to: dateTo, entries: JOURNAL_ENTRIES }),
-    [dateFrom, dateTo, JOURNAL_ENTRIES],
-  );
-  const margin = totalRev > 0 ? Math.round((netIncome / totalRev) * 100) : null;
+  }, [findings]);
+  const flaggedCount = Object.keys(findingsByCode).length;
 
   // Period status: closed / open, and what isn't in the numbers yet.
   const closeState = periodCloseState(dateFrom, dateTo, closedThrough);
   const unposted = useMemo(() => unpostedInPeriod(JOURNAL_ENTRIES, dateFrom, dateTo), [JOURNAL_ENTRIES, dateFrom, dateTo]);
 
-  const critCount = anomalies.filter((a) => a.severity === "critical").length;
-  const warnCount = anomalies.filter((a) => a.severity === "warn").length;
-  const nonZeroCount = useMemo(() => ALL_TB.filter((r) => r.has_activity).length, [ALL_TB]);
-
-  // KPI strip — 4 cells
+  // Summary — does the ledger foot, and what needs a look.
   const kpis = [
-    { lbl: "Accounts with balances", card: null,       val: String(nonZeroCount),  sub: `of ${ALL_TB.length} in the chart`, tone: "primary" },
-    { lbl: "Net Profit",             card: null,       val: rp(netIncome),         sub: netIncome < 0 ? "Loss this period" : margin !== null ? `Margin ${margin}%` : "No revenue this period", tone: netIncome >= 0 ? "primary" : "danger" },
-    { lbl: "Critical",               card: "critical", val: String(critCount),     sub: critCount > 0 ? "needs action" : "all clear", tone: "danger" },
-    { lbl: "Warning",                card: "warn",     val: String(warnCount),     sub: warnCount > 0 ? "needs review" : "all clear", tone: "warn"   },
+    { lbl: "Total debits",  card: null,     val: rp(balance.dr), sub: "Ending debit balances" },
+    { lbl: "Total credits", card: null,     val: rp(balance.cr), sub: "Ending credit balances" },
+    { lbl: "Difference",    card: null,     val: balance.balanced ? "Rp 0" : rp(balance.variance), sub: balance.balanced ? "Debits equal credits" : "Out of balance", tone: balance.balanced ? "ok" : "danger" },
+    { lbl: "Needs review",  card: flaggedCount > 0 ? "review" : null,val: String(flaggedCount), sub: flaggedCount > 0 ? plural(flaggedCount, "account") + " flagged" : "Nothing flagged", tone: flaggedCount > 0 ? "warn" : null },
   ];
-
-  // Spotlight cards (always 4)
-  const SPOTLIGHTS = [
-    { code: "1-1300", barColor: null },
-    { code: "1-2100", barColor: null },
-    { code: "2-1100", barColor: "var(--color-danger-text)" },
-    { code: "3-1300", barColor: "var(--color-success-text)" },
-  ];
-  const spotByCode = useMemo(() => {
-    const m = {};
-    ALL_TB.forEach((r) => { m[r.code] = r; });
-    return m;
-  }, [ALL_TB]);
-  const spotMax = Math.max(...SPOTLIGHTS.map((s) => Math.abs(spotByCode[s.code]?.closing_balance || 0)), 1);
 
   // Zero-balance accounts (no opening, no movement, no closing) are hidden
   // unless asked for; tab counts follow what the table can show.
@@ -351,12 +323,12 @@ export default function TrialBalancePage() {
       const types = TABS.find((t) => t.k === filter.value)?.types || [];
       list = list.filter((r) => types.includes(r.type));
     } else if (filter.kind === "card") {
-      const codes = new Set(anomalies.filter((a) => a.severity === filter.value).map((a) => a.code));
+      const codes = new Set(findings.map((f) => f.code));
       // A flagged account stays visible even if it would otherwise be hidden as zero.
       list = ALL_TB.filter((r) => codes.has(r.code));
     }
     return list;
-  }, [filter, anomalies, baseRows, ALL_TB]);
+  }, [filter, findings, baseRows, ALL_TB]);
 
   const hasActiveFilters = (
     periodChoice.key !== DEFAULT_PERIOD.key ||
@@ -478,7 +450,7 @@ export default function TrialBalancePage() {
 
   // Drawer data
   const drawerRow = drawerCode ? ALL_TB.find((r) => r.code === drawerCode) : null;
-  const drawerAnom = drawerCode ? (anomaliesByCode[drawerCode] || []) : [];
+  const drawerFindings = drawerCode ? (findingsByCode[drawerCode] || []) : [];
   const drawerLines = drawerRow ? drawerRow.entries.slice(0, drawerLimit) : [];
   const drawerMore = drawerRow ? drawerRow.entries.length - drawerLines.length : 0;
 
@@ -492,19 +464,18 @@ export default function TrialBalancePage() {
 
   // Render a TB row
   function TbRow({ r, isAlt }) {
-    const anom = anomaliesByCode[r.code] || [];
-    const top = anom[0];
-    const tint = anom.find((a) => a.severity === "critical") ? " anomaly-danger" : anom.find((a) => a.severity === "warn") ? " anomaly-warn" : "";
+    const flags = findingsByCode[r.code] || [];
+    const tint = flags.length ? " anomaly-warn" : "";
     return (
       <div className={`lg-row${isAlt ? " alt" : ""}${tint}${drawerCode === r.code ? " selected" : ""}`} onClick={() => openDrawer(r.code)}>
         <div className="lg-cell-no">{r.code}</div>
         <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
           <span style={{ fontSize: 12, color: "var(--color-text-primary)", fontWeight: 500 }}>{r.name}</span>
           <span className={`badge badge-${TYPE_BADGE_CLS[r.type]}`} style={{ fontSize: 9 }}>{TYPE_LABELS[r.type]}</span>
-          {top && (
-            <span className={`lg-anom-flag ${top.severity}`}>
-              {SEVERITY_ICON[top.severity]}
-              {anom.length > 1 ? `${anom.length} findings` : (top.severity === "critical" ? "Critical" : top.severity === "warn" ? "Warning" : "Info")}
+          {flags.length > 0 && (
+            <span className="lg-anom-flag warn" title={flags.map((f) => f.title).join(" · ")}>
+              {REVIEW_ICON}
+              {flags.length > 1 ? `${flags.length} checks` : "Review"}
             </span>
           )}
         </div>
@@ -592,47 +563,18 @@ export default function TrialBalancePage() {
                 onClick={() => k.card && selectCard(isCardActive(k.card) ? null : k.card)}
                 aria-pressed={k.card ? isCardActive(k.card) : false}
                 style={!k.card ? { cursor: "default" } : undefined}
-                title={k.lbl === "Net Profit" ? `Revenue ${rp(totalRev)} less expenses ${rp(totalExp)}, posted journals in ${periodRange} — same figure as Profit & Loss.` : undefined}
+                title={k.lbl === "Needs review" ?"Accounts ending on the wrong side of their normal balance, clearing accounts not at zero, and inactive accounts with a balance." : undefined}
               >
                 <div className="lg-kpi-lbl">{k.lbl}</div>
-                <div className={`lg-kpi-val${k.tone === "danger" ? " danger" : k.tone === "warn" ? " warn" : ""}`}>{k.val}</div>
+                <div className={`lg-kpi-val${k.tone ? ` ${k.tone}` : ""}`}>{k.val}</div>
                 <div className="lg-kpi-sub">{k.sub}</div>
               </button>
             ))}
           </div>
         </div>
 
-        {/* ── Spotlight row + Table card (single wrap so spacing is single-source) ── */}
+        {/* ── Table card ── */}
         <div className="lg-table-wrap">
-          <div className="lg-spotlight-row no-print">
-            {SPOTLIGHTS.map((s) => {
-              const row = spotByCode[s.code];
-              const cb = row?.closing_balance ?? 0;
-              const ob = row?.opening_balance ?? 0;
-              let delta = { text: "No activity", cls: "" };
-              if (ob !== 0) {
-                const pct = ((cb - ob) / Math.abs(ob) * 100).toFixed(1);
-                const dir = cb >= ob ? "up" : "dn";
-                const sign = cb >= ob ? "+" : "";
-                delta = { text: `${sign}${pct}% vs opening balance`, cls: dir };
-              } else if (cb !== 0) {
-                delta = { text: "New this period", cls: "up" };
-              }
-              const widthPct = Math.round(Math.abs(cb) / spotMax * 100);
-              return (
-                <button type="button" key={s.code} className="lg-spot-card" onClick={() => openDrawer(s.code)}>
-                  <div className="lg-spot-code">{s.code}</div>
-                  <div className="lg-spot-name">{COA_BY_CODE[s.code]?.name || s.code}</div>
-                  <div className="lg-spot-num">{rp(cb)}</div>
-                  <div className={`lg-spot-delta ${delta.cls}`}>{delta.text}</div>
-                  <div className="lg-spot-bar">
-                    <div className="lg-spot-bar-fill" style={{ width: `${widthPct}%`, ...(s.barColor ? { background: s.barColor } : {}) }} />
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-
           <div className="lg-card lg-table-tb">
             <div className="lg-pills-row no-print">
               {tabs.map((t) => (
@@ -774,13 +716,12 @@ export default function TrialBalancePage() {
               </button>
             </div>
             <div className="drawer-tabs">
-              {[["detail", "Detail"], ["transactions", "Transactions"], ["audit", "Audit Trail"], ["ai", "AI Insight"]].map(([t, label]) => (
+              {[["detail", "Detail"], ["transactions", "Transactions"], ["audit", "Audit Trail"], ["review", "Review"]].map(([t, label]) => (
                 <div key={t} className={`drawer-tab${drawerTab === t ? " active" : ""}`} onClick={() => setDrawerTab(t)}>
-                  {t === "ai" && <span style={{ marginRight: 4, color: "var(--color-action)" }}>✦</span>}
                   {label}
-                  {t === "ai" && drawerAnom.length > 0 && (
-                    <span style={{ marginLeft: 5, fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 9999, background: "var(--color-danger-surface)", color: "var(--color-danger-text)" }}>
-                      {drawerAnom.length}
+                  {t === "review" && drawerFindings.length > 0 && (
+                    <span style={{ marginLeft: 5, fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 9999, background: "var(--color-warning-surface)", color: "var(--color-warning-text)" }}>
+                      {drawerFindings.length}
                     </span>
                   )}
                 </div>
@@ -891,29 +832,19 @@ export default function TrialBalancePage() {
                   <ShowMore />
                 </div>
               )}
-              {drawerTab === "ai" && (
+              {drawerTab === "review" && (
                 <div className="drawer-section">
-                  <div className="drawer-section-title">AI Insight</div>
-                  {drawerAnom.length === 0 ? (
+                  <div className="drawer-section-title">Review checks</div>
+                  {drawerFindings.length === 0 ? (
                     <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 12, background: "var(--color-success-surface)", border: "1px solid var(--color-success-border)", borderRadius: "var(--radius-md)", fontSize: 12, color: "var(--color-success-text)" }}>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                      This account is within normal range — no AI findings.
+                      Nothing flagged — the balance is on its normal side.
                     </div>
-                  ) : drawerAnom.map((a, i) => (
-                    <div key={i} style={{
-                      padding: 12,
-                      background: a.severity === "critical" ? "var(--color-danger-surface)" : a.severity === "warn" ? "var(--color-warning-surface)" : "var(--ai-surface)",
-                      border: `1px solid ${a.severity === "critical" ? "var(--color-danger-border)" : a.severity === "warn" ? "var(--color-warning-border)" : "var(--ai-border)"}`,
-                      borderRadius: "var(--radius-md)",
-                      marginBottom: 8,
-                    }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, color: a.severity === "critical" ? "var(--color-danger-text)" : a.severity === "warn" ? "var(--color-warning-text)" : "var(--color-action)", textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 4 }}>
-                        {SEVERITY_ICON[a.severity]}
-                        {a.severity === "critical" ? "Critical" : a.severity === "warn" ? "Warning" : "Info"}
-                      </div>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: "var(--color-text-primary)", marginBottom: 4 }}>{a.title}</div>
-                      <div style={{ fontSize: 11, color: "var(--color-text-secondary)", lineHeight: 1.55, marginBottom: 6 }}>{a.desc}</div>
-                      <div style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>Recommendation: {a.action}</div>
+                  ) : drawerFindings.map((f, i) => (
+                    <div key={i} style={{ padding: 12, background: "var(--color-warning-surface)", border: "1px solid var(--color-warning-border)", borderRadius: "var(--radius-md)", marginBottom: 8 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "var(--color-text-primary)", marginBottom: 4 }}>{f.title}</div>
+                      <div style={{ fontSize: 11, color: "var(--color-text-secondary)", lineHeight: 1.55, marginBottom: 6 }}>{f.desc}</div>
+                      <div style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>Next step: {f.action}</div>
                     </div>
                   ))}
                 </div>
