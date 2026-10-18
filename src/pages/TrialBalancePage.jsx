@@ -236,7 +236,9 @@ function ExportPopover({ onCsv, onPrint, onClose }) {
 
 // ── Page ──────────────────────────────────────────────────────────────────
 
-const DEFAULT_PERIOD = { key: "ytd" };
+// Opens on last month — the month being closed. The ending balances are the
+// same for any range ending on that date; only the activity columns change.
+const DEFAULT_PERIOD = { key: "last_month" };
 
 export default function TrialBalancePage() {
   const navigate = useNavigate();
