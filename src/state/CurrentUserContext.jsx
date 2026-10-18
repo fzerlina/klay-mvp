@@ -95,7 +95,6 @@ const ROUTE_MODULE = [
   ["/general-ledger", "gl"],
   ["/journal-entry", "gl"],
   ["/bank-reconciliation", "gl"],
-  ["/tax-reconciliation", "gl"],
   ["/reports", "reports"],
   ["/trial-balance", "reports"],
   ["/chart-of-accounts", "settings"],

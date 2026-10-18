@@ -242,12 +242,6 @@ const navSections = [
         module: "gl",
         icon: <svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/><path d="M6 15h4M14 15h4"/></svg>,
       },
-      {
-        label: "Tax Reconciliation",
-        to: "/tax-reconciliation",
-        module: "gl",
-        icon: <svg viewBox="0 0 24 24"><path d="M9 14l6-6"/><circle cx="9.5" cy="8.5" r="1.5"/><circle cx="14.5" cy="13.5" r="1.5"/><rect x="3" y="3" width="18" height="18" rx="2"/></svg>,
-      },
     ],
   },
   {

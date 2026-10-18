@@ -32,7 +32,6 @@ import GeneralLedgerPage from "./pages/GeneralLedgerPage";
 import TrialBalancePage from "./pages/TrialBalancePage";
 import ApCloseCommandCenterPage from "./pages/ApCloseCommandCenterPage";
 import BankReconciliationPage from "./pages/BankReconciliationPage";
-import TaxReconciliationPage from "./pages/TaxReconciliationPage";
 import BankAccountsSettingsPage from "./pages/BankAccountsSettingsPage";
 import UsersPage from "./pages/UsersPage";
 import RolesPage from "./pages/RolesPage";
@@ -181,7 +180,6 @@ export default function App() {
                 <Route path="/trial-balance" element={<TrialBalancePage />} />
                 <Route path="/close" element={<ApCloseCommandCenterPage />} />
                 <Route path="/bank-reconciliation" element={<BankReconciliationPage />} />
-                <Route path="/tax-reconciliation" element={<TaxReconciliationPage />} />
                 <Route path="/bank-accounts" element={<BankAccountsSettingsPage />} />
                 <Route path="/company-settings" element={<CompanyProfilePage />} />
                 <Route path="/departments" element={<DepartmentsPage />} />
