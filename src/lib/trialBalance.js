@@ -14,6 +14,7 @@
 //                        expenses are the rest, negated. Profit & Loss uses
 //                        the same rule, so the two reports agree.
 //   ledgerBalance        Ending Dr vs Ending Cr totals and the difference.
+//   accountBalanceAsOf   One account's balance at the end of a given day.
 //   unpostedInPeriod     Drafts and journals awaiting approval dated in the
 //                        period — not in the numbers, but worth saying so.
 //   periodCloseState     Whether the period is closed, open or partly closed.
@@ -131,6 +132,22 @@ export function ledgerBalance(rows) {
   dr = r2(dr); cr = r2(cr);
   const variance = r2(Math.abs(dr - cr));
   return { dr, cr, variance, balanced: variance < 1 };
+}
+
+// One account's ledger balance at the end of a day, on its normal side: the
+// seeded opening balance plus every posted line dated on or before it. What
+// the Cash Position report compares each aging total against.
+export function accountBalanceAsOf(code, asOf, entries) {
+  const acct = COA_BY_CODE[code];
+  if (!acct) return 0;
+  let bal = SEED_OPENING[code] || 0;
+  for (const je of entries) {
+    if (je.status !== "posted" || je.je_date > asOf) continue;
+    for (const line of je.lines || []) {
+      if (line.account_code === code) bal += oriented(acct, line.debit || 0, line.credit || 0);
+    }
+  }
+  return r2(bal);
 }
 
 export function netProfitForPeriod({ from, to, entries }) {

@@ -15,7 +15,7 @@ import { formatDateEn } from "./format";
 // a per-bill `opened` review-state for the PENDING_REVIEW cause sentence.
 export const DEMO_OVERRIDES = {
   BILL005: { state: "RETURNED", returned: { by: "FM", reason: "PO doesn't match invoice qty — verify with vendor" } },
-  BILL022: { state: "RETURNED", returned: { by: "FM", reason: "Needs L2 approval for amount > Rp 100M" } },
+  BILL104: { state: "RETURNED", returned: { by: "FM", reason: "Needs L2 approval for amount > Rp 100M" } },
   BILL010: { state: "ON_HOLD",  onHold:   { reason: "awaiting credit note", since: "2025-04-15" } },
   BILL011: { state: "ON_HOLD",  onHold:   { reason: "vendor dispute on shipping cost", since: "2025-04-10" } },
   BILL028: { state: "EXCEPTION", exception: { reason: "OCR confidence below threshold — manual review required" } },

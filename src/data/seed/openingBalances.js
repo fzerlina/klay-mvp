@@ -5,13 +5,18 @@
 // equal total credits across the whole list (a balanced opening trial balance).
 //
 // References account codes in seed/coa.js — keep in sync if either changes.
+//
+// The previous system's open receivables and payables sit in Other Receivables
+// and Other Payables, not in the trade control accounts: they weren't migrated
+// as invoices and bills, and a control account holds only what its subledger
+// can account for, document by document.
 
 export const OPENING_BALANCES = [
   // Debits — assets at opening
   { account_code: "1-1100", debit:  25000000, credit: 0 },         // Cash on Hand
   { account_code: "1-1300", debit: 425000000, credit: 0 },         // Bank — BCA Operating
   { account_code: "1-1400", debit: 200000000, credit: 0 },         // Bank — Mandiri Operating
-  { account_code: "1-2100", debit:  95000000, credit: 0 },         // AR — Trade (year-end carryover)
+  { account_code: "1-2300", debit:  95000000, credit: 0 },         // Other Receivables (carry-over; see note above)
   { account_code: "1-3100", debit:  85000000, credit: 0 },         // Raw Materials
   { account_code: "1-3300", debit:  95000000, credit: 0 },         // Finished Goods
   { account_code: "1-6300", debit:  65000000, credit: 0 },         // Office Equipment
@@ -20,7 +25,7 @@ export const OPENING_BALANCES = [
   { account_code: "1-6410", debit: 0,         credit:  72000000 }, // AccDep — Vehicles (contra)
 
   // Credits — liabilities & equity at opening
-  { account_code: "2-1100", debit: 0, credit:  87000000 },         // AP — Trade
+  { account_code: "2-1150", debit: 0, credit:  87000000 },         // Other Payables (carry-over; see note above)
   { account_code: "2-4100", debit: 0, credit: 145000000 },         // Salaries Payable (Dec accrual)
   { account_code: "2-5100", debit: 0, credit: 350000000 },         // Long-term Bank Loans
   { account_code: "3-1100", debit: 0, credit: 500000000 },         // Share Capital

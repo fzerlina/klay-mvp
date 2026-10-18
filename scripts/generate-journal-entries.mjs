@@ -61,6 +61,11 @@ const PETTY_CASH  = "1-1200";
 const CASH_ON_HAND = "1-1100";
 const AR          = "1-2100";
 const AP          = "2-1100";
+// Hand-written journals never touch the trade control accounts: those post
+// only from invoices and bills, so each aging ties to its ledger account.
+// Manual sales and purchases go to Other Receivables / Other Payables.
+const OTHER_AR    = "1-2300";
+const OTHER_AP    = "2-1150";
 const ACCRUED     = "2-1200";
 const VAT_IN      = "1-5100";
 const VAT_OUT     = "2-2100";
@@ -171,7 +176,7 @@ function tplProductSale(amount, opts = {}) {
   return {
     memo: `Sales — ${pl.name} delivery to customer`,
     lines: [
-      { ...acct(AR),     debit: amount + v, credit: 0,      description: `${pl.name} sale` },
+      { ...acct(OTHER_AR),     debit: amount + v, credit: 0,      description: `${pl.name} sale` },
       { ...acct(pl.rev), debit: 0,          credit: amount, description: `Revenue ${pl.name}` },
       { ...acct(VAT_OUT), debit: 0,         credit: v,      description: "VAT output 11%" },
     ],
@@ -198,7 +203,7 @@ function tplCollectAR(amount, opts = {}) {
     memo: opts.memo || "Customer payment received against open invoice",
     lines: [
       { ...acct(bank), debit: amount, credit: 0,      description: "Cash receipt from customer" },
-      { ...acct(AR),   debit: 0,      credit: amount, description: "Settle trade receivable" },
+      { ...acct(OTHER_AR),   debit: 0,      credit: amount, description: "Settle trade receivable" },
     ],
   };
 }
@@ -211,7 +216,7 @@ function tplPurchaseInventory(amount, opts = {}) {
     lines: [
       { ...acct(code),    debit: amount, credit: 0,           description: desc },
       { ...acct(VAT_IN),  debit: v,      credit: 0,           description: "VAT input 11%" },
-      { ...acct(AP),      debit: 0,      credit: amount + v,  description: "Trade payable to supplier" },
+      { ...acct(OTHER_AP),      debit: 0,      credit: amount + v,  description: "Trade payable to supplier" },
     ],
   };
 }
@@ -224,7 +229,7 @@ function tplPurchaseExpenseOnAccount(amount) {
     lines: [
       { ...acct(code),   debit: amount, credit: 0,          description: desc },
       { ...acct(VAT_IN), debit: v,      credit: 0,          description: "VAT input 11%" },
-      { ...acct(AP),     debit: 0,      credit: amount + v, description: "Trade payable to supplier" },
+      { ...acct(OTHER_AP),     debit: 0,      credit: amount + v, description: "Trade payable to supplier" },
     ],
   };
 }
@@ -234,7 +239,7 @@ function tplPayAP(amount, opts = {}) {
   return {
     memo: opts.memo || "Supplier payment cleared from operating bank",
     lines: [
-      { ...acct(AP),   debit: amount, credit: 0,      description: "Settle trade payable" },
+      { ...acct(OTHER_AP),   debit: amount, credit: 0,      description: "Settle trade payable" },
       { ...acct(bank), debit: 0,      credit: amount, description: "Cash disbursement" },
     ],
   };

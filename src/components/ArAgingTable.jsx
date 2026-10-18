@@ -176,7 +176,7 @@ const SUMMARY_COLUMNS = [
 
 // The AR Aging Table — receivables as of a date, in a Summary (per customer,
 // expandable) or Detail (per invoice) view. The mirror of ApAgingTable.
-export default function ArAgingTable({ asOf = todayIso(), view = "detail", exportRef }) {
+export default function ArAgingTable({ asOf = todayIso(), view = "detail", exportRef, tie = null }) {
   const navigate = useNavigate();
   const { invoices } = useInvoices();
 
@@ -321,6 +321,8 @@ export default function ArAgingTable({ asOf = todayIso(), view = "detail", expor
               )}
             </div>
           </div>
+          {/* The whole aging, not the filtered view, checked against the ledger. */}
+          {tie && <div className="cfr-table-tie">{tie}</div>}
         </div>
       </div>
     </div>

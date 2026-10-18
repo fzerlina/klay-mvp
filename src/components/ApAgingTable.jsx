@@ -206,7 +206,7 @@ const SUMMARY_COLUMNS = [
 // Summary (per vendor, expandable) or Detail (per bill) view. Reads live bills
 // + vendor tiers; owns its own search / filter state. `exportRef` receives the
 // current view's CSV columns and rows for the page's Export menu.
-export default function ApAgingTable({ asOf = todayIso(), view = "detail", paymentHistory = null, exportRef }) {
+export default function ApAgingTable({ asOf = todayIso(), view = "detail", paymentHistory = null, exportRef, tie = null }) {
   const navigate = useNavigate();
   const { bills } = useBills();
   const { tierOf } = useVendors();
@@ -366,6 +366,8 @@ export default function ApAgingTable({ asOf = todayIso(), view = "detail", payme
               and services received but not yet invoiced — shown for reference and not included in the total.
             </div>
           )}
+          {/* The whole aging, not the filtered view, checked against the ledger. */}
+          {tie && <div className="cfr-table-tie">{tie}</div>}
         </div>
       </div>
     </div>

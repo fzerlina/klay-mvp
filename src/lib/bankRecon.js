@@ -21,7 +21,7 @@
 // matching engine and the decisions laid over it, so "reconciled" means a
 // person reconciled a specific bank line to this specific payment.
 
-import { statementFor, statementLabel, monthEnd, CURRENT_PERIOD } from "../data/seed/bankStatement";
+import { statementFor, statementLabel, monthEnd, shiftPeriod, CURRENT_PERIOD } from "../data/seed/bankStatement";
 import { bookRecordsFor } from "./bankLedger";
 import { reconcile, EXCEPTION_TYPES, isOpen } from "./bankMatching";
 import { bankAccountById, COMPANY_BANK_ACCOUNTS, statementLabelOf } from "../data/seed/bankAccounts";
@@ -160,6 +160,32 @@ export function allReconciliations(opts) {
 }
 
 const STATE_SEVERITY = ["OUT_OF_SCOPE", "RECONCILED", "IN_PROGRESS", "NO_STATEMENT"];
+
+// ── How far an account is proven ─────────────────────────────────────────────
+//
+// The last day an account's book balance has been agreed to the bank, for the
+// Cash Position report. The current month counts up to its statement's cut-off
+// once nothing on it is open; an earlier month counts to its last day once it
+// is Reconciled. Walks back up to `months` months. `resolutions` is the
+// session's decisions (state/BankReconContext), laid over each run.
+//   → { through: isoDate | null, inScope: boolean }
+export function reconciledThrough(accountId, resolutions = {}, months = 3) {
+  const account = bankAccountById(accountId);
+  if (!reconcilable(account)) return { through: null, inScope: false };
+  let period = CURRENT_PERIOD;
+  for (let i = 0; i < months; i++) {
+    const run = runReconciliation(accountId, { period });
+    if (run?.statement?.loaded) {
+      const exceptions = run.exceptions.map((e) => (resolutions[e.id] ? { ...e, resolution: resolutions[e.id] } : e));
+      const state = stateOf({ ...run, exceptions }, run.statement);
+      if (state.key === "RECONCILED") return { through: monthEnd(period), inScope: true };
+      if (period === CURRENT_PERIOD && state.upToDate) return { through: run.statement.through, inScope: true };
+    }
+    period = shiftPeriod(period, -1);
+  }
+  return { through: null, inScope: true };
+}
+
 
 export function entityState(runs) {
   if (!runs.length) return RECON_STATES.NO_STATEMENT;

@@ -25,6 +25,18 @@ function paidDateOf(inv) {
   return paid.length ? paid[paid.length - 1].date : null;
 }
 
+// The date a paid invoice's receipt is booked — what the aging and the ledger
+// backfill (seed/ledgerBackfill.js) both use, so the AR aging total ties to
+// Accounts Receivable — Trade. Held between the invoice date and today:
+// nothing is received before it is invoiced, or in the future.
+export function invoicePaidOn(inv) {
+  if (inv.payStatus !== "paid") return null;
+  const t = asOfIso(TODAY);
+  const d = paidDateOf(inv) || inv.due || inv.date;
+  const capped = d > t ? t : d;
+  return inv.date && capped < inv.date ? inv.date : capped;
+}
+
 // Receipts on the books by the as-of date (InvoicesContext.recordReceipt adds
 // them when a customer payment is reconciled on a bank statement).
 const receivedBy = (inv, asOf) =>
@@ -35,9 +47,8 @@ const receivedBy = (inv, asOf) =>
 // invoice dated on or before that date and not yet settled by it. Drafts
 // aren't receivables yet; settled invoices drop off the report.
 //
-// Rebuilding a past date: an invoice paid AFTER the as-of date (receipt or
-// audit "paid" date) was still open then; one paid with no date we can find is
-// treated as paid on every date. A part-paid invoice owes its total less the
+// Rebuilding a past date: an invoice paid AFTER the as-of date (invoicePaidOn)
+// was still open then. A part-paid invoice owes its total less the
 // receipts dated on or before the as-of date. Receipts are recorded net of any
 // PPh 23 the customer withheld, so a part-paid balance can overstate what's
 // actually still to come by that withholding — the invoice doesn't say.
@@ -46,10 +57,7 @@ export function isArAgingRow(inv, asOf = asOfIso(TODAY)) {
   if (inv.approval === "draft") return false;
   if ((inv.total || 0) <= 0) return false;
   if (inv.date && inv.date > asOf) return false;
-  if (inv.payStatus === "paid") {
-    const paidOn = paidDateOf(inv);
-    if (!paidOn || paidOn <= asOf) return false;
-  }
+  if (inv.payStatus === "paid" && invoicePaidOn(inv) <= asOf) return false;
   return true;
 }
 

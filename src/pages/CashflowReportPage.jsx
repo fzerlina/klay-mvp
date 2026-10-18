@@ -3,6 +3,8 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useBills } from "../state/BillsContext";
 import { useInvoices } from "../state/InvoicesContext";
 import { usePayments } from "../state/PaymentsContext";
+import { useJournalEntries } from "../state/JournalEntriesContext";
+import { useBankRecon } from "../state/BankReconContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
 import { formatRupiah, formatDateEn } from "../lib/format";
 import { todayIso, recentMonthEnds } from "../lib/reportPeriods";
@@ -10,12 +12,18 @@ import { downloadCsv, reportHeader, exportName, printReport } from "../lib/repor
 import { buildAgingLines, buildSnapshot, buildVendorPivot, isAgingTableRow, AGE_BUCKETS } from "../lib/apAging";
 import { buildArAgingLines, buildCustomerPivot, buildArSnapshot } from "../lib/arAging";
 import { buildCashPosition } from "../lib/cashPosition";
+import { accountBalanceAsOf } from "../lib/trialBalance";
+import { reconciledThrough } from "../lib/bankRecon";
+import { COA_BY_CODE } from "../data/seed/coa";
 import ApAgingTable from "../components/ApAgingTable";
 import ArAgingTable from "../components/ArAgingTable";
 import "./modules.css";
 import "./cashflow-report.css";
 
 const AGE_COLOR = { current: "#2E7D44", b1_30: "#C99A2E", b31_60: "#B8770F", b61_90: "#A8620C", b91_120: "#A32D2D", b_gt120: "#8C2420" };
+
+// The general-ledger control account each aging must agree with.
+const CONTROL = { ar: "1-2100", ap: "2-1100" };
 
 const TABS = [
   { k: "insights", lbl: "Overview",  report: "Cash position" },
@@ -27,15 +35,35 @@ const VIEWS = [
   { k: "detail",  lbl: "Detail" },
 ];
 
+// The month-end check: does the aging total agree with its control account in
+// the general ledger? Invoices and bills post to these accounts and nothing
+// else does, so a difference means a document reached one side and not the
+// other. The account opens in the General Ledger for the as-of month.
+function LedgerTie({ aging, ledger, code, asOf }) {
+  const navigate = useNavigate();
+  const diff = Math.round(aging - ledger);
+  const name = COA_BY_CODE[code]?.name || code;
+  return (
+    <div className={`cfr-tie ${diff === 0 ? "ok" : "off"}`}>
+      <span className="cfr-tie-mark" aria-hidden>{diff === 0 ? "✓" : "!"}</span>
+      <span className="cfr-tie-state">{diff === 0 ? "Ties to ledger" : `Differs from ledger by ${formatRupiah(Math.abs(diff))}`}</span>
+      <button type="button" className="cfr-tie-link" onClick={() => navigate(`/general-ledger?account=${code}&period=${asOf.slice(0, 7)}`)}>
+        {code} {name}{diff !== 0 ? ` · ${formatRupiah(ledger)}` : ""}
+      </button>
+    </div>
+  );
+}
+
 // A horizontal age-bucket bar + legend, shared by the AP and AR summary blocks
 // on the Overview dashboard.
-function AgingBars({ label, total, buckets, note, onOpen }) {
+function AgingBars({ label, total, buckets, note, tie, onOpen }) {
   return (
     <div className="cfr-side">
       <div className="cfr-side-head">
         <span className="cfr-side-lbl">{label}</span>
         <span className="cfr-side-total">{formatRupiah(total)}</span>
       </div>
+      {tie}
       <div className="cfr-bar">
         {AGE_BUCKETS.map((b) => (
           <span key={b.key} style={{ flexGrow: buckets[b.key] || 0, minWidth: buckets[b.key] > 0 ? 4 : 0, background: AGE_COLOR[b.key] }} title={b.lbl} />
@@ -64,6 +92,8 @@ const dueWithin30 = (lines) => lines.reduce((s, l) => s + (l.daysOverdue >= -30 
 function useOverview(asOf, paymentHistory) {
   const { bills } = useBills();
   const { invoices } = useInvoices();
+  const { entries } = useJournalEntries();
+  const { resolutions } = useBankRecon();
 
   return useMemo(() => {
     const cash = buildCashPosition(asOf, { extraPayments: paymentHistory });
@@ -87,19 +117,27 @@ function useOverview(asOf, paymentHistory) {
       .sort((a, b) => b.overdue - a.overdue)
       .slice(0, 5);
 
+    const ap = { snapshot: apSnap, topOverdue: apTop, due30: dueWithin30(apOpen), ledger: accountBalanceAsOf(CONTROL.ap, asOf, entries) };
+    const ar = { snapshot: arSnap, topOverdue: arTop, due30: dueWithin30(arLines.filter((l) => l.remaining > 0)), ledger: accountBalanceAsOf(CONTROL.ar, asOf, entries) };
+    // How far each bank account's book balance has been agreed to the bank.
+    const reconciled = {};
+    for (const a of cash.accounts) reconciled[a.id] = reconciledThrough(a.id, resolutions);
     return {
-      cash,
-      ap: { snapshot: apSnap, topOverdue: apTop, due30: dueWithin30(apOpen) },
-      ar: { snapshot: arSnap, topOverdue: arTop, due30: dueWithin30(arLines.filter((l) => l.remaining > 0)) },
-      net: cash.available.total + arSnap.arOutstanding - apSnap.apOutstanding,
+      cash, ap, ar, reconciled,
+      // Available cash, plus what customers owe that falls due within 30 days,
+      // less what we owe in the same window. Overdue items on both sides count:
+      // they are due now.
+      cash30: cash.available.total + ar.due30 - ap.due30,
     };
-  }, [asOf, paymentHistory, bills, invoices]);
+  }, [asOf, paymentHistory, bills, invoices, entries, resolutions]);
 }
 
 // Cash on hand — the book balance of every company bank and cash account on
 // the as-of date. Deposits, restricted and tax accounts are listed apart as
 // not available to spend.
-function CashOnHand({ cash, asOf }) {
+const reconLabel = (r) => (!r || !r.inScope ? "Not reconciled here" : r.through ? formatDateEn(r.through) : "Not yet");
+
+function CashOnHand({ cash, asOf, reconciled }) {
   const hasFallback = cash.accounts.some((a) => a.source === "opening");
   const hasFx = cash.accounts.some((a) => a.currency !== "IDR");
   const Row = ({ a }) => (
@@ -110,6 +148,7 @@ function CashOnHand({ cash, asOf }) {
         <span className="cfr-cash-meta">{a.bank}{a.mask ? ` ${a.mask}` : ""}{a.currency !== "IDR" ? ` · ${a.currency}, IDR equiv.` : ""}</span>
       </div>
       <div className="cfr-cash-group">{a.available ? a.groupLabel : a.reason}</div>
+      <div className={`cfr-cash-rec${reconciled[a.id]?.through ? "" : " muted"}`}>{reconLabel(reconciled[a.id])}</div>
       <div className="cfr-cash-amt">{formatRupiah(a.balance)}</div>
     </div>
   );
@@ -119,7 +158,7 @@ function CashOnHand({ cash, asOf }) {
         <span className="cfr-side-lbl">Cash on hand · {formatDateEn(asOf)}</span>
         <span className="cfr-side-total">{formatRupiah(cash.available.total)} <em>available</em></span>
       </div>
-      <div className="cfr-cash-cols"><div>Account</div><div>Type</div><div>Book balance</div></div>
+      <div className="cfr-cash-cols"><div>Account</div><div>Type</div><div>Reconciled through</div><div>Book balance</div></div>
       {cash.available.accounts.map((a) => <Row key={a.id} a={a} />)}
       <div className="cfr-cash-sub">
         <span>Available cash · {cash.available.accounts.length} account{cash.available.accounts.length === 1 ? "" : "s"}</span>
@@ -137,6 +176,7 @@ function CashOnHand({ cash, asOf }) {
       )}
       <div className="cfr-cash-foot">
         Book balances: opening balance plus cash movements recorded in Klay up to the date — not the bank's figure.
+        Reconciled through is the last day Bank Reconciliation has agreed the account to its statement.
         {hasFx && " Foreign-currency accounts are shown at their IDR book value."}
         {hasFallback && " * No ledger account is linked to this account, so only its opening balance is shown."}
       </div>
@@ -144,19 +184,20 @@ function CashOnHand({ cash, asOf }) {
   );
 }
 
-// The Overview tab — cash on hand, then AP and AR side by side (what we owe
-// vs what we're owed), the net position, and the largest overdue
-// counterparties on each side.
+// The Overview tab — cash on hand, the four figures (available cash, AR, AP,
+// cash in 30 days), then AP and AR side by side with each total checked
+// against its ledger control account, and the largest overdue counterparties.
 function AgingInsights({ data, asOf, onGoTo }) {
   const navigate = useNavigate();
-  const { cash, ap, ar, net } = data;
+  const { cash, ap, ar, cash30, reconciled } = data;
   const accrued = ap.snapshot.accruedLiabilities;
+  const nAvail = cash.available.accounts.length;
 
   const KPIS = [
+    { lbl: "Available cash", val: formatRupiah(cash.available.total), sub: `${nAvail} account${nAvail === 1 ? "" : "s"}${cash.unavailable.total ? ` · excl. ${formatRupiah(cash.unavailable.total)} not available` : ""}`, tone: "neutral" },
     { lbl: "AR outstanding", val: formatRupiah(ar.snapshot.arOutstanding), sub: `Avg. age (weighted) ${ar.snapshot.dsoDays}d · overdue ${formatRupiah(ar.snapshot.overdue)}`, tone: "recv" },
     { lbl: "AP outstanding", val: formatRupiah(ap.snapshot.apOutstanding), sub: `Avg. age (weighted) ${ap.snapshot.dpoDays}d${accrued ? ` · excl. ${formatRupiah(accrued)} accrued` : ""}`, tone: "pay" },
-    { lbl: "Net position", val: (net < 0 ? "− " : "") + formatRupiah(Math.abs(net)), sub: "Available cash + AR − AP", tone: net >= 0 ? "recv" : "pay" },
-    { lbl: "Next 30 days, incl. overdue", val: (ar.due30 - ap.due30 < 0 ? "− " : "") + formatRupiah(Math.abs(ar.due30 - ap.due30)), sub: `In ${formatRupiah(ar.due30)} · Out ${formatRupiah(ap.due30)}`, tone: "neutral" },
+    { lbl: "Cash in 30 days", val: (cash30 < 0 ? "− " : "") + formatRupiah(Math.abs(cash30)), sub: `Available + in ${formatRupiah(ar.due30)} − out ${formatRupiah(ap.due30)}, overdue incl.`, tone: cash30 >= 0 ? "recv" : "pay" },
   ];
 
   const TopList = ({ title, rows, empty, tone, to }) => (
@@ -175,7 +216,7 @@ function AgingInsights({ data, asOf, onGoTo }) {
 
   return (
     <div className="cfr-insights">
-      <CashOnHand cash={cash} asOf={asOf} />
+      <CashOnHand cash={cash} asOf={asOf} reconciled={reconciled} />
 
       {/* KPI strip */}
       <div className="cfr-kpis">
@@ -195,9 +236,16 @@ function AgingInsights({ data, asOf, onGoTo }) {
           total={ap.snapshot.apOutstanding}
           buckets={ap.snapshot.bucketTotals}
           note={accrued ? `Accrued, not yet invoiced: ${formatRupiah(accrued)} — not included above.` : null}
+          tie={<LedgerTie aging={ap.snapshot.apOutstanding} ledger={ap.ledger} code={CONTROL.ap} asOf={asOf} />}
           onOpen={() => onGoTo("ap")}
         />
-        <AgingBars label="Receivables · by age" total={ar.snapshot.arOutstanding} buckets={ar.snapshot.bucketTotals} onOpen={() => onGoTo("ar")} />
+        <AgingBars
+          label="Receivables · by age"
+          total={ar.snapshot.arOutstanding}
+          buckets={ar.snapshot.bucketTotals}
+          tie={<LedgerTie aging={ar.snapshot.arOutstanding} ledger={ar.ledger} code={CONTROL.ar} asOf={asOf} />}
+          onOpen={() => onGoTo("ar")}
+        />
       </div>
 
       {/* Top overdue counterparties */}
@@ -209,20 +257,23 @@ function AgingInsights({ data, asOf, onGoTo }) {
   );
 }
 
-// The Overview tab's CSV: cash by account, then the AR / AP / net lines.
-function overviewCsv({ cash, ap, ar, net }) {
+// The Overview tab's CSV: cash by account, then the AR / AP lines with their
+// ledger balances, and the 30-day cash figure.
+function overviewCsv({ cash, ap, ar, cash30, reconciled }) {
   const rows = [
-    ...cash.available.accounts.map((a) => ({ section: "Cash available", item: a.name, detail: [a.bank, a.mask, a.groupLabel, a.currency !== "IDR" ? `${a.currency} at IDR book value` : "", a.source === "opening" ? "opening balance only" : ""].filter(Boolean).join(" · "), amount: a.balance })),
+    ...cash.available.accounts.map((a) => ({ section: "Cash available", item: a.name, detail: [a.bank, a.mask, a.groupLabel, a.currency !== "IDR" ? `${a.currency} at IDR book value` : "", a.source === "opening" ? "opening balance only" : "", `reconciled through: ${reconLabel(reconciled[a.id])}`].filter(Boolean).join(" · "), amount: a.balance })),
     { section: "Cash available", item: "Total available cash", detail: "", amount: cash.available.total },
     ...cash.unavailable.accounts.map((a) => ({ section: "Not available", item: a.name, detail: [a.bank, a.mask, a.reason, a.source === "opening" ? "opening balance only" : ""].filter(Boolean).join(" · "), amount: a.balance })),
     { section: "Not available", item: "Total not available", detail: "", amount: cash.unavailable.total },
     { section: "Receivables", item: "AR outstanding", detail: "", amount: ar.snapshot.arOutstanding },
     { section: "Receivables", item: "AR overdue", detail: "", amount: ar.snapshot.overdue },
+    { section: "Receivables", item: `Ledger — ${CONTROL.ar} ${COA_BY_CODE[CONTROL.ar]?.name || ""}`, detail: Math.round(ar.snapshot.arOutstanding - ar.ledger) === 0 ? "ties to AR outstanding" : `differs by ${Math.round(ar.snapshot.arOutstanding - ar.ledger)}`, amount: ar.ledger },
     { section: "Payables", item: "AP outstanding (posted bills)", detail: "", amount: ap.snapshot.apOutstanding },
     { section: "Payables", item: "Accrued, not yet invoiced", detail: "not in AP outstanding", amount: ap.snapshot.accruedLiabilities },
-    { section: "Net position", item: "Available cash + AR − AP", detail: "", amount: net },
+    { section: "Payables", item: `Ledger — ${CONTROL.ap} ${COA_BY_CODE[CONTROL.ap]?.name || ""}`, detail: Math.round(ap.snapshot.apOutstanding - ap.ledger) === 0 ? "ties to AP outstanding" : `differs by ${Math.round(ap.snapshot.apOutstanding - ap.ledger)}`, amount: ap.ledger },
     { section: "Next 30 days", item: "AR due incl. overdue", detail: "", amount: ar.due30 },
     { section: "Next 30 days", item: "AP due incl. overdue", detail: "", amount: ap.due30 },
+    { section: "Next 30 days", item: "Cash in 30 days", detail: "available cash + AR due − AP due", amount: cash30 },
   ];
   return {
     columns: [
@@ -373,8 +424,18 @@ export default function CashflowReportPage() {
         </div>
 
         {tab === "insights" && <AgingInsights data={overview} asOf={asOf} onGoTo={setTab} />}
-        {tab === "ap" && <ApAgingTable asOf={asOf} view={view} paymentHistory={paymentHistory} exportRef={tableExport} />}
-        {tab === "ar" && <ArAgingTable asOf={asOf} view={view} exportRef={tableExport} />}
+        {tab === "ap" && (
+          <ApAgingTable
+            asOf={asOf} view={view} paymentHistory={paymentHistory} exportRef={tableExport}
+            tie={<LedgerTie aging={overview.ap.snapshot.apOutstanding} ledger={overview.ap.ledger} code={CONTROL.ap} asOf={asOf} />}
+          />
+        )}
+        {tab === "ar" && (
+          <ArAgingTable
+            asOf={asOf} view={view} exportRef={tableExport}
+            tie={<LedgerTie aging={overview.ar.snapshot.arOutstanding} ledger={overview.ar.ledger} code={CONTROL.ar} asOf={asOf} />}
+          />
+        )}
       </div>
     </div>
   );

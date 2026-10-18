@@ -103,6 +103,10 @@ export const COA = [
   { id: 'g-current-liab',   type: 'group', level: 1, parent: 'g-liab',            label: 'Current Liabilities' },
   { id: 'g-trade-payable',  type: 'group', level: 2, parent: 'g-current-liab',    label: 'Trade Payables' },
   { id: '2-1100', code: '2-1100', name: 'Accounts Payable — Trade',      type: 'liability', normal_balance: 'credit', fs: 'BS', section: 'Current Liability', parent: 'g-trade-payable', level: 3, is_active: true },
+  // Other Payables — what the company owes outside the Bills module (hand-
+  // written journals, the previous system's carry-over). Trade AP above is a
+  // control account fed only by bills, so it always ties to the AP aging.
+  { id: '2-1150', code: '2-1150', name: 'Other Payables',                type: 'liability', normal_balance: 'credit', fs: 'BS', section: 'Current Liability', parent: 'g-trade-payable', level: 3, is_active: true },
   { id: '2-1200', code: '2-1200', name: 'Accrued Expenses',              type: 'liability', normal_balance: 'credit', fs: 'BS', section: 'Current Liability', parent: 'g-trade-payable', level: 3, is_active: true },
 
   { id: 'g-tax-payable',    type: 'group', level: 2, parent: 'g-current-liab',    label: 'Tax Payables' },

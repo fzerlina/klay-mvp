@@ -13,9 +13,19 @@
 //      Record payment splits it: Dr trade AP for the gross, Cr bank for what
 //      reached the vendor, Cr withholding tax payable for the PPh kept back
 //      (PPh is recognised at payment, not at posting).
-//   3. One opening-balance entry at the start of the year, funding each bank
+//   3. A posting entry for every issued invoice that has none (Dr trade AR,
+//      Cr the revenue account its lines describe), and a receipt entry for
+//      every paid one (Dr bank, Cr trade AR). Without these the receivables
+//      ledger held a handful of invoices while the AR aging held 177.
+//   4. One opening-balance entry at the start of the year, funding each bank
 //      account enough that its balance never goes negative across the demo
 //      year, against retained earnings.
+//
+// Posting and payment dates come from the same helpers the agings use
+// (billPostedOn / billPaidOn in lib/apAging.js, invoicePaidOn in
+// lib/arAging.js), so each aging total ties to its control account on any
+// as-of date. The control accounts take nothing else: hand-written journals
+// post to Other Receivables / Other Payables instead (see journalEntries.js).
 //
 // These are loaded into the journal store (JournalEntriesContext), NOT into
 // journalEntries.js: bank reconciliation builds its statements from that seed
@@ -28,6 +38,9 @@ import { COA } from "./coa";
 import { JOURNAL_ENTRIES } from "./journalEntries";
 import { PAYMENT_HISTORY_JES } from "./paymentHistory";
 import { buildJournalEntry } from "../../lib/billJournalPreview";
+import { billPostedOn, billPaidOn } from "../../lib/apAging";
+import { invoicePaidOn } from "../../lib/arAging";
+import { INVOICES } from "./invoices";
 import { TODAY } from "../../lib/clock";
 
 const TODAY_ISO = `${TODAY.getFullYear()}-${String(TODAY.getMonth() + 1).padStart(2, "0")}-${String(TODAY.getDate()).padStart(2, "0")}`;
@@ -38,7 +51,19 @@ const PAY_FROM = [
   { code: "1-1300", name: "Bank — BCA Operating" },
   { code: "1-1400", name: "Bank — Mandiri Operating" },
 ];
+const AR = { code: "1-2100", name: "Accounts Receivable — Trade" };
 const RETAINED = { code: "3-1300", name: "Retained Earnings" };
+// Revenue account for an invoice line, read from what it sold. Invoices carry
+// no account of their own; the anchor invoices' journals use the same split.
+const REVENUE = [
+  [/furniture/i, "4-1100"],
+  [/textile/i, "4-1200"],
+  [/electronic/i, "4-1400"],
+  [/setup|training|consult|service/i, "4-1500"],
+  [/pack/i, "4-1300"],
+];
+const revenueCodeOf = (desc = "") => (REVENUE.find(([re]) => re.test(desc)) || [null, "4-1300"])[1];
+const accountName = (code) => COA.find((a) => a.code === code)?.name || code;
 const WHT = { code: "2-2300", name: "Withholding Tax Payable" };
 
 const vendorOf = (id) => VENDORS.find((v) => v.id === id) || null;
@@ -57,15 +82,11 @@ function build() {
 
   const out = [];
   const skipped = [];
-  // When each bill reached the ledger, so its payment is never dated before it.
-  const postedOn = new Map(existing.filter((j) => ["bill", "ap_bill"].includes(j.reference_type)).map((j) => [j.reference_id, j.je_date]));
 
   // 1. Posting entries.
   for (const bill of BILLS) {
     if (!bill.je_number || numbers.has(bill.je_number) || postedRefs.has(bill.id)) continue;
-    // Capped at the demo date: a handful of seeded posting dates run past it.
-    const posted = bill.je_posted_date || bill.date;
-    const date = posted > TODAY_ISO ? TODAY_ISO : posted;
+    const date = billPostedOn(bill);
     const by = postedByOf(bill);
     const je = {
       ...buildJournalEntry(bill, vendorOf(bill.vendor), bill.je_number, by),
@@ -75,22 +96,15 @@ function build() {
     out.push(je);
     numbers.add(je.je_number);
     postedRefs.add(bill.id);
-    postedOn.set(bill.id, date);
   }
 
   // 2. Payment entries for paid bills. Numbered in a block of their own,
   //    after the highest number already in use that year.
   const paid = BILLS
     .filter((b) => b.pay === "paid" && postedRefs.has(b.id) && !paidRefs.has(b.id))
-    // A few seeded "paid" bills carry a payment date after the demo date, or
-    // before the bill was posted. Money cannot leave in the future, nor settle
-    // a payable that is not booked yet, so the date is held between the two.
-    .map((b) => {
-      const d = b.paymentDate || b.due || b.date;
-      const capped = d > TODAY_ISO ? TODAY_ISO : d;
-      const floor = postedOn.get(b.id) || capped;
-      return { bill: b, date: capped < floor ? floor : capped };
-    })
+    // Held between the posting date and today (billPaidOn), the date the AP
+    // aging uses too.
+    .map((b) => ({ bill: b, date: billPaidOn(b) }))
     .sort((a, b) => a.date.localeCompare(b.date) || a.bill.id.localeCompare(b.bill.id));
   const seqMax = {};
   for (const n of numbers) {
@@ -120,7 +134,59 @@ function build() {
     });
   });
 
-  // 3. Opening balances. Walk every bank and cash account through all posted
+  // 3. Invoices and their receipts. Numbered on from the payments.
+  const invoiced = new Set(existing.filter((j) => j.reference_type === "invoice").map((j) => j.reference_id));
+  const received = new Set(existing.filter((j) => j.reference_type === "invoice_payment").map((j) => j.reference_id));
+  const nextNo = (date) => {
+    const year = date.slice(0, 4);
+    seqMax[year] = (seqMax[year] || 0) + 1;
+    return `JE-${year}-${String(seqMax[year]).padStart(4, "0")}`;
+  };
+  const issued = INVOICES
+    .filter((inv) => inv.approval !== "draft" && (inv.total || 0) > 0 && inv.date && inv.date <= TODAY_ISO)
+    .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+  for (const inv of issued) {
+    if (invoiced.has(inv.id)) continue;
+    const by = (inv.audit || []).find((a) => a.type === "sent")?.by || "Andi Prasetyo";
+    const ref = inv.invNo && inv.invNo !== "—" ? inv.invNo : inv.id;
+    const byCode = {};
+    for (const it of inv.items || []) byCode[revenueCodeOf(it.desc)] = (byCode[revenueCodeOf(it.desc)] || 0) + (it.subtotal || 0);
+    // Lines that don't add up to the invoice total put the rest on the first account.
+    const codes = Object.keys(byCode);
+    if (!codes.length) { codes.push("4-1300"); byCode["4-1300"] = 0; }
+    const gap = inv.total - codes.reduce((s, c) => s + byCode[c], 0);
+    byCode[codes[0]] += gap;
+    out.push({
+      je_number: nextNo(inv.date), je_date: inv.date, status: "posted",
+      memo: `Invoice issued — ${inv.customerName} · ${ref}`,
+      reference_type: "invoice", reference_id: inv.id,
+      created_by: by, created_date: inv.date, posted_by: by, posted_date: inv.date,
+      lines: [
+        { account_code: AR.code, account_name: AR.name, debit: inv.total, credit: 0, description: `Trade receivable from ${inv.customerName}` },
+        ...codes.map((c) => ({ account_code: c, account_name: accountName(c), debit: 0, credit: byCode[c], description: `Revenue ${accountName(c).replace(/^Product Sales — /, "")}` })),
+      ],
+    });
+  }
+  issued
+    .filter((inv) => inv.payStatus === "paid" && !received.has(inv.id))
+    .map((inv) => ({ inv, date: invoicePaidOn(inv) }))
+    .sort((a, b) => a.date.localeCompare(b.date) || a.inv.id.localeCompare(b.inv.id))
+    .forEach(({ inv, date }, i) => {
+      const bank = PAY_FROM[i % PAY_FROM.length];
+      const ref = inv.invNo && inv.invNo !== "—" ? inv.invNo : inv.id;
+      out.push({
+        je_number: nextNo(date), je_date: date, status: "posted",
+        memo: `Customer payment received — ${inv.customerName} · ${ref}`,
+        reference_type: "invoice_payment", reference_id: inv.id,
+        created_by: "Rina Kusuma", created_date: date, posted_by: "Rina Kusuma", posted_date: date,
+        lines: [
+          { account_code: bank.code, account_name: bank.name, debit: inv.total, credit: 0, description: `Received into ${bank.name.replace(/^Bank — /, "")}` },
+          { account_code: AR.code, account_name: AR.name, debit: 0, credit: inv.total, description: `Settle receivable — ${inv.customerName}` },
+        ],
+      });
+    });
+
+  // 4. Opening balances. Walk every bank and cash account through all posted
   //    lines in date order, find its lowest point, and open it high enough to
   //    stay above a working float.
   const cashCodes = new Set(COA.filter((a) => a.parent === "g-cash" && a.code).map((a) => a.code));

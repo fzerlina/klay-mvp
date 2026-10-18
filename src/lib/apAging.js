@@ -111,6 +111,26 @@ function buildAccrualRecords() {
 export const asOfIso = (asOfDate = TODAY) =>
   typeof asOfDate === "string" ? asOfDate.slice(0, 10) : todayIso(asOfDate || TODAY);
 
+// ── When a bill reached the ledger, and when it was paid ──────────────────
+// The aging and the ledger backfill (seed/ledgerBackfill.js) read these same
+// two dates, so the AP aging total ties to Accounts Payable — Trade on any
+// as-of date. A few seeded dates run past the demo date: nothing is posted or
+// paid in the future, so both are held at today. A payment is never dated
+// before its bill was posted.
+export function billPostedOn(bill) {
+  const t = todayIso(TODAY);
+  const d = bill.je_posted_date || bill.date;
+  return d && d > t ? t : d;
+}
+export function billPaidOn(bill) {
+  if (bill.pay !== "paid") return null;
+  const t = todayIso(TODAY);
+  const d = bill.paymentDate || bill.due || bill.date;
+  const capped = d > t ? t : d;
+  const floor = billPostedOn(bill);
+  return floor && capped < floor ? floor : capped;
+}
+
 // An accrual belongs to the month it accrues for (posted at that month's end,
 // reversed on the 1st of the next). It counts for an as-of date inside that
 // month — today included, ahead of the month-end posting, because it is the
@@ -127,19 +147,22 @@ function accrualInScope(a, asOf) {
 //
 // `asOfDate` ages every bill against that date and drops bills dated after
 // it. For a past as-of date the balance is rebuilt as far as the data allows:
-//   · a bill paid in full AFTER the as-of date (`paymentDate`) was still open
+//   · a bill paid in full AFTER the as-of date (billPaidOn) was still open
 //     then, for its whole total, and already posted (it had to be, to be paid);
+//   · a posted bill counts only from the day it was posted (billPostedOn);
 //   · part-payments are added back only when `paymentHistory` is passed
 //     (PaymentsContext's history, `{ [billId]: [{ at, cleared }] }`) — the bill
 //     itself carries only today's `sisa`, not when it fell;
-//   · a paid bill with no `paymentDate` can't be placed in time and is
-//     treated as paid on any date (it drops off, as it does today);
-//   · workflow stage is today's — a bill approved but posted after the as-of
-//     date still reads as posted. The seed keeps no posting date on the bill.
+//   · a paid bill with no `paymentDate` is placed on its due date, the same
+//     date its payment journal carries;
 export function buildAgingLines(asOfDate = TODAY, bills = BILLS, { paymentHistory = null } = {}) {
   const asOf = asOfIso(asOfDate);
   const accruals = buildAccrualRecords().filter((a) => accrualInScope(a, asOf));
-  const allBills = [...bills.filter((b) => !b.date || b.date <= asOf), ...accruals];
+  // A posted bill counts from the day it reached the ledger, not its document
+  // date — a bill dated in March but posted in April wasn't a payable at the
+  // end of March. Bills not yet posted keep their document date.
+  const onBooksBy = (b) => (b.je_number ? billPostedOn(b) : b.date);
+  const allBills = [...bills.filter((b) => !b.date || onBooksBy(b) <= asOf), ...accruals];
 
   return allBills.map((b) => {
     const v = VENDORS.find((x) => x.id === b.vendor) || null;
@@ -150,7 +173,7 @@ export function buildAgingLines(asOfDate = TODAY, bills = BILLS, { paymentHistor
     // Balance as of the date (see above). For today this is simply `sisa`.
     let remaining = b.sisa;
     let payStatus = b.pay;
-    if (!isAccrual && b.pay === "paid" && b.paymentDate && b.paymentDate > asOf) {
+    if (!isAccrual && b.pay === "paid" && billPaidOn(b) > asOf) {
       remaining = b.total;
       payStatus = "unpaid";
       ws = "POSTED";
