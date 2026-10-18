@@ -21,7 +21,7 @@ import { COMPANY } from "../data/seed/company";
 import { formatDateEn } from "../lib/format";
 import { monthLabel, periodPresets, recentMonthEnds, todayIso } from "../lib/reportPeriods";
 import { downloadCsv, reportHeader, exportName, printReport } from "../lib/reportExport";
-import { TAX_TYPE_BY_KEY, TAX_REGISTER_COLUMNS, buildTaxRegister, totalsByType, tieToLedger, masaLabel } from "../lib/taxRegister";
+import { TAX_TYPE_BY_KEY, TAX_REGISTER_COLUMNS, buildTaxRegister, totalsByType, masaLabel } from "../lib/taxRegister";
 import "./modules.css";
 import "./invoices-ledger.css";
 import "./cashflow-report.css";
@@ -73,23 +73,6 @@ function ExportMenu({ onCsv, onPrint }) {
   );
 }
 
-// The month-end check, as on Cash Position & Aging, one per tax account: the
-// register's posted total against the account's movement in the ledger for
-// the masa. The account opens in the General Ledger for the month.
-function LedgerTie({ tie, ym }) {
-  const navigate = useNavigate();
-  const ok = Math.round(tie.diff) === 0;
-  return (
-    <span className={`cfr-tie ${ok ? "ok" : "off"}`} title={`${tie.label}: register ${rp(tie.register)} · ledger ${rp(tie.ledger)}`}>
-      <span className="cfr-tie-mark" aria-hidden>{ok ? "✓" : "!"}</span>
-      <button type="button" className="cfr-tie-link" onClick={() => navigate(`/general-ledger?account=${tie.code}&period=${ym}`)}>
-        {tie.code} {tie.name}
-      </button>
-      {!ok && <span className="cfr-tie-state">differs by {rp(Math.abs(tie.diff))}</span>}
-    </span>
-  );
-}
-
 export default function TaxRegisterPage() {
   const navigate = useNavigate();
   const { bills } = useBills();
@@ -105,18 +88,15 @@ export default function TaxRegisterPage() {
   const [ym, setYm] = useState(lastMonth);
   const [typeFilter, setTypeFilter] = useState(ALL);
   const [search, setSearch] = useState("");
-  const [postedOnly, setPostedOnly] = useState(true);
 
   // ── Rows ──────────────────────────────────────────────────────────────────
   const allRows = useMemo(
     () => buildTaxRegister({ ym, bills, invoices, vendors, customers, entries }),
     [ym, bills, invoices, vendors, customers, entries],
   );
-  const ties = useMemo(() => tieToLedger(allRows, entries, ym), [allRows, entries, ym]);
-  // The masa's lines — what the summary totals. The table narrows them further.
-  const masaRows = useMemo(() => allRows.filter((r) => r.posted || !postedOnly), [allRows, postedOnly]);
+  // The masa's posted lines — what the summary totals. The table narrows them further.
+  const masaRows = useMemo(() => allRows.filter((r) => r.posted), [allRows]);
   const totals = useMemo(() => totalsByType(masaRows), [masaRows]);
-  const unposted = allRows.length - allRows.filter((r) => r.posted).length;
 
   // A type the new masa doesn't have falls back to all.
   const activeType = totals.some((t) => t.type === typeFilter) ? typeFilter : ALL;
@@ -131,19 +111,6 @@ export default function TaxRegisterPage() {
     ...totals.map((t) => ({ k: t.type, lbl: TAX_TYPE_BY_KEY[t.type].label, count: searched.filter((r) => r.type === t.type).length })),
   ];
 
-  // What the seed can't fill yet — worth saying out loud before GKB relies on it.
-  const gaps = useMemo(() => {
-    const docRows = masaRows.filter((r) => r.source !== "Journal");
-    return {
-      noTaxDoc: docRows.filter((r) => !r.taxDocNo).length,
-      docRows: docRows.length,
-      noNpwp: new Set(docRows.filter((r) => !r.npwp).map((r) => r.party)).size,
-      journals: masaRows.length - docRows.length,
-      overridden: masaRows.filter((r) => r.overridden).length,
-    };
-  }, [masaRows]);
-  const hasGaps = gaps.noTaxDoc > 0 || gaps.noNpwp > 0 || gaps.journals > 0 || gaps.overridden > 0;
-
   const screenCols = TAX_REGISTER_COLUMNS.filter((c) => c.screen !== false);
   // A subtotal's label runs across every column before the first amount.
   const labelSpan = Math.max(1, screenCols.findIndex((c) => c.num));
@@ -154,8 +121,7 @@ export default function TaxRegisterPage() {
   const filterText = [
     activeType !== ALL && TAX_TYPE_BY_KEY[activeType].label,
     q && `matching "${search.trim()}"`,
-    postedOnly ? "posted only" : "incl. not posted",
-  ].filter(Boolean).join(" · ");
+  ].filter(Boolean).join(" · ") || "All tax types";
 
   const exportCsv = () => {
     // The lines, then a total per tax type below them — kept apart so the
@@ -192,7 +158,6 @@ export default function TaxRegisterPage() {
             : <span className="tr-doc-no">{r.docNo}</span>}
           <span className="tr-sub">
             {r.source}{r.ref && r.ref !== r.docNo ? ` · ${r.ref}` : ""}{r.source === "Payment" && r.jeNumber ? ` · ${r.jeNumber}` : ""}
-            {!r.posted && <span className="tr-tag">Not posted</span>}
           </span>
         </div>
       );
@@ -204,14 +169,11 @@ export default function TaxRegisterPage() {
           return to ? <button type="button" className="tr-party" onClick={() => navigate(to)}>{r.party}</button> : r.party;
         }
         return <span className="tr-muted" title="Manual journal — no vendor or customer on it">{r.memo || "—"}</span>;
-      case "npwp": return r.npwp ? <span className="tr-mono">{r.npwp}</span> : <span className="tr-missing">{r.source === "Journal" ? "—" : "No NPWP"}</span>;
+      case "npwp": return r.npwp ? <span className="tr-mono">{r.npwp}</span> : <span className="tr-muted">—</span>;
       case "taxDocNo": return r.taxDocNo ? <span className="tr-mono">{r.taxDocNo}</span> : <span className="tr-muted">—</span>;
       case "dpp": return num(r.dpp);
       case "rate": return rate(r.rate);
       case "tax": return num(r.tax);
-      case "overridden": return r.overridden
-        ? <span className="tr-ovr" title={`Tax code default is ${r.defaultRate}%${r.npwp ? "" : " (no NPWP)"}; this line uses ${r.rate}%`}>Overridden</span>
-        : null;
       case "account": return r.account
         ? <button type="button" className="pl-amt-link tr-mono" title={`Open ${r.account} in the General Ledger (${masaText})`} onClick={() => navigate(`/general-ledger?account=${r.account}&period=${ym}`)}>{r.account}</button>
         : "—";
@@ -271,24 +233,9 @@ export default function TaxRegisterPage() {
               })}
             </div>
           )}
-
-          <div className="tr-ties">
-            <span className="tr-ties-lbl">Ledger check</span>
-            {ties.map((t) => <LedgerTie key={t.code} tie={t} ym={ym} />)}
-          </div>
         </div>
 
         <div className="lg-table-wrap pl-wrap">
-          {hasGaps && (
-            <p className="tr-gaps">
-              <strong>Check before filing.</strong>
-              {gaps.noTaxDoc > 0 && <span> {gaps.noTaxDoc === gaps.docRows ? "No line has" : `${plural(gaps.noTaxDoc, "line")} ${gaps.noTaxDoc === 1 ? "has" : "have"} no`} faktur pajak or bukti potong number yet.</span>}
-              {gaps.noNpwp > 0 && <span> {plural(gaps.noNpwp, "vendor or customer")} without an NPWP.</span>}
-              {gaps.overridden > 0 && <span> {plural(gaps.overridden, "line")} at a rate other than the tax code&rsquo;s default.</span>}
-              {gaps.journals > 0 && <span> {plural(gaps.journals, "line")} from manual journals, with no document, counterparty or DPP behind {gaps.journals === 1 ? "it" : "them"}.</span>}
-            </p>
-          )}
-
           {/* ── Lines ───────────────────────────────────────────────────── */}
           <div className="lg-card pl-card">
             <div className="lg-pills-row no-print">
@@ -304,18 +251,11 @@ export default function TaxRegisterPage() {
                 <svg viewBox="0 0 14 14"><circle cx="6" cy="6" r="3.5" /><path d="M9 9l3 3" strokeLinecap="round" /></svg>
                 <input placeholder="Search vendor, customer, NPWP or document no.…" value={search} onChange={(e) => setSearch(e.target.value)} />
               </div>
-              <div className="lg-filter-meta">
-                <button
-                  type="button"
-                  className={`lg-toggle${postedOnly ? " on" : ""}`}
-                  aria-pressed={postedOnly}
-                  title={unposted ? `${plural(unposted, "line")} in the masa ${unposted === 1 ? "is" : "are"} not posted yet` : undefined}
-                  onClick={() => setPostedOnly((v) => !v)}
-                >
-                  Posted only{postedOnly && unposted > 0 ? ` · ${unposted} hidden` : ""}
-                </button>
-                {(activeType !== ALL || q) && <button type="button" className="lg-reset-all" onClick={resetFilters}>Reset all</button>}
-              </div>
+              {(activeType !== ALL || q) && (
+                <div className="lg-filter-meta">
+                  <button type="button" className="lg-reset-all" onClick={resetFilters}>Reset all</button>
+                </div>
+              )}
             </div>
 
             {rows.length === 0 ? (
@@ -341,7 +281,7 @@ export default function TaxRegisterPage() {
                           </tr>
                         )}
                         {g.rows.map((r) => (
-                          <tr key={r.id} className={`tr-row${r.posted ? "" : " unposted"}`}>
+                          <tr key={r.id} className="tr-row">
                             {screenCols.map((c) => (
                               <td key={c.key} className={`${c.num ? "pl-num" : ""} tr-c-${c.key}`}>{cell(c, r)}</td>
                             ))}
@@ -363,9 +303,7 @@ export default function TaxRegisterPage() {
             )}
           </div>
           <p className="pl-foot">
-            DPP is the tax base. <em>Overridden</em> marks a rate that differs from the tax code&rsquo;s default in Settings → Tax
-            (for PPh, the non-NPWP rate when the vendor has no NPWP). Manual journals show their memo in place of a vendor.
-            The ledger check covers every posted line in the masa, whatever the filters.
+            Posted lines only. DPP is the tax base. Manual journals show their memo in place of a vendor.
           </p>
         </div>
       </div>

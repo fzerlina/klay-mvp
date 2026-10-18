@@ -16,11 +16,9 @@
 //                     bill, invoice or payment behind them (cash sales, payroll
 //                     PPh 21). They carry no counterparty, DPP or rate, but
 //                     they are in the ledger, so the register lists them —
-//                     otherwise the totals could never tie.
+//                     otherwise the totals would miss tax the books hold.
 //
 //   buildTaxRegister  Every row for a masa, before the page's filters.
-//   tieToLedger       Each tax account's posted register total against its
-//                     ledger movement for the masa.
 //   TAX_REGISTER_COLUMNS  The column list the table and the CSV both read, so
 //                     a column GKB asks for is one entry here.
 
@@ -62,22 +60,10 @@ export const TAX_TYPES = [
 ];
 export const TAX_TYPE_BY_KEY = Object.fromEntries(TAX_TYPES.map((t) => [t.key, t]));
 
-// The GL accounts the register ties to, and the tax types each one carries.
-export const TAX_ACCOUNTS = [
-  { code: "1-5100", label: "PPN Masukan", types: ["ppn_masukan"] },
-  { code: "2-2100", label: "PPN Keluaran", types: ["ppn_keluaran"] },
-  { code: "2-2300", label: "PPh withheld, all types", types: ["pph23", "pph42", "pph05_final", "pph26", "pph21"] },
-];
-const TAX_ACCOUNT_CODES = new Set(TAX_ACCOUNTS.map((a) => a.code));
+// The GL accounts tax books to: PPN Masukan, PPN Keluaran, and every PPh.
+const TAX_ACCOUNT_CODES = new Set(["1-5100", "2-2100", "2-2300"]);
 // Movement on the account's normal side: input VAT is an asset, the rest are owed.
 const oriented = (code, debit, credit) => (COA_BY_CODE[code]?.normal_balance === "debit" ? debit - credit : credit - debit);
-
-// The rate a tax code expects for this counterparty: PPh is higher without an NPWP.
-function defaultRate(type, hasNpwp) {
-  if (!type || type.rate == null) return null;
-  if (!hasNpwp && type.nonNpwpRate != null) return type.nonNpwpRate;
-  return type.rate;
-}
 
 // A vendor's withholding type, normalised to the keys above. A vendor set to
 // "none" whose bill still withheld is read as PPh 23, the only PPh the seed's
@@ -122,8 +108,8 @@ function ppnByRate(doc) {
 // ym: "YYYY-MM". Returns every row whose tax date falls in the masa, posted or
 // not — the page filters. Each row:
 //   { id, masa, type, source, docNo, ref, jeNumber, docDate, postingDate,
-//     party, partyId, partyKind, npwp, taxDocNo, dpp, rate, defaultRate,
-//     overridden, tax, account, posted }
+//     party, partyId, partyKind, npwp, taxDocNo, dpp, rate, tax, account,
+//     posted }
 export function buildTaxRegister({ ym, bills = [], invoices = [], vendors = [], customers = [], entries = [] }) {
   const { from, to } = masaRange(ym);
   const inMasa = (d) => d && d >= from && d <= to;
@@ -134,13 +120,9 @@ export function buildTaxRegister({ ym, bills = [], invoices = [], vendors = [], 
   const rows = [];
 
   const push = (row) => {
-    const type = TAX_TYPE_BY_KEY[row.type];
-    const def = row.rate == null ? null : defaultRate(type, Boolean(row.npwp));
     rows.push({
       masa: ym,
-      account: type?.account || null,
-      defaultRate: def,
-      overridden: row.rate != null && def != null && Math.abs(row.rate - def) > 0.001,
+      account: TAX_TYPE_BY_KEY[row.type]?.account || null,
       taxDocNo: "",
       ...row,
       tax: r2(row.tax),
@@ -305,24 +287,6 @@ export function totalsByType(rows) {
   return TAX_TYPES.filter((t) => by[t.key]).map((t) => ({ ...by[t.key], dpp: r2(by[t.key].dpp), tax: r2(by[t.key].tax) }));
 }
 
-// Each tax account: the register's posted total for the masa (every row, not
-// just the ones a filter leaves on screen) against the account's posted
-// movement over the same dates.
-export function tieToLedger(allRows, entries, ym) {
-  const { from, to } = masaRange(ym);
-  return TAX_ACCOUNTS.map(({ code, label, types }) => {
-    let ledger = 0;
-    for (const je of entries) {
-      if (je.status !== "posted" || je.je_date < from || je.je_date > to) continue;
-      for (const l of je.lines || []) {
-        if (l.account_code === code) ledger += oriented(code, l.debit || 0, l.credit || 0);
-      }
-    }
-    const register = allRows.filter((r) => r.posted && types.includes(r.type)).reduce((s, r) => s + r.tax, 0);
-    return { code, label, name: COA_BY_CODE[code]?.name || code, types, register: r2(register), ledger: r2(ledger), diff: r2(register - ledger) };
-  });
-}
-
 // ── Columns ─────────────────────────────────────────────────────────────────
 // One list for the screen table and the Excel export. `value` is what the CSV
 // writes (numbers stay numbers); the page renders its own cell for the keys it
@@ -345,8 +309,6 @@ export const TAX_REGISTER_COLUMNS = [
   { key: "dpp", label: "DPP (Rp)", value: (r) => r.dpp, num: true },
   { key: "rate", label: "Rate (%)", value: (r) => r.rate, num: true },
   { key: "tax", label: "Tax (Rp)", value: (r) => r.tax, num: true },
-  { key: "overridden", label: "Overridden", value: (r) => (r.overridden ? `Yes (default ${r.defaultRate}%)` : "") },
   { key: "account", label: "GL account", value: (r) => r.account || "" },
   { key: "jeNumber", label: "Journal", value: (r) => r.jeNumber, screen: false },
-  { key: "posted", label: "Status", value: (r) => (r.posted ? "Posted" : "Not posted"), screen: false },
 ];

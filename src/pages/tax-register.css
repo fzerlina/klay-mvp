@@ -1,6 +1,6 @@
 /* ── Reports → Tax Register ─────────────────────────────────────────────── */
 /* Builds on invoices-ledger.css (KPI strip, pills, filter row), profit-loss.css
-   (card, table) and cashflow-report.css (back link, ledger tie). Only what
+   (card, table) and cashflow-report.css (back link). Only what
    differs lives here. */
 
 .tr-masa { font-size: 12.5px; padding: 7px 10px; }
@@ -10,38 +10,16 @@
 .tr-page .tr-kpis .lg-kpi-val { font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tr-page .tr-kpis .lg-kpi-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-/* Ledger check — one line under the strip. */
-.tr-ties {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px;
-  padding: 10px 0 0; border-top: 1px solid var(--color-border-default);
-}
-.tr-ties-lbl { font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--color-text-tertiary); }
-.tr-ties .cfr-tie { margin: 0; }
-
-/* Data gaps */
-.tr-gaps {
-  margin: 0; padding: 8px 12px; border-radius: var(--radius-sm); font-size: 12px; line-height: 1.55;
-  color: var(--color-text-secondary);
-  background: var(--color-warning-surface); border: 1px solid var(--color-warning-border);
-}
-.tr-gaps strong { color: var(--color-warning-text); }
-
 /* Lines table */
 .tr-page .lg-filter-row { padding: 10px 18px; }
 .tr-table { min-width: 1180px; }
 .tr-table td { vertical-align: top; }
 .tr-group td { background: var(--color-surface-sunken); font-size: 12px; }
-.tr-row.unposted td { color: var(--color-text-tertiary); }
 .tr-mono { font-family: var(--font-mono); font-size: 11.5px; }
 .tr-muted { color: var(--color-text-tertiary); }
-.tr-missing { font-size: 11px; color: var(--color-warning-text); }
 .tr-doc { display: flex; flex-direction: column; gap: 1px; }
 .tr-doc-no { font-weight: 600; text-align: left; }
 .tr-sub { font-size: 10.5px; color: var(--color-text-tertiary); white-space: nowrap; }
-.tr-tag {
-  margin-left: 6px; padding: 0 6px; border-radius: 999px; font-size: 10px; font-weight: 600;
-  background: var(--color-warning-surface); color: var(--color-warning-text);
-}
 .tr-party { background: none; border: none; padding: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; }
 .tr-party:hover { color: var(--color-action); text-decoration: underline; text-underline-offset: 2px; }
 .tr-c-party { min-width: 180px; max-width: 260px; }
@@ -49,17 +27,12 @@
 .tr-type { display: inline-block; white-space: nowrap; font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 999px; }
 .tr-type-purchases { background: var(--color-action-wash); color: var(--color-action); }
 .tr-type-sales { background: var(--color-success-surface); color: var(--color-success-text); }
-.tr-ovr {
-  display: inline-block; white-space: nowrap; font-size: 10.5px; font-weight: 700; padding: 1px 7px; border-radius: 999px;
-  background: var(--color-warning-surface); color: var(--color-warning-text); border: 1px solid var(--color-warning-border); cursor: help;
-}
 
 @media print {
   .tr-table { min-width: 0; font-size: 7.5pt; }
   .tr-table td, .tr-table th { padding: 3px 4px; }
   .tr-c-party { min-width: 0; }
-  .tr-gaps { font-size: 8.5pt; background: none; border: none; padding: 0; }
-  .tr-type, .tr-ovr, .tr-tag { background: none !important; border: none; padding: 0; color: #000 !important; }
+  .tr-type { background: none !important; border: none; padding: 0; color: #000 !important; }
   .tr-group td { background: none !important; }
   .tr-party, .pl-amt-link { color: inherit; }
 }
