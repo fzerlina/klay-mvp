@@ -397,7 +397,7 @@ export default function ItemDetailPage() {
                 <div className="imd-ro-note">
                   Shown here for reference only — <strong>applied by the Inventory Sub-Ledger, not by this
                   page</strong>. It decides how a movement OUT is valued and nothing else. Company-wide
-                  policy, set in <Link to="/inventory-settings" className="imd-je">Accounting Settings</Link>.
+                  policy, set in <Link to="/settings/inventory/costing" className="imd-je">Settings › Inventory</Link>.
                 </div>
               </div>
             </div>

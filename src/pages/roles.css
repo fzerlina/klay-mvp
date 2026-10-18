@@ -1,4 +1,4 @@
-/* Settings → Access → Roles (list + role editor). Shares the settings shell
+/* Settings → Users → Roles (list + role editor). Shares the settings shell
    (lg-page / lg-head / settings-sub) and the role dot / section header from
    roles-users.css; everything specific to the roles screens is rl-. */
 
@@ -227,3 +227,4 @@
 
 .rl-sod-line{margin:10px 32px 0;font-size:12px;color:var(--color-text-tertiary)}
 .rl-sod-line b{color:var(--color-text-secondary)}
+

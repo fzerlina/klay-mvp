@@ -6,6 +6,7 @@ import { initials, termLabel } from "../lib/format";
 import "./invoice-create.css";
 import "./vendor-create.css";
 import "./customer-create.css";
+import { useModuleSettings } from "../state/ModuleSettingsContext";
 
 // ── New Customer — manual creation (Customer Master PRD, mirror of New Vendor) ─
 // Capability-gated per the Role & Permission engine: creating a customer requires
@@ -13,7 +14,7 @@ import "./customer-create.css";
 // draft — an approver (Finance Manager / Accounting Manager) confirms/activates
 // it on the Detail page. Manual creation always lands as DRAFT_PENDING.
 
-const TERM_OPTIONS = ["COD", "NET 7", "NET 14", "NET 15", "NET 21", "NET 30", "NET 45", "NET 60"];
+// Payment terms come from Settings → Receivables.
 const CURRENCY_OPTIONS = [
   { v: "IDR", label: "IDR — Rupiah" },
   { v: "USD", label: "USD — US Dollar" },
@@ -99,7 +100,9 @@ export default function CustomerCreatePage() {
   const [pph, setPph] = useState("none");
 
   // Terms & credit
-  const [top, setTop] = useState("NET 30");
+  const { paymentTerms, defaultTerm } = useModuleSettings();
+  const TERM_OPTIONS = paymentTerms.filter((t) => t.customers).map((t) => t.code);
+  const [top, setTop] = useState(defaultTerm);
   const [creditLimit, setCreditLimit] = useState("");
   const [currency, setCurrency] = useState("IDR");
   const [accts, setAccts] = useState(["1-1200"]);   // permitted AR accounts
@@ -145,7 +148,7 @@ export default function CustomerCreatePage() {
     setCode(""); setName(""); setLegalName(""); setEntityForm("PT"); setNpwp(""); setAddress(""); setDedupDismissed(false);
     setShipSame(true); setShippingAddress("");
     setPph("none");
-    setTop("NET 30"); setCreditLimit(""); setCurrency("IDR");
+    setTop(defaultTerm); setCreditLimit(""); setCurrency("IDR");
     setAccts(["1-1200"]); setDefaultAcct("1-1200"); setPph21Rate("5");
     setContacts([blankContact(true)]);
     setNotes(""); setTier("standard"); setTierNote("");

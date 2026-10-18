@@ -1,11 +1,13 @@
 import { useState } from "react";
-import { DIMENSIONS as SEED_DIMENSIONS, paletteFor } from "../data/seed/dimensions";
+import { paletteFor } from "../data/seed/dimensions";
+import { useDimensions } from "../state/DimensionsContext";
+import SettingsHeader, { ACCOUNTING_TABS } from "../components/SettingsHeader";
 import "./invoices-ledger.css";
 import "./settings-pages.css";
 
 export default function DimensionsPage() {
-  // Configured dimensions (seed + any added manually).
-  const [dimensions, setDimensions] = useState(() => SEED_DIMENSIONS.map((d) => ({ ...d })));
+  // Configured dimensions (seed + any added manually), shared app-wide.
+  const { dimensions, setDimensions } = useDimensions();
 
   // Editing state — only one row in edit mode at a time.
   // editingId: dim.id when renaming, or "__addval__:<dim.id>" when adding a value,
@@ -69,17 +71,14 @@ export default function DimensionsPage() {
   }
 
   return (
-    <div className="settings-page">
-      <h1 className="lg-title">Dimensions</h1>
-      <div className="settings-sub">
-        Define the analytical tags you'll attach to accounts and transactions —
-        like Department, Location, or Project. Each dimension has its own list
-        of values. All optional.
-        <br />
-        <span style={{ color: "var(--color-text-tertiary)", fontSize: 12 }}>
-          These dimensions persist into the live ERP after migration.
-        </span>
-      </div>
+    <div className="lg-page">
+      <div className="lg-scroll-container">
+      <SettingsHeader
+        title="General Ledger"
+        tabs={ACCOUNTING_TABS}
+        intro="Define the analytical tags you'll attach to accounts and transactions — like Department, Location, or Project. Each dimension has its own list of values. All optional."
+      />
+      <div className="acc-body">
 
       {/* Configured dimensions table */}
       <div className="s2-dim-tbl-section">
@@ -223,6 +222,8 @@ export default function DimensionsPage() {
             + Add custom dimension
           </button>
         )}
+      </div>
+      </div>
       </div>
     </div>
   );

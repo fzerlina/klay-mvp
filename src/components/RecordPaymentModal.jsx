@@ -23,9 +23,12 @@ import { TODAY } from "../lib/clock";
 import { formatRupiah, formatRupiahExact } from "../lib/format";
 import "../pages/ap-aging.css";
 import "../pages/payments.css";
+import { useModuleSettings } from "../state/ModuleSettingsContext";
 
 export default function RecordPaymentModal({ bill, onConfirm, onClose }) {
   const { vendorById } = useVendors();
+  // Methods switched off in Settings → Payables aren't offered.
+  const { paymentMethods } = useModuleSettings();
   const vendor = bill.vendorId ? vendorById(bill.vendorId) : null;
 
   // The vendor's bank account is READ-ONLY here. Where a vendor is paid is a
@@ -243,7 +246,7 @@ export default function RecordPaymentModal({ bill, onConfirm, onClose }) {
             <div className="pm-sec">
               <div className="pm-sec-lbl">Payment method</div>
               <div className="pm-method-row">
-                {PAYMENT_METHODS.map((m) => (
+                {PAYMENT_METHODS.filter((m) => paymentMethods.find((s) => s.key === m.key)?.active !== false).map((m) => (
                   <button
                     key={m.key}
                     type="button"

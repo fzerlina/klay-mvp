@@ -327,7 +327,7 @@ export function MatchBar({ lineCount, recordCount, balance, diffAccounts, diffAc
   const any = lineCount + recordCount > 0;
   const gapRp = signedRp(Math.abs(left)).replace("−", "");
   const picker = diffAccounts.length === 0 ? (
-    <span className="rm-bar-status warn"><Link to="/bank-recon-settings">Add a difference account</Link> to book it</span>
+    <span className="rm-bar-status warn"><Link to="/settings/reconciliation">Add a difference account</Link> to book it</span>
   ) : (
     <label className="rm-bar-diff">
       <span className={booking ? "" : "warn"}>{booking ? "Book to" : "Book it to"}</span>

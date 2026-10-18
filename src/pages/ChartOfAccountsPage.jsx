@@ -4,6 +4,7 @@ import { DIM_BY_KEY, paletteFor, dimensionsForAccount } from "../data/seed/dimen
 import { useAccountingSettings } from "../state/AccountingSettingsContext";
 import "./invoices-ledger.css";
 import "./settings-pages.css";
+import SettingsHeader, { ACCOUNTING_TABS } from "../components/SettingsHeader";
 
 // Accounts whose code is fixed by the system (tax + control accounts).
 // Display name is still editable; the lock icon flags them in the table.
@@ -113,14 +114,19 @@ export default function ChartOfAccountsPage() {
   }, [sections, q, lockedOnly]);
 
   return (
-    <div className="settings-page">
-      <h1 className="lg-title">Chart of Accounts</h1>
-      <div className="settings-sub">
-        Review the default chart of accounts. Rename or recode any account, and
-        add new accounts where you need them. Some tax and control accounts have
-        a <span style={{ color: "#A02020" }}>🔒</span> — only their display name
-        can change.
-      </div>
+    <div className="lg-page">
+      <div className="lg-scroll-container">
+      <SettingsHeader
+        title="General Ledger"
+        tabs={ACCOUNTING_TABS}
+        intro={<>
+          Review the default chart of accounts. Rename or recode any account, and
+          add new accounts where you need them. Some tax and control accounts have
+          a <span style={{ color: "#A02020" }}>🔒</span> — only their display name
+          can change.
+        </>}
+      />
+      <div className="acc-body">
 
       <div className="coa-page-meta">
         <span className="stat"><span className="num">{totalCount}</span> accounts</span>
@@ -269,6 +275,8 @@ export default function ChartOfAccountsPage() {
           <span className="coa-recon-toggle on" aria-hidden><span className="knob" /></span>
           <span>reconcilable — journal lines crediting it need a payee and appear on Payment until paid</span>
         </span>
+      </div>
+      </div>
       </div>
     </div>
   );

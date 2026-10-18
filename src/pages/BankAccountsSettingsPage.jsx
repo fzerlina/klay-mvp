@@ -5,6 +5,7 @@ import "./settings-pages.css";
 import "./bank-accounts-settings.css";
 import { COMPANY_BANK_ACCOUNTS } from "../data/seed/bankAccounts";
 import { COA } from "../data/seed/coa";
+import SettingsHeader, { ACCOUNTING_TABS } from "../components/SettingsHeader";
 
 const BANK_OPTIONS = [
   { v: "BCA",     lbl: "Bank Central Asia (BCA)", color: "#0050A8" },
@@ -247,23 +248,20 @@ export default function BankAccountsSettingsPage() {
   return (
     <div className="lg-page bank-accounts-page">
       <div className="lg-scroll-container">
-        {/* ── Header: title + add + KPI summary strip ─────────────────── */}
-        <div className="lg-head">
-          <div className="lg-head-top">
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <h1 className="lg-title">Bank Accounts</h1>
-              <p className="settings-sub">
-                Manage the bank accounts your team reconciles against. Each can be linked to a GL account from your Chart of Accounts so matched entries post to the right ledger.
-              </p>
-            </div>
-            <div className="lg-head-actions">
-              <button type="button" className="lg-btn-brand" onClick={() => setDrawer({ account: null })}>
-                <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                Add bank account
-              </button>
-            </div>
-          </div>
+        {/* ── Header: Accounting tabs + add; KPI summary strip below ───── */}
+        <SettingsHeader
+          title="General Ledger"
+          tabs={ACCOUNTING_TABS}
+          intro="The bank accounts your team reconciles against. Link each to a GL account from your Chart of Accounts so matched entries post to the right ledger."
+          actions={
+            <button type="button" className="lg-btn-brand" onClick={() => setDrawer({ account: null })}>
+              <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Add bank account
+            </button>
+          }
+        />
 
+        <div className="cs-kpis">
           <div className="lg-kpi-strip kpi-3">
             <button type="button" className="lg-kpi-cell">
               <div className="lg-kpi-lbl">Total accounts</div>

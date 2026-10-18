@@ -14,6 +14,7 @@ import { assetAccounts } from "../lib/fixedAssets";
 import "./invoice-create.css";
 import "./items.css";
 import "./assets.css";
+import { useModuleSettings } from "../state/ModuleSettingsContext";
 
 // ── Add New Asset ────────────────────────────────────────────────────────────
 // Every field here is ENTERED (Fixed Asset PRD §3) — there is no class to
@@ -48,6 +49,22 @@ export default function AssetCreatePage() {
   const [rate, setRate] = useState("");
   const [durationValue, setDurationValue] = useState("");
   const [durationUnit, setDurationUnit] = useState("months");
+  // A category's defaults (Settings → Fixed Assets) pre-fill method and life;
+  // the asset can still change them.
+  const { assetDefaults } = useModuleSettings();
+  function pickCategory(key) {
+    setCategory(key);
+    const d = assetDefaults[key];
+    if (!d) return;
+    setMethod(d.method);
+    if (d.lifeMonths) {
+      const years = d.lifeMonths % 12 === 0;
+      setDurationValue(String(years ? d.lifeMonths / 12 : d.lifeMonths));
+      setDurationUnit(years ? "years" : "months");
+    } else {
+      setDurationValue("");
+    }
+  }
   const [computation, setComputation] = useState("constant_period");
 
   const [toast, setToast] = useState("");
@@ -129,7 +146,7 @@ export default function AssetCreatePage() {
             <div className="fg2">
               <div className="form-fld">
                 <label>Category <span className="vc-req">*</span></label>
-                <select value={validCategory} onChange={(e) => setCategory(e.target.value)}>
+                <select value={validCategory} onChange={(e) => pickCategory(e.target.value)}>
                   <option value="">Select a category…</option>
                   {categoryOptions.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
                 </select>

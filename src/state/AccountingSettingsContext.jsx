@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useState } from "react";
+import { COMPANY } from "../data/seed/company";
 import { ACCOUNTING_SETTINGS } from "../data/seed/accountingSettings";
 
 // Company-wide accounting policy that pages read at runtime. Seeded from
@@ -19,10 +20,19 @@ export function AccountingSettingsProvider({ children }) {
   const [reconcilableAccounts, setReconcilableAccounts] = useState(
     ACCOUNTING_SETTINGS.reconcilable_accounts,
   );
-  // Entity-wide segregation of duties at posting time (Settings → Access
-  // policy). ENFORCED: whoever prepared a transaction cannot post it — two
-  // people. RELAXED: they can, and the posting is flagged for audit.
-  const [sodMode, setSodMode] = useState("ENFORCED");
+  // Entity-wide segregation of duties, shown on Settings → Users → Roles.
+  // Set by Klay at company setup — the app only reads it. ENFORCED:
+  // whoever prepared a transaction cannot post it, and hard conflicts can't be
+  // granted. RELAXED: they can, with an accepted risk / an audit flag.
+  const [sodMode, setSodMode] = useState(COMPANY.sodMode);
+  // Soft-delete of posted manual journals (Accounting → Preferences →
+  // Journals). Off by default — reversing is the standard correction; a company
+  // turns this on only on request (GKB, Oct 2026). Deletion always needs an
+  // approver other than the requester, and the audit trail stays.
+  const [journalDeletion, setJournalDeletion] = useState(false);
+  // Accounting basics (Accounting → Preferences), set at company creation.
+  const [fiscalYearStart, setFiscalYearStart] = useState(COMPANY.fiscalYearStart);
+  const [timezone, setTimezone] = useState(COMPANY.timezone);
   const toggleReconcilable = useCallback((code) => setReconcilableAccounts((prev) => (
     prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]
   )), []);
@@ -32,8 +42,11 @@ export function AccountingSettingsProvider({ children }) {
       reconDifferenceAccounts, setReconDifferenceAccounts,
       reconcilableAccounts, toggleReconcilable,
       sodMode, setSodMode,
+      journalDeletion, setJournalDeletion,
+      baseCurrency: COMPANY.baseCurrency, fiscalYearStart, setFiscalYearStart, timezone, setTimezone,
     }),
-    [inventoryCostingMethod, reconDifferenceAccounts, reconcilableAccounts, toggleReconcilable, sodMode],
+    [inventoryCostingMethod, reconDifferenceAccounts, reconcilableAccounts, toggleReconcilable, sodMode,
+      journalDeletion, fiscalYearStart, timezone],
   );
   return (
     <AccountingSettingsContext.Provider value={value}>

@@ -8,13 +8,13 @@ import "./modules.css";
 import "./invoices-ledger.css";
 import "./settings-pages.css";
 import "./approval-settings.css";
+import "../components/company-settings.css";
 
-// Settings → Access → Approval.
+// Settings → Approval.
 //
 // The policy that decides how many people must approve a payment before the
-// money can leave, and who those people can be. It sits next to Access policy
-// because it is the same kind of object: a control the entity configures once
-// and the payment flow then obeys, not a per-transaction choice.
+// money can leave, and who those people can be. It is a control the entity
+// configures once and the payment flow then obeys, not a per-transaction choice.
 //
 // The page is built around one idea — the requirement is DERIVED, so the page
 // has to show the derivation. That is what the simulator at the bottom is for:
@@ -102,6 +102,7 @@ export default function ApprovalSettingsPage() {
     <div className="lg-page">
       <div className="lg-scroll-container">
         <div className="lg-head">
+          <div className="cs-eyebrow">Settings</div>
           <div className="lg-head-top">
             <div style={{ flex: 1, minWidth: 0 }}>
               <h1 className="lg-title">Approval</h1>
@@ -281,7 +282,7 @@ export default function ApprovalSettingsPage() {
               <div className="apv-gaps-foot">
                 Saving an unreachable rule is worse than refusing it — the failure would surface at the
                 moment somebody is trying to pay a vendor. Add a second approver seat in{" "}
-                <strong>Settings → Access → Users</strong>, or lower the top band.
+                <strong>Settings → Users</strong>, or lower the top band.
               </div>
             </div>
           )}

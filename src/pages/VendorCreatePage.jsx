@@ -5,6 +5,7 @@ import { useCurrentUser } from "../state/CurrentUserContext";
 import { initials, termLabel } from "../lib/format";
 import "./invoice-create.css";
 import "./vendor-create.css";
+import { useModuleSettings } from "../state/ModuleSettingsContext";
 
 // ── New Vendor — manual creation (Vendor Master PRD, Flow B) ─────────────────
 // Capability-gated per the Role & Permission engine: creating a vendor requires
@@ -18,11 +19,7 @@ import "./vendor-create.css";
 //   T2 financial     — proposed here, Finance Manager confirms at activation
 //   T3 bank account  — Finance-Manager-only; locked in the create flow
 
-const CATEGORY_OPTIONS = [
-  { v: "inventory", label: "Inventory — goods for resale" },
-  { v: "expense", label: "Expense — operating costs" },
-  { v: "service", label: "Service — professional services" },
-];
+// Categories and payment terms come from Settings → Payables.
 
 // Two entity kinds only. Company (incl. PT / CV / UD / cooperative) is PKP and
 // needs a Tax Invoice (Faktur Pajak); Individual is Non-PKP and doesn't.
@@ -31,7 +28,6 @@ const TYPE_OPTIONS = [
   { v: "individual", label: "Individual" },
 ];
 
-const TERM_OPTIONS = ["NET 7", "NET 14", "NET 15", "NET 30", "NET 45", "NET 60"];
 
 // Withholding CHOICES for a Company — the user picks the type; the rate is
 // resolved automatically from whether the vendor has an NPWP (see rateFor).
@@ -121,7 +117,10 @@ export default function VendorCreatePage() {
     else if (pph === "pph21") setPph("none");
   }
 
-  const [term, setTerm] = useState("NET 30");
+  const { vendorCategories, paymentTerms, defaultTerm } = useModuleSettings();
+  const CATEGORY_OPTIONS = vendorCategories.map((c) => ({ v: c.key, label: c.description ? `${c.label} — ${c.description}` : c.label }));
+  const TERM_OPTIONS = paymentTerms.filter((t) => t.vendors).map((t) => t.code);
+  const [term, setTerm] = useState(defaultTerm);
   const [currency, setCurrency] = useState("IDR");
   const [recon, setRecon] = useState("2-1000");
 

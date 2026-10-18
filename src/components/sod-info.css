@@ -1,0 +1,22 @@
+/* ── Segregation of duties value + ⓘ popover ─────────────────────────────── */
+.sod-info{position:relative;display:inline-flex;align-items:center;gap:4px;vertical-align:middle}
+.sod-info-value{font-size:12px;color:var(--color-text-tertiary)}
+.sod-info-value b{font-weight:700}
+.sod-info-value b.enforced{color:var(--success-text)}
+.sod-info-value b.relaxed{color:var(--warning-text)}
+.sod-info-btn{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;padding:0;border:none;border-radius:50%;background:none;color:var(--color-text-tertiary);cursor:pointer}
+.sod-info-btn:hover,.sod-info-btn.open{color:var(--color-action);background:var(--color-surface-sunken)}
+.sod-info .sod-info-btn svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round}
+.sod-pop{position:absolute;top:calc(100% + 6px);z-index:60;width:340px;max-width:calc(100vw - 32px);display:flex;flex-direction:column;gap:8px;padding:14px 16px;background:var(--color-surface-raised);border:1px solid var(--color-border-default);border-radius:var(--radius-md);box-shadow:0 12px 32px rgba(8,7,6,.16);text-align:left;font-weight:400;white-space:normal}
+.sod-pop.left{left:0}
+.sod-pop.right{right:0}
+.sod-pop-title{font-size:13px;font-weight:700;color:var(--color-text-primary)}
+.sod-pop-p{font-size:12px;line-height:1.55;color:var(--color-text-secondary)}
+.sod-pop-list{display:flex;flex-direction:column;border-top:1px solid var(--color-border-subtle);border-bottom:1px solid var(--color-border-subtle);padding:4px 0}
+.sod-pop-rule{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:5px 0;font-size:12px;color:var(--color-text-primary);cursor:help}
+.sod-pop-out{flex-shrink:0;font-size:11px;font-weight:600}
+.sod-pop-out.no{color:var(--danger-text)}
+.sod-pop-out.risk{color:var(--warning-text)}
+.sod-pop-note{font-size:11.5px;line-height:1.5;color:var(--color-text-tertiary)}
+/* In a blocked-conflict banner the ⓘ sits at the end of the header line. */
+.ru-sod-banner-hdr .sod-info{margin-left:auto}

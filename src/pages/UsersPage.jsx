@@ -6,6 +6,7 @@ import "./settings-pages.css";
 import "./roles-users.css";
 import {
   ROLES,
+  effectiveCapabilities,
   evaluateSod,
   sodDecision,
   approvalLimitFor as limitFor,
@@ -15,11 +16,10 @@ import { useAccountingSettings } from "../state/AccountingSettingsContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
 import { useRoles } from "../state/RolesContext";
 import SodRiskAcceptance, { riskAccepted } from "../components/SodRiskAcceptance";
-import { DIM_BY_KEY } from "../data/seed/dimensions";
-
-// A user's department is a value of the Department dimension (Settings →
-// Dimensions), so org structure and transaction tagging share one list.
-const DEPARTMENTS = (DIM_BY_KEY.dept?.values || []).filter((v) => v !== "—");
+import SettingsHeader, { USERS_TABS } from "../components/SettingsHeader";
+import { CAP_SECTIONS, canonicalId, capLabel } from "../lib/roleCapabilities";
+import SodInfo from "../components/SodInfo";
+import { usePeople } from "../state/PeopleContext";
 
 function initials(name) {
   if (!name) return "?";
@@ -35,6 +35,49 @@ function fmtLimit(n) {
   return "Rp " + n.toLocaleString("id-ID");
 }
 
+// ── Temporary access ─────────────────────────────────────────────────────
+// Roles are read-only in v1, so a one-off change for one person is a
+// time-limited override: one extra capability until a set date, with a reason.
+// It rides on the user (tempAccess, mirrored into extraCaps so authorize()/SoD
+// see it) and never changes the role.
+const TEMP_MAX_DAYS = 90;
+// "Today" for the Users seed (its lastActive / invitedOn dates).
+const USERS_TODAY = "2026-06-07";
+
+// Every capability a grant can add, grouped by module, as canonical ids.
+const CAP_OPTIONS = CAP_SECTIONS.map((s) => ({
+  key: s.key,
+  label: s.label,
+  options: [
+    ...s.verbs.filter((v) => v !== "full").map((v) => ({ id: canonicalId(s.key, v), label: capLabel(s.key, v) })),
+    ...s.named.map((n) => ({ id: n.id, label: n.label })),
+  ],
+})).filter((g) => g.options.length);
+
+function capName(id) {
+  for (const g of CAP_OPTIONS) {
+    const o = g.options.find((x) => x.id === id);
+    if (o) return o.label;
+  }
+  return id;
+}
+
+function addDaysIso(iso, n) {
+  const d = new Date(iso + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+function fmtDay(iso) {
+  return new Date(iso + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+// A user's extra capabilities that are not temporary grants.
+function permanentExtras(user) {
+  const temp = new Set((user?.tempAccess || []).map((t) => t.cap));
+  return (user?.extraCaps || []).filter((c) => !temp.has(c));
+}
+
 const STATUS_LABELS = { Active: "Active", Invited: "Invited", Inactive: "Inactive" };
 
 function StatusBadge({ status }) {
@@ -43,7 +86,7 @@ function StatusBadge({ status }) {
 }
 
 // ── Invite / Change-role drawer with live SoD + account actions ──────────
-function UserDrawer({ open, mode, user, onClose, onSave, onAction }) {
+function UserDrawer({ open, mode, user, departments, onClose, onSave, onAction }) {
   const isInvite = mode === "invite";
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -51,6 +94,11 @@ function UserDrawer({ open, mode, user, onClose, onSave, onAction }) {
   const [roleKeys, setRoleKeys] = useState([]);
   const [justification, setJustification] = useState("");
   const [riskOwner, setRiskOwner] = useState("");
+  const [temp, setTemp] = useState([]);
+  const [adding, setAdding] = useState(false);
+  const [tCap, setTCap] = useState("");
+  const [tUntil, setTUntil] = useState("");
+  const [tReason, setTReason] = useState("");
   const { sodMode } = useAccountingSettings();
   const { user: me } = useCurrentUser();
 
@@ -65,24 +113,27 @@ function UserDrawer({ open, mode, user, onClose, onSave, onAction }) {
       setRoleKeys(isInvite ? [] : [...(user?.roleKeys || [])]);
       setJustification("");
       setRiskOwner("");
+      setTemp(isInvite ? [] : [...(user?.tempAccess || [])]);
+      setAdding(false);
     }
   } else if (lastKeyRef.current !== null) {
     lastKeyRef.current = null;
   }
 
-  // Segregation of duties follows the entity mode (Access policy), as the
+  // Segregation of duties follows the company mode (set by Klay), as the
   // backend does on role assignment: only conflicts this change INTRODUCES are
   // decided — ENFORCED blocks HARD ones, RELAXED lets relaxable HARD ones
   // through with an accepted risk, SOFT ones always need an accepted risk.
   // Conflicts the user already had stay as they were accepted.
+  // Temporary grants count as the person's access, so they are checked too.
   const sod = useMemo(() => {
-    const extraCaps = isInvite ? [] : user?.extraCaps || [];
-    const now = evaluateSod(roleKeys, { extraCaps }).all;
-    const before = isInvite ? [] : evaluateSod(user?.roleKeys || [], { extraCaps }).all;
+    const extraNow = isInvite ? [] : [...permanentExtras(user), ...temp.map((t) => t.cap)];
+    const now = evaluateSod(roleKeys, { extraCaps: extraNow }).all;
+    const before = isInvite ? [] : evaluateSod(user?.roleKeys || [], { extraCaps: user?.extraCaps || [] }).all;
     const had = new Set(before.map((r) => r.id));
     const fresh = now.filter((r) => !had.has(r.id));
     return { existing: now.filter((r) => had.has(r.id)), decision: sodDecision(fresh, sodMode) };
-  }, [roleKeys, user, isInvite, sodMode]);
+  }, [roleKeys, user, isInvite, sodMode, temp]);
 
   if (!open) return null;
 
@@ -91,6 +142,35 @@ function UserDrawer({ open, mode, user, onClose, onSave, onAction }) {
     setJustification("");
     setRiskOwner("");
   };
+
+  // Capabilities a temporary grant could add: not already held through the
+  // selected roles, and not already granted temporarily.
+  const held = effectiveCapabilities(roleKeys);
+  const grantable = CAP_OPTIONS
+    .map((g) => ({ ...g, options: g.options.filter((o) => !held.has(o.id) && !temp.some((t) => t.cap === o.id)) }))
+    .filter((g) => g.options.length);
+  const minUntil = addDaysIso(USERS_TODAY, 1);
+  const maxUntil = addDaysIso(USERS_TODAY, TEMP_MAX_DAYS);
+  const tValid = tCap && tUntil >= minUntil && tUntil <= maxUntil && tReason.trim().length >= 5;
+
+  function startAdding() {
+    setTCap("");
+    setTUntil(addDaysIso(USERS_TODAY, 30));
+    setTReason("");
+    setAdding(true);
+  }
+  function addTemp() {
+    if (!tValid) return;
+    setTemp((cur) => [...cur, { cap: tCap, until: tUntil, reason: tReason.trim(), grantedBy: me.name, grantedOn: USERS_TODAY }]);
+    setAdding(false);
+    setJustification("");
+    setRiskOwner("");
+  }
+  function endTemp(cap) {
+    setTemp((cur) => cur.filter((t) => t.cap !== cap));
+    setJustification("");
+    setRiskOwner("");
+  }
 
   // The approval limit is set on roles, never per person: a user gets the
   // highest limit among the roles they hold.
@@ -110,6 +190,8 @@ function UserDrawer({ open, mode, user, onClose, onSave, onAction }) {
       email: email.trim(),
       department: department || null,
       roleKeys,
+      tempAccess: temp,
+      extraCaps: isInvite ? [] : [...permanentExtras(user), ...temp.map((t) => t.cap)],
       approval_limit: limit,
       risk: needsRisk ? { rules: sod.decision.risk, justification: justification.trim(), ownerId: riskOwner } : null,
     });
@@ -150,7 +232,7 @@ function UserDrawer({ open, mode, user, onClose, onSave, onAction }) {
             <div className="ba-field" style={{ marginBottom: 0 }}>
               <select className="ru-dept-select" value={department} onChange={(e) => setDepartment(e.target.value)} aria-label="Department">
                 <option value="">Not set</option>
-                {DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}
+                {departments.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
               </select>
               <span className="ba-help">Where this person sits in the organisation. It doesn't grant any access — roles do.</span>
             </div>
@@ -181,20 +263,77 @@ function UserDrawer({ open, mode, user, onClose, onSave, onAction }) {
             </div>
           </div>
 
+          {!isInvite && (
+            <div className="ba-section">
+              <div className="ba-section-title">Temporary access</div>
+              <p className="ba-help" style={{ marginBottom: 10 }}>
+                Give this person one extra capability until a set date — cover during leave, or a one-off task.
+                It ends on its own and doesn't change any role. Up to {TEMP_MAX_DAYS} days.
+              </p>
+              {temp.length > 0 && (
+                <ul className="ru-temp-list">
+                  {temp.map((t) => (
+                    <li key={t.cap} className="ru-temp-item">
+                      <span className="ru-temp-main">
+                        <b>{capName(t.cap)}</b>
+                        <span>Until {fmtDay(t.until)} · {t.reason}</span>
+                        {t.grantedBy && <span className="ru-temp-by">Granted by {t.grantedBy}{t.grantedOn ? ` on ${fmtDay(t.grantedOn)}` : ""}</span>}
+                      </span>
+                      <button type="button" className="ru-temp-end" onClick={() => endTemp(t.cap)}>End now</button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {adding ? (
+                <div className="ru-temp-form">
+                  <div className="ba-field">
+                    <label>Capability</label>
+                    <select value={tCap} onChange={(e) => setTCap(e.target.value)}>
+                      <option value="">Choose a capability…</option>
+                      {grantable.map((g) => (
+                        <optgroup key={g.key} label={g.label}>
+                          {g.options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+                        </optgroup>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="ba-field">
+                    <label>Until</label>
+                    <input type="date" value={tUntil} min={minUntil} max={maxUntil} onChange={(e) => setTUntil(e.target.value)} />
+                  </div>
+                  <div className="ba-field">
+                    <label>Reason</label>
+                    <input value={tReason} onChange={(e) => setTReason(e.target.value)} placeholder="e.g. Covering AP while Budi is on leave" />
+                  </div>
+                  <div className="ru-temp-form-btns">
+                    <button type="button" className="drawer-btn ghost" onClick={() => setAdding(false)}>Cancel</button>
+                    <button type="button" className="drawer-btn primary" disabled={!tValid} onClick={addTemp}>Add</button>
+                  </div>
+                </div>
+              ) : (
+                <button type="button" className="ru-acct-btn" onClick={startAdding}>
+                  <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  Add temporary access
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Live SoD feedback */}
           {blocked && (
             <div className="ru-sod-banner hard">
               <div className="ru-sod-banner-hdr">
                 <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12" y2="16"/></svg>
                 Segregation of duties conflict — blocked
+                <SodInfo mode={sodMode} iconOnly align="right" />
               </div>
               <p>{sod.decision.blocked.map((r) => r.label).join("; ")} can't be held by one person.</p>
               <p className="ru-sod-banner-note">
                 {sod.decision.blocked.some((r) => r.forbidden)
-                  ? "This capability is never allowed. Remove the role that grants it."
+                  ? "This capability is never allowed. Remove the role or temporary grant that gives it."
                   : sodMode === "RELAXED"
-                    ? "This combination can't be accepted even in Relaxed mode. Remove one of the conflicting roles."
-                    : "This entity is in Enforced mode, so hard conflicts can't be saved. Remove one of the conflicting roles, or switch the entity to Relaxed in Access policy."}
+                    ? "This combination can't be accepted even in Relaxed mode. Remove one of the conflicting roles or temporary grants."
+                    : "Segregation of duties is Enforced for this company, so hard conflicts can't be given to one person. Remove one of the conflicting roles or temporary grants."}
               </p>
             </div>
           )}
@@ -223,6 +362,12 @@ function UserDrawer({ open, mode, user, onClose, onSave, onAction }) {
                 <span className="drawer-label">Roles</span>
                 <span className="drawer-value">{roleKeys.map(roleName).join(", ")}</span>
               </div>
+              {temp.length > 0 && (
+                <div className="drawer-row">
+                  <span className="drawer-label">Temporary</span>
+                  <span className="drawer-value">{temp.map((t) => `${capName(t.cap)} (until ${fmtDay(t.until)})`).join(", ")}</span>
+                </div>
+              )}
               <div className="drawer-row">
                 <span className="drawer-label">Approval limit</span>
                 <span className="drawer-value">
@@ -279,19 +424,22 @@ function UserDrawer({ open, mode, user, onClose, onSave, onAction }) {
 }
 
 export default function UsersPage() {
-  const [users, setUsers] = useState(() => SEED_USERS.map((u) => ({ ...u, roleKeys: [...u.roleKeys] })));
+  // Users and departments are shared (PeopleContext): departments are managed
+  // in Company → Departments.
+  const { users, setUsers, departments } = usePeople();
   const { acceptRisks } = useRoles();
   const { sodMode } = useAccountingSettings();
   const { user: me } = useCurrentUser();
   const [statusFilter, setStatusFilter] = useState("all");
-  // A role page's "Manage in Users" link lands here pre-filtered (?role=key).
+  // A role page's "Manage in Users" link lands here pre-filtered (?role=key);
+  // a department's people count lands pre-filtered by ?dept=<name|none>.
   const [searchParams] = useSearchParams();
   const [roleFilter, setRoleFilter] = useState(() => {
     const k = searchParams.get("role");
     return k && ROLES.some((r) => r.key === k) ? k : "all";
   });
   const navigate = useNavigate();
-  const [deptFilter, setDeptFilter] = useState("all"); // all | none | <department>
+  const [deptFilter, setDeptFilter] = useState(() => searchParams.get("dept") || "all"); // all | none | <department>
   const [search, setSearch] = useState("");
   const [drawer, setDrawer] = useState(null); // { mode, user }
   const [toast, setToast] = useState("");
@@ -360,7 +508,7 @@ export default function UsersPage() {
       ]);
       showToast(`Invitation sent to ${data.email}.`);
     } else {
-      setUsers((cur) => cur.map((u) => (u.id === id ? { ...u, department: data.department, roleKeys: data.roleKeys, approval_limit: data.approval_limit, ...riskFields } : u)));
+      setUsers((cur) => cur.map((u) => (u.id === id ? { ...u, department: data.department, roleKeys: data.roleKeys, tempAccess: data.tempAccess, extraCaps: data.extraCaps, approval_limit: data.approval_limit, ...riskFields } : u)));
       showToast(owner ? `User updated — risk accepted by ${owner.name}.` : "User updated.");
     }
     setDrawer(null);
@@ -369,24 +517,22 @@ export default function UsersPage() {
   return (
     <div className="lg-page users-page">
       <div className="lg-scroll-container">
-        <div className="lg-head">
-          <div className="lg-head-top">
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <h1 className="lg-title">Users</h1>
-              <p className="settings-sub">
-                Manage who has access and which roles they hold. Role assignments are checked against the
-                segregation-of-duties rules — click any role chip to open that role's capabilities in{" "}
-                <Link to="/roles" className="ru-inline-link">Roles</Link>.
-              </p>
-            </div>
-            <div className="lg-head-actions">
-              <button type="button" className="lg-btn-brand" onClick={() => setDrawer({ mode: "invite" })}>
-                <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                Invite user
-              </button>
-            </div>
-          </div>
-        </div>
+        <SettingsHeader
+          title="Users & Roles"
+          tabs={USERS_TABS}
+          intro={<>
+            Who has access and which roles they hold. Role assignments are checked against the
+            segregation-of-duties rules — click any role chip to see what it can do. To give one person
+            extra access for a while, add <b>temporary access</b> on their user. Each person belongs to one{" "}
+            <Link to="/departments" className="ru-inline-link">department</Link>.
+          </>}
+          actions={
+            <button type="button" className="lg-btn-brand" onClick={() => setDrawer({ mode: "invite" })}>
+              <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Invite user
+            </button>
+          }
+        />
 
         <div className="lg-table-wrap">
           <div className="lg-card lg-table-users">
@@ -430,7 +576,7 @@ export default function UsersPage() {
                 aria-label="Filter by department"
               >
                 <option value="all">Any department</option>
-                {DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}
+                {departments.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
                 <option value="none">No department</option>
               </select>
               {(roleFilter !== "all" || deptFilter !== "all") && (
@@ -454,7 +600,7 @@ export default function UsersPage() {
             {filtered.length === 0 && <div className="lg-empty">No users in this view.</div>}
 
             {filtered.map((u, i) => {
-              const sod = u.status !== "Inactive" ? evaluateSod(u.roleKeys) : { level: "none" };
+              const sod = u.status !== "Inactive" ? evaluateSod(u.roleKeys, { extraCaps: u.extraCaps || [] }) : { level: "none" };
               return (
                 <div
                   key={u.id}
@@ -481,6 +627,14 @@ export default function UsersPage() {
                         {roleName(k)}
                       </button>
                     ))}
+                    {u.tempAccess?.length > 0 && (
+                      <span
+                        className="ru-temp-chip"
+                        title={u.tempAccess.map((t) => `${capName(t.cap)} until ${fmtDay(t.until)} — ${t.reason}`).join("\n")}
+                      >
+                        +{u.tempAccess.length} temporary
+                      </span>
+                    )}
                     {sod.level !== "none" && (
                       <span
                         className={`ru-sod-ico ${sod.level}`}
@@ -503,6 +657,7 @@ export default function UsersPage() {
         open={!!drawer}
         mode={drawer?.mode || "invite"}
         user={drawer?.user || null}
+        departments={departments}
         onClose={() => setDrawer(null)}
         onSave={handleSave}
         onAction={handleRowAction}

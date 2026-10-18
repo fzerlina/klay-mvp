@@ -1,5 +1,9 @@
 import { useState, useEffect, useRef } from "react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
+import {
+  ACCOUNTING_TABS, COMPANY_TABS, USERS_TABS, PAYABLES_TABS, RECEIVABLES_TABS,
+  INVENTORY_TABS, FIXED_ASSETS_TABS, RECONCILIATION_TABS, inTabs,
+} from "./SettingsHeader";
 import { useCurrentUser, PERSONAS } from "../state/CurrentUserContext";
 import { ROLES } from "../data/seed/roles";
 import { computeApCloseSummary, computeBillPostingProgress } from "../data/seed/apClose";
@@ -159,6 +163,12 @@ const navSections = [
         module: "ap",
         icon: <svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M2 10h20"/><path d="M16 14h2"/></svg>,
       },
+      {
+        label: "Vendors",
+        to: "/vendors",
+        module: "ap",
+        icon: <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
+      },
     ],
   },
   {
@@ -173,35 +183,50 @@ const navSections = [
         module: "ar",
         icon: <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>,
       },
-    ],
-  },
-  {
-    section: "Master Data",
-    collapsible: true,
-    key: "masterData",
-    icon: <svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v6c0 1.7 4 3 9 3s9-1.3 9-3V5"/><path d="M3 11v6c0 1.7 4 3 9 3s9-1.3 9-3v-6"/></svg>,
-    items: [
-      {
-        label: "Vendors",
-        to: "/vendors",
-        module: "ap",
-        icon: <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
-      },
       {
         label: "Customers",
         to: "/customers",
         module: "ar",
         icon: <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>,
       },
+    ],
+  },
+  {
+    // Journal entries are daily work, not a report — as DualEntry lists them
+    // under Accounting › Transactions in its main navigation. Fixed assets sit
+    // here too (DualEntry: Accounting › Fixed Assets): depreciation and
+    // revaluation are ledger postings, not master data.
+    section: "General Ledger",
+    collapsible: true,
+    key: "gl",
+    icon: <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>,
+    items: [
       {
-        label: "Items",
-        to: "/items",
-        icon: <svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>,
+        label: "Journal Entries",
+        to: "/journal-entry",
+        module: "gl",
+        icon: <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>,
       },
       {
         label: "Fixed Assets",
         to: "/assets",
         icon: <svg viewBox="0 0 24 24"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 21v-6h6v6"/><path d="M9 12h.01M15 12h.01M9 8h.01M15 8h.01"/></svg>,
+      },
+    ],
+  },
+  {
+    // No "Master Data" menu: vendors and customers sit with the bills and
+    // invoices they're used on (DualEntry: Money In › Customers). Items carry
+    // stock, so they get their own section rather than living in settings.
+    section: "Inventory",
+    collapsible: true,
+    key: "inventory",
+    icon: <svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>,
+    items: [
+      {
+        label: "Items",
+        to: "/items",
+        icon: <svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>,
       },
     ],
   },
@@ -238,35 +263,50 @@ const navSections = [
   },
 ];
 
+// Settings. Company, Users & Roles and Approval are company-wide links. The
+// rest is one foldable Accounting group: the General Ledger setup (chart of
+// accounts, dimensions, tax, bank accounts, preferences) and one page per
+// module, in the order of the main menu. Each entry is a tabbed page, lit on
+// any of its tabs; the group opens by itself on any of its pages.
+const SECTION_TABS = {
+  company: COMPANY_TABS, users: USERS_TABS, ledger: ACCOUNTING_TABS,
+  payables: PAYABLES_TABS, receivables: RECEIVABLES_TABS, fixedAssets: FIXED_ASSETS_TABS,
+  inventory: INVENTORY_TABS, reconciliation: RECONCILIATION_TABS,
+};
 const settingsSections = [
   {
-    key: "accounting",
+    key: "company",
+    label: "Company",
+    module: "settings",
+    to: "/company-settings",
+    icon: <svg viewBox="0 0 24 24"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 9h1M14 9h1M9 13h1M14 13h1M9 17h1M14 17h1"/></svg>,
+  },
+  {
+    key: "users",
+    label: "Users & Roles",
+    module: "settings",
+    to: "/users",
+    icon: <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
+  },
+  {
+    key: "approval",
+    label: "Approval",
+    module: "settings",
+    to: "/approval",
+    icon: <svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>,
+  },
+  {
+    key: "accountingSettings",
     label: "Accounting",
     module: "settings",
     icon: <svg viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>,
     items: [
-      { label: "Chart of accounts", to: "/chart-of-accounts" },
-      { label: "Bank accounts", to: "/bank-accounts" },
-      { label: "Dimensions", to: "/dimensions" },
-      { label: "Posting periods", to: "/posting-periods" },
-      { label: "Inventory", to: "/inventory-settings" },
-      { label: "Bank reconciliation", to: "/bank-recon-settings" },
-      { label: "Tax codes" },
-      { label: "Tax rates" },
-      { label: "Fiscal year" },
-      { label: "Currency" },
-    ],
-  },
-  {
-    key: "access",
-    label: "Access",
-    module: "settings",
-    icon: <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
-    items: [
-      { label: "Users", to: "/users" },
-      { label: "Roles", to: "/roles" },
-      { label: "Access policy", to: "/access-policy" },
-      { label: "Approval", to: "/approval" },
+      { key: "ledger", label: "General Ledger", to: "/chart-of-accounts" },
+      { key: "payables", label: "Payables", to: "/settings/payables" },
+      { key: "receivables", label: "Receivables", to: "/settings/receivables" },
+      { key: "fixedAssets", label: "Fixed Assets", to: "/settings/fixed-assets" },
+      { key: "inventory", label: "Inventory", to: "/settings/inventory" },
+      { key: "reconciliation", label: "Reconciliation", to: "/settings/reconciliation" },
     ],
   },
 ];
@@ -335,9 +375,10 @@ function readInitialCollapsed() {
 }
 
 export default function Sidebar() {
-  const [open, setOpen] = useState({ ap: true, ar: true, masterData: true, reconciliation: true });
+  const [open, setOpen] = useState({ ap: true, ar: true, gl: true, inventory: true, reconciliation: true });
   const [collapsed, setCollapsed] = useState(readInitialCollapsed);
   const { can } = useCurrentUser();
+  const { pathname } = useLocation();
 
   useEffect(() => {
     try { window.localStorage.setItem(STORAGE_KEY, String(collapsed)); } catch (_) {}
@@ -416,7 +457,7 @@ export default function Sidebar() {
             );
           }
 
-          // Collapsible group (e.g. Master Data). When the rail is collapsed to
+          // Collapsible group (e.g. Payables). When the rail is collapsed to
           // icons we fall through to the flat render so its items stay reachable.
           if (collapsible && !collapsed) {
             const isOpen = !!open[secKey];
@@ -468,28 +509,43 @@ export default function Sidebar() {
         {!collapsed && visibleSettings.length > 0 && (
           <>
             <div className="sb-section">Settings</div>
-            {visibleSettings.map(({ key, label, icon, items }) => (
+            {visibleSettings.map(({ key, label, icon, items, to }) => to ? (
+              <NavLink
+                key={key}
+                to={to}
+                className={({ isActive }) => `sn-item${(SECTION_TABS[key] ? inTabs(SECTION_TABS[key], pathname) : isActive) ? " sn-subitem-active" : ""}`}
+              >
+                {icon}
+                {label}
+              </NavLink>
+            ) : (
+              (() => {
+                const lit = (item) => (SECTION_TABS[item.key] ? inTabs(SECTION_TABS[item.key], pathname) : pathname === item.to);
+                const here = items.some(lit);
+                // Open by default on one of its pages; a click folds or unfolds it.
+                const isOpen = open[key] ?? here;
+                return (
               <div key={key}>
-                <div className="sn-item" onClick={() => toggle(key)}>
+                <div className={`sn-item${here && !isOpen ? " sn-subitem-active" : ""}`} onClick={() => setOpen((prev) => ({ ...prev, [key]: !isOpen }))}>
                   {icon}
                   {label}
                   <svg
                     className="sn-arrow"
                     viewBox="0 0 24 24"
-                    style={{ transform: open[key] ? "rotate(90deg)" : "none" }}
+                    style={{ transform: isOpen ? "rotate(90deg)" : "none" }}
                   >
                     <polyline points="9 18 15 12 9 6" />
                   </svg>
                 </div>
-                {open[key] && (
+                {isOpen && (
                   <div>
                     {items.map((item) =>
                       item.to ? (
                         <NavLink
                           key={item.to}
                           to={item.to}
-                          className={({ isActive }) =>
-                            `sn-subitem${isActive ? " sn-subitem-active" : ""}`
+                          className={() =>
+                            `sn-subitem${lit(item) ? " sn-subitem-active" : ""}`
                           }
                         >
                           {item.label}
@@ -503,6 +559,8 @@ export default function Sidebar() {
                   </div>
                 )}
               </div>
+                );
+              })()
             ))}
           </>
         )}

@@ -1,8 +1,9 @@
 // Journal entry lifecycle — what can happen to an entry, and who may do it.
 //
 //   Draft ──submit──▶ Pending ──approve──▶ Posted ──reverse──▶ (new reversing entry)
-//     │                  │ └──return──▶ Draft
-//     └──void            └──void
+//     │                  │ └──return──▶ Draft      │
+//     └──void            └──void                   └──request deletion──▶ approve ──▶ Deleted
+//                                                     (only when the company turns deletion on)
 //
 // Rules, each returned as { ok, reason } so a disabled control can say why:
 //   • Only a draft can be edited; posted history is never edited, it is reversed.
@@ -83,9 +84,35 @@ export function canVoid(je) {
 export function canReverse(je, { canPost } = {}) {
   if (je.status !== "posted") return no("Only a posted entry can be reversed.");
   if (!canPost) return no("Your role cannot post journal entries.");
+  if (je.deletion) return no("A deletion is waiting for approval — approve or decline it first.");
   if (je.reversed_by) return no(`Already reversed by ${je.reversed_by}.`);
   if (je.reversal_of) return no("This is itself a reversal.");
   if (!reversibleHere(je)) return no("Written by another screen — reverse it at its source.");
+  return OK;
+}
+
+// Soft-delete (Settings → Accounting → Preferences → Journals; off unless a
+// company asks for it). A posted manual entry is never removed silently:
+// someone requests it with a reason, someone else with posting rights approves,
+// and the entry becomes "deleted" — out of every ledger total, still listed,
+// its history intact. Entries other screens wrote are deleted at their source;
+// halves of a reversal pair and closed periods are left alone.
+export function canRequestDeletion(je, { enabled, closedThrough, canTransact } = {}) {
+  if (!enabled) return no("Deleting journals is off for this company.");
+  if (je.status !== "posted") return no("Only a posted entry can be deleted. Void a draft instead.");
+  if (je.deletion) return no("Deletion is already waiting for approval.");
+  if (isSystemEntry(je)) return no("Written by another screen — delete it at its source.");
+  if (je.reversed_by || je.reversal_of) return no("Part of a reversal — delete neither half on its own.");
+  if (isClosedDate(je.je_date, closedThrough)) return no(`${periodOf(je.je_date)} is closed.`);
+  if (!canTransact) return no("Your role cannot prepare journal entries.");
+  return OK;
+}
+
+export function canApproveDeletion(je, { user, closedThrough, canPost } = {}) {
+  if (!je.deletion) return no("No deletion has been requested.");
+  if (!canPost) return no("Your role cannot approve journal entries.");
+  if (user && je.deletion.requested_by === user) return no("You requested this deletion — someone else has to approve it.");
+  if (isClosedDate(je.je_date, closedThrough)) return no(`${periodOf(je.je_date)} is closed.`);
   return OK;
 }
 

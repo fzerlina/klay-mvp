@@ -99,14 +99,15 @@ const ROUTE_MODULE = [
   ["/reports", "reports"],
   ["/trial-balance", "reports"],
   ["/chart-of-accounts", "settings"],
-  ["/inventory-settings", "settings"],
-  ["/bank-recon-settings", "settings"],
+  ["/tax", "settings"],
+  ["/accounting-preferences", "settings"],
   ["/bank-accounts", "settings"],
   ["/dimensions", "settings"],
+  ["/company-settings", "settings"],
+  ["/settings", "settings"],
+  ["/departments", "settings"],
   ["/users", "settings"],
   ["/roles", "settings"],
-  ["/access-policy", "settings"],
-  ["/posting-periods", "settings"],
 ];
 
 export function moduleForPath(pathname) {

@@ -1,21 +1,25 @@
 import { useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import "./modules.css";
 import "./invoices-ledger.css";
 import "./settings-pages.css";
 import "./roles-users.css";
 import "./roles.css";
-import { useRoles } from "../state/RolesContext";
+import { ROLE_EDITING, useRoles } from "../state/RolesContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
 import CreateRoleModal from "../components/CreateRoleModal";
+import SettingsHeader, { USERS_TABS } from "../components/SettingsHeader";
+import SodInfo from "../components/SodInfo";
 import { useAccountingSettings } from "../state/AccountingSettingsContext";
+import { COMPANY } from "../data/seed/company";
 import { CAP_SECTIONS, VERB_COPY, hasCap, holdsApproval, powerSummary, fmtRp } from "../lib/roleCapabilities";
 
-// Settings → Access → Roles. A role is a named collection of capabilities.
-// Klay seeds a starting set so nobody begins with no roles, but every role is an
-// ordinary, editable role; new ones start from scratch or as a copy. Who signs off on
-// a given record lives in the approval workflow — a role only makes its holders
-// eligible to approve, up to the role's approval limit.
+// Settings → Users & Roles → Roles. A role is a named collection of
+// capabilities. Each company gets its own copy of Klay's standard roles when it
+// is created. In v1 they are read-only (see ROLE_EDITING in RolesContext); with
+// custom roles (v2) any role can be edited and new ones started from scratch or
+// as a copy. Who signs off on a given record lives in the approval workflow — a
+// role only makes its holders eligible to approve, up to the role's approval limit.
 
 function initials(name) {
   return name.trim().split(/\s+/).map((w) => w[0] || "").join("").slice(0, 2).toUpperCase();
@@ -115,8 +119,10 @@ export default function RolesPage() {
   const { roles, capsOf, holdersOf, rev } = useRoles();
   const { hasCapability } = useCurrentUser();
   const { sodMode } = useAccountingSettings();
-  const canManage = hasCapability("roles.manage");
-  const [view, setView] = useState("roles");
+  const canManage = ROLE_EDITING && hasCapability("roles.manage");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const view = searchParams.get("view") === "compare" ? "compare" : "roles";
+  const setView = (v) => setSearchParams(v === "roles" ? {} : { view: v }, { replace: true });
   const [creating, setCreating] = useState(false);
 
   const data = useMemo(
@@ -128,44 +134,51 @@ export default function RolesPage() {
   return (
     <div className="lg-page roles-page">
       <div className="lg-scroll-container">
-        <div className="lg-head">
-          <div className="lg-head-top">
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <h1 className="lg-title">Roles</h1>
-              <p className="settings-sub">
-                A role is a set of capabilities — what its holders can see, create, approve and post. Edit any role,
-                or create a new one from scratch or as a copy. Who approves a given record is set
-                in the <Link to="/approval" className="ru-inline-link">approval workflow</Link>; a role makes its
-                holders eligible to approve, up to its approval limit. Assign roles to people in{" "}
-                <Link to="/users" className="ru-inline-link">Users</Link>.
-              </p>
-            </div>
-            {canManage && (
-              <div className="lg-head-actions">
-                <button type="button" className="lg-btn-brand" onClick={() => setCreating(true)}>
-                  <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-                  Create role
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
+        <SettingsHeader
+          title="Users & Roles"
+          tabs={USERS_TABS}
+          intro={ROLE_EDITING ? (
+            <>
+              A role is a set of capabilities — what its holders can see, create, approve and post. Edit any role,
+              or create a new one from scratch or as a copy. Who approves a given record is set
+              in the <Link to="/approval" className="ru-inline-link">approval workflow</Link>; a role makes its
+              holders eligible to approve, up to its approval limit. Assign roles to people on the{" "}
+              <Link to="/users" className="ru-inline-link">Users</Link> tab.
+            </>
+          ) : (
+            <>
+              A role is a set of capabilities — what its holders can see, create, approve and post. These are{" "}
+              {COMPANY.legalName}'s roles, set up by Klay when the company was created. Who approves a given record is
+              set in the <Link to="/approval" className="ru-inline-link">approval workflow</Link>; a role makes its
+              holders eligible to approve, up to its approval limit. Assign roles to people on the{" "}
+              <Link to="/users" className="ru-inline-link">Users</Link> tab.
+            </>
+          )}
+          actions={canManage && (
+            <button type="button" className="lg-btn-brand" onClick={() => setCreating(true)}>
+              <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+              Create role
+            </button>
+          )}
+        />
 
         <div className="rl-viewbar">
           <div className="rl-seg" role="tablist" aria-label="View">
             <button type="button" role="tab" aria-selected={view === "roles"} className={view === "roles" ? "on" : ""} onClick={() => setView("roles")}>Roles</button>
             <button type="button" role="tab" aria-selected={view === "compare"} className={view === "compare" ? "on" : ""} onClick={() => setView("compare")}>Compare capabilities</button>
           </div>
-          {!canManage && (
+          {!ROLE_EDITING ? (
+            <span className="rl-viewbar-note">
+              Roles can't be edited yet. To give one person extra access for a while, add{" "}
+              <Link to="/users" className="ru-inline-link">temporary access</Link> on their user.
+            </span>
+          ) : !canManage && (
             <span className="rl-viewbar-note">Read only — editing roles needs the <em>Manage roles</em> capability.</span>
           )}
         </div>
-        <p className="rl-sod-line">
-          Segregation of duties is <b>{sodMode === "RELAXED" ? "Relaxed" : "Enforced"}</b> for this entity —{" "}
-          {sodMode === "RELAXED"
-            ? "conflicting capabilities can be combined only after an independent owner accepts the risk."
-            : "hard conflicts can't be combined in one role or person; soft ones need an independent owner to accept the risk."}
-        </p>
+        <div className="rl-sod-line">
+          <SodInfo mode={sodMode} />
+        </div>
 
         {view === "roles" ? (
           <>

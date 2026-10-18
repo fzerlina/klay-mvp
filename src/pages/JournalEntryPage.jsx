@@ -7,9 +7,10 @@ import { scheduledEntries } from "../lib/scheduledJournals";
 import { nextPeriod } from "../lib/fixedAssets";
 import {
   canEdit, canSubmit, canApprove as canApproveEntry, canReturn, canVoid, canReverse,
+  canRequestDeletion, canApproveDeletion,
   isSystemEntry, reversibleHere, withEvent, buildReversal, isoOf,
 } from "../lib/journalLifecycle";
-import { ReturnDialog, ReverseDialog, RecurringDialog, TemplatesDrawer } from "./JeActionDialogs";
+import { ReturnDialog, ReverseDialog, RecurringDialog, TemplatesDrawer, DeleteDialog } from "./JeActionDialogs";
 import { TODAY } from "../lib/clock";
 import { formatDate } from "../lib/format";
 import AiChatDrawer from "./AiChatDrawer";
@@ -21,6 +22,7 @@ import { DIM_BY_KEY, paletteFor, dimensionsForAccount, sampleDimensionValue } fr
 import { COA_BY_CODE } from "../data/seed/coa";
 import "./modules.css";
 import "./invoices-ledger.css";
+import { useAccountingSettings } from "../state/AccountingSettingsContext";
 
 function fmtRp(n) {
   if (n == null) return "—";
@@ -36,8 +38,8 @@ function lineSums(je) {
   return { debit, credit };
 }
 
-const STATUS_LABEL = { posted: "Posted", draft: "Draft", pending: "Pending", void: "Void", auto: "Auto", anomaly: "Anomaly", scheduled: "Scheduled" };
-const STATUS_BADGE_CLASS = { posted: "approved", draft: "draft", pending: "review", void: "rejected", auto: "auto", anomaly: "anomaly", scheduled: "scheduled" };
+const STATUS_LABEL = { posted: "Posted", draft: "Draft", pending: "Pending", void: "Void", auto: "Auto", anomaly: "Anomaly", scheduled: "Scheduled", deleted: "Deleted" };
+const STATUS_BADGE_CLASS = { posted: "approved", draft: "draft", pending: "review", void: "rejected", auto: "auto", anomaly: "anomaly", scheduled: "scheduled", deleted: "rejected" };
 
 const AUTO_PROCESSED_COUNT = 8;
 const ANOMALY_COUNT = 4;
@@ -173,6 +175,11 @@ function JeRow({ r, isChecked, onCheck, onClick, onKebab, isSelected, isAlt }) {
           {isAnomaly && <svg viewBox="0 0 12 12"><path d="M6 1.5l5 8.5h-10z" fill="currentColor" stroke="none"/><line x1="6" y1="5" x2="6" y2="7.5" stroke="#fff" strokeWidth="1.4"/><circle cx="6" cy="8.8" r="0.6" fill="#fff" stroke="none"/></svg>}
           {STATUS_LABEL[r.status]}
         </span>
+        {r.deletion && r.status !== "deleted" && (
+          <span className="badge badge-review je-del-badge" title={`Requested by ${r.deletion.requested_by}: ${r.deletion.reason}`}>
+            Deletion requested
+          </span>
+        )}
       </div>
       <div className="lg-cell-kebab" onClick={(e) => e.stopPropagation()}>
         <button className="lg-kebab" onClick={() => onKebab(r.je_number)}>
@@ -196,6 +203,7 @@ const ACTION_ICON = {
   repeat: <svg viewBox="0 0 24 24"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>,
   link: <svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>,
   void: <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>,
+  trash: <svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>,
 };
 
 function RowMenu({ je, onClose, onAction, actions }) {
@@ -429,6 +437,7 @@ export default function JournalEntryPage() {
   const canTransact = hasLevel("gl", "transact");
   const insightsRole = canApprove ? "operator" : canTransact ? "preparer" : "viewer";
   const { assets, closedThrough } = useAssets();
+  const { journalDeletion } = useAccountingSettings();
   const navigate = useNavigate();
   const allRows = useMemo(() => {
     // Mark the AUTO_PROCESSED_COUNT most-recent pending JEs as auto-processed by Klay AI
@@ -466,7 +475,7 @@ export default function JournalEntryPage() {
   const [searchParams] = useSearchParams();
   const initialTab = (() => {
     const t = searchParams.get("tab");
-    const valid = ["semua", "anomaly", "auto", "scheduled", "pending", "draft", "posted", "void"];
+    const valid = ["semua", "anomaly", "auto", "scheduled", "pending", "draft", "posted", "void", "deleted"];
     return t && valid.includes(t) ? t : "semua";
   })();
   const [filter, setFilter] = useState({ kind: "tab", value: initialTab });
@@ -474,7 +483,7 @@ export default function JournalEntryPage() {
   // Respond to deep-link tab changes (e.g. navigating from Close → JE with ?tab=anomaly)
   useEffect(() => {
     const t = searchParams.get("tab");
-    const valid = ["semua", "anomaly", "auto", "scheduled", "pending", "draft", "posted", "void"];
+    const valid = ["semua", "anomaly", "auto", "scheduled", "pending", "draft", "posted", "void", "deleted"];
     if (t && valid.includes(t)) setFilter({ kind: "tab", value: t });
   }, [searchParams]);
   const [sortChoice, setSortChoice] = useState(null);
@@ -633,7 +642,7 @@ export default function JournalEntryPage() {
 
   // ── KPIs ───────────────────────────────────────────────────────────────
   const counts = useMemo(() => {
-    const c = { posted: 0, draft: 0, pending: 0, void: 0, auto: 0, anomaly: 0, scheduled: 0 };
+    const c = { posted: 0, draft: 0, pending: 0, void: 0, auto: 0, anomaly: 0, scheduled: 0, deleted: 0 };
     allRows.forEach((r) => { c[r.status] = (c[r.status] || 0) + 1; });
     return c;
   }, [allRows]);
@@ -653,6 +662,7 @@ export default function JournalEntryPage() {
     draft:   counts.draft,
     posted:  counts.posted,
     void:    counts.void,
+    deleted: counts.deleted,
   }), [allRows, counts]);
   const tabs = [
     { k: "semua",   lbl: "All",     count: tabCounts.semua },
@@ -663,6 +673,8 @@ export default function JournalEntryPage() {
     { k: "draft",   lbl: "Draft",   count: tabCounts.draft },
     { k: "posted",  lbl: "Posted",  count: tabCounts.posted },
     { k: "void",    lbl: "Void",    count: tabCounts.void },
+    // Only once deletion is on, or something has been deleted.
+    ...(journalDeletion || tabCounts.deleted ? [{ k: "deleted", lbl: "Deleted", count: tabCounts.deleted }] : []),
   ];
 
   // ── Corpus ─────────────────────────────────────────────────────────────
@@ -1043,6 +1055,15 @@ export default function JournalEntryPage() {
     const src = sourceOf(je);
     if (src) out.push({ key: "open_source", label: "Open source", icon: "link", check: { ok: true } });
     if ((je.status === "draft" || je.status === "pending") && !sys) out.push({ key: "void", label: "Void", icon: "void", danger: true, check: canVoid(je) });
+    // Soft-delete, only for companies that turned it on (Settings → Accounting → Preferences).
+    if (je.status === "posted" && je.deletion) {
+      out.unshift(
+        { key: "approve_deletion", label: "Approve deletion", icon: "trash", primary: true, check: canApproveDeletion(je, ctx) },
+        { key: "keep_entry", label: "Keep entry", icon: "back", check: canApprove ? { ok: true } : { ok: false, reason: "Your role cannot review journal entries." } },
+      );
+    } else if (je.status === "posted" && journalDeletion && !sys) {
+      out.push({ key: "request_deletion", label: "Delete…", icon: "trash", danger: true, check: canRequestDeletion(je, { ...ctx, enabled: journalDeletion, canTransact }) });
+    }
     return out;
   }
 
@@ -1071,12 +1092,39 @@ export default function JournalEntryPage() {
     else if (action === "return") setDialog({ kind: "return", je });
     else if (action === "reverse") setDialog({ kind: "reverse", je });
     else if (action === "recurring") setDialog({ kind: "recurring", je });
+    else if (action === "request_deletion") setDialog({ kind: "delete", je });
+    else if (action === "approve_deletion") {
+      const check = canApproveDeletion(je, ctx);
+      if (!check.ok) { showToast(check.reason); return; }
+      updateJournalEntry(je.je_number, (cur) => withEvent(
+        { ...cur, status: "deleted", deletion: { ...cur.deletion, approved_by: actor, approved_at: todayIso } },
+        "deleted", actor, `Approved deletion requested by ${cur.deletion.requested_by}: ${cur.deletion.reason}`,
+      ));
+      showToast(`${je.je_number} deleted — it no longer counts in the ledger`);
+    } else if (action === "keep_entry") {
+      updateJournalEntry(je.je_number, (cur) => {
+        const { deletion, ...rest } = cur;
+        return withEvent(rest, "deletion declined", actor, `Request by ${deletion.requested_by}`);
+      });
+      showToast(`${je.je_number} kept — deletion declined`);
+    }
     else if (action === "void") {
       const check = canVoid(je);
       if (!check.ok) { showToast(check.reason); return; }
       updateJournalEntry(je.je_number, (cur) => withEvent({ ...cur, status: "void" }, "voided", actor));
       showToast(`${je.je_number} voided`);
     }
+  }
+
+  function confirmDeletionRequest(je, reason) {
+    const check = canRequestDeletion(je, { ...ctx, enabled: journalDeletion, canTransact });
+    if (!check.ok) { showToast(check.reason); return; }
+    updateJournalEntry(je.je_number, (cur) => withEvent(
+      { ...cur, deletion: { requested_by: actor, requested_at: todayIso, reason } },
+      "deletion requested", actor, reason,
+    ));
+    setDialog(null);
+    showToast(`Deletion of ${je.je_number} sent for approval`);
   }
 
   function confirmReturn(je, reason) {
@@ -1752,6 +1800,9 @@ export default function JournalEntryPage() {
 
       {dialog?.kind === "return" && (
         <ReturnDialog je={dialog.je} onClose={() => setDialog(null)} onConfirm={(reason) => confirmReturn(dialog.je, reason)} />
+      )}
+      {dialog?.kind === "delete" && (
+        <DeleteDialog je={dialog.je} onClose={() => setDialog(null)} onConfirm={(reason) => confirmDeletionRequest(dialog.je, reason)} />
       )}
       {dialog?.kind === "reverse" && (
         <ReverseDialog je={dialog.je} closedThrough={closedThrough} onClose={() => setDialog(null)} onConfirm={(date) => confirmReverse(dialog.je, date)} />

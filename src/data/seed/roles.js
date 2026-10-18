@@ -232,9 +232,10 @@ export const ROLES = [
 // NOTE — bank.reconcile HARD-conflicts with both gl.post and approving payments
 // (SoD #2, #3). The PRD gives it no default role home; here the dedicated
 // Finance Staff role carries it safely (it holds NO post/approve), which is the
-// PRD's "separate reconciler seat" made into a template. It can still also be
-// granted ad-hoc per user via user.extraCaps (e.g. a lean-team FM as a flagged
-// self-review). See CAPABILITIES["bank.reconcile"].
+// PRD's "separate reconciler seat" made into a template. Giving it to a poster
+// or payment approver as temporary access (user.tempAccess → extraCaps) is
+// blocked when the company is Enforced, and needs an accepted risk when it is
+// Relaxed. See CAPABILITIES["bank.reconcile"].
 
 // ── Record scope types (PRD §5.2) ──────────────────────────────────────────
 // Scope rides on the assignment (user_entity_roles), never on the role. All
@@ -326,7 +327,7 @@ function addModuleCaps(set, capsByModule = {}) {
 // Defined over CAPABILITIES, not role pairs, so a self-built fraud combo in a
 // future custom role is caught the moment it's defined. A rule fires when the
 // user's effective set intersects group `a` AND group `b`. What a hit means
-// depends on the entity's SoD mode (Settings → Access policy) — see sodDecision:
+// depends on the company's SoD mode (set by Klay; shown on Settings → Users → Roles) — see sodDecision:
 //   forbidden          → always denied
 //   HARD, relaxable    → denied when ENFORCED; allowed with an accepted risk when RELAXED
 //   HARD, !relaxable   → always denied (none seeded today, mirroring the backend)
@@ -451,7 +452,7 @@ export { BLOCK_NO_APPROVER, roleName };
 
 const ANCHOR_USERS = [
   { id: "U001", name: "Andi Wijaya", email: "andi.wijaya@klay.id", roleKeys: ["admin"], status: "Active", approval_limit: null, lastActive: "2026-06-07", invitedOn: "2025-01-12" },
-  { id: "U002", name: "Sari Dewanti", email: "sari.dewanti@klay.id", roleKeys: ["finance_manager"], extraCaps: ["bank.reconcile"], status: "Active", approval_limit: 100000000, lastActive: "2026-06-06", invitedOn: "2025-01-12" },
+  { id: "U002", name: "Sari Dewanti", email: "sari.dewanti@klay.id", roleKeys: ["finance_manager"], status: "Active", approval_limit: 100000000, lastActive: "2026-06-06", invitedOn: "2025-01-12" },
   { id: "U003", name: "Budi Santoso", email: "budi.santoso@klay.id", roleKeys: ["ap_staff"], status: "Active", approval_limit: null, lastActive: "2026-06-07", invitedOn: "2025-02-03" },
   { id: "U004", name: "Rina Kartika", email: "rina.kartika@klay.id", roleKeys: ["ar_staff"], status: "Active", approval_limit: null, lastActive: "2026-06-05", invitedOn: "2025-02-03" },
   { id: "U005", name: "Dimas Prasetyo", email: "dimas.prasetyo@klay.id", roleKeys: ["purchasing_staff"], status: "Active", approval_limit: null, lastActive: "2026-06-04", invitedOn: "2025-03-18" },

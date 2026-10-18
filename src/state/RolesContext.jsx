@@ -8,16 +8,25 @@ import {
   removeRole,
 } from "../data/seed/roles";
 
-// Roles. A role is a named collection of capabilities. Klay seeds a starting set
-// (roles.js) so a company never begins with no roles, but once seeded they are
-// ordinary roles: every role can be renamed, edited, copied, or deleted (when
-// nobody holds it), and new ones can be created from scratch. Writes go through
-// the live registry in roles.js so authorize()/SoD everywhere see them at once;
-// `rev` changes on every write so consumers re-render.
+// Roles. A role is a named collection of capabilities. Klay seeds each company
+// with its own copy of the standard roles (roles.js) when the company is created.
+//
+// v1: roles are READ-ONLY. The backend only seeds roles and capabilities — there
+// is no endpoint to create, edit or delete them (Slack, 15 Oct 2026). Changing a
+// company's roles is a provisioning job for Klay, and a one-off change for one
+// person is a time-limited override on that user (Users → Temporary access).
+//
+// v2 (custom roles): flip ROLE_EDITING on. Every role can then be renamed,
+// edited, copied, or deleted (when nobody holds it), and new ones created from
+// scratch. Writes go through the live registry in roles.js so authorize()/SoD
+// everywhere see them at once; `rev` changes on every write so consumers
+// re-render.
 //
 // Each role carries a version and a history entry per save, mirroring the
 // approval workflow's versioning, so "who changed what this role can do" is
 // always answerable.
+
+export const ROLE_EDITING = false;
 
 const RolesContext = createContext(null);
 
@@ -25,7 +34,7 @@ const SEEDED_AT = "2025-01-12T09:00:00";
 
 function seedHistory() {
   return Object.fromEntries(
-    ROLES.map((r) => [r.key, [{ v: 1, at: SEEDED_AT, by: "System (provisioning)", note: "Provisioned with the company" }]]),
+    ROLES.map((r) => [r.key, [{ v: 1, at: SEEDED_AT, by: "System (provisioning)", note: "Set up with the company" }]]),
   );
 }
 

@@ -34,13 +34,12 @@ import BankReconciliationPage from "./pages/BankReconciliationPage";
 import TaxReconciliationPage from "./pages/TaxReconciliationPage";
 import BankAccountsSettingsPage from "./pages/BankAccountsSettingsPage";
 import UsersPage from "./pages/UsersPage";
-import AccessPolicyPage from "./pages/AccessPolicyPage";
 import RolesPage from "./pages/RolesPage";
+import CompanyProfilePage from "./pages/CompanyProfilePage";
 import RoleDetailPage from "./pages/RoleDetailPage";
 import ApprovalSettingsPage from "./pages/ApprovalSettingsPage";
-import PostingPeriodsSettingsPage from "./pages/PostingPeriodsSettingsPage";
-import InventorySettingsPage from "./pages/InventorySettingsPage";
-import BankReconSettingsPage from "./pages/BankReconSettingsPage";
+import AccountingPreferencesPage from "./pages/AccountingPreferencesPage";
+import TaxSettingsPage from "./pages/TaxSettingsPage";
 import { InvoicesProvider } from "./state/InvoicesContext";
 import { BillsProvider } from "./state/BillsContext";
 import { PaymentsProvider } from "./state/PaymentsContext";
@@ -51,6 +50,13 @@ import { ItemsProvider } from "./state/ItemsContext";
 import { InventorySubledgerProvider } from "./state/InventorySubledgerContext";
 import { AssetsProvider } from "./state/AssetsContext";
 import { AccountingSettingsProvider } from "./state/AccountingSettingsContext";
+import { DimensionsProvider } from "./state/DimensionsContext";
+import { PeopleProvider } from "./state/PeopleContext";
+import { ModuleSettingsProvider } from "./state/ModuleSettingsContext";
+import PayablesSettingsPage, { ReceivablesSettingsPage } from "./pages/PayablesSettingsPage";
+import InventorySettingsPage, { FixedAssetsSettingsPage } from "./pages/InventorySettingsPage";
+import ReconciliationSettingsPage from "./pages/ReconciliationSettingsPage";
+import DepartmentsPage from "./pages/DepartmentsPage";
 import { JournalEntriesProvider } from "./state/JournalEntriesContext";
 import { ClosePeriodProvider } from "./state/ClosePeriodContext";
 
@@ -118,6 +124,9 @@ export default function App() {
           <InventorySubledgerProvider>
           <ItemsProvider>
             <AccountingSettingsProvider>
+            <DimensionsProvider>
+            <PeopleProvider>
+            <ModuleSettingsProvider>
             <JournalEntriesProvider>
             <ClosePeriodProvider>
             {/* Fixed Assets is one module — the register and its schedule
@@ -172,14 +181,28 @@ export default function App() {
                 <Route path="/bank-reconciliation" element={<BankReconciliationPage />} />
                 <Route path="/tax-reconciliation" element={<TaxReconciliationPage />} />
                 <Route path="/bank-accounts" element={<BankAccountsSettingsPage />} />
+                <Route path="/company-settings" element={<CompanyProfilePage />} />
+                <Route path="/departments" element={<DepartmentsPage />} />
                 <Route path="/users" element={<UsersPage />} />
                 <Route path="/roles" element={<RolesPage />} />
                 <Route path="/roles/:key" element={<RoleDetailPage />} />
-                <Route path="/access-policy" element={<AccessPolicyPage />} />
+                <Route path="/access-policy" element={<Navigate to="/roles" replace />} />
                 <Route path="/approval" element={<ApprovalSettingsPage />} />
-                <Route path="/posting-periods" element={<PostingPeriodsSettingsPage />} />
-                <Route path="/inventory-settings" element={<InventorySettingsPage />} />
-                <Route path="/bank-recon-settings" element={<BankReconSettingsPage />} />
+                <Route path="/tax" element={<TaxSettingsPage />} />
+                <Route path="/accounting-preferences" element={<AccountingPreferencesPage />} />
+                {/* Old one-setting pages now live as sections of Preferences. */}
+                <Route path="/posting-periods" element={<Navigate to="/accounting-preferences#posting" replace />} />
+                <Route path="/inventory-settings" element={<Navigate to="/settings/inventory/costing" replace />} />
+                <Route path="/bank-recon-settings" element={<Navigate to="/settings/reconciliation" replace />} />
+                {/* Module settings — one page per module, a route per tab. */}
+                <Route path="/settings/payables" element={<PayablesSettingsPage />} />
+                <Route path="/settings/payables/:tab" element={<PayablesSettingsPage />} />
+                <Route path="/settings/receivables" element={<ReceivablesSettingsPage />} />
+                <Route path="/settings/receivables/:tab" element={<ReceivablesSettingsPage />} />
+                <Route path="/settings/inventory" element={<InventorySettingsPage />} />
+                <Route path="/settings/inventory/:tab" element={<InventorySettingsPage />} />
+                <Route path="/settings/fixed-assets" element={<FixedAssetsSettingsPage />} />
+                <Route path="/settings/reconciliation" element={<ReconciliationSettingsPage />} />
                 <Route path="*" element={<RoleLanding />} />
               </Route>
             </Routes>
@@ -188,6 +211,9 @@ export default function App() {
             </AssetsProvider>
             </ClosePeriodProvider>
             </JournalEntriesProvider>
+            </ModuleSettingsProvider>
+            </PeopleProvider>
+            </DimensionsProvider>
             </AccountingSettingsProvider>
           </ItemsProvider>
           </InventorySubledgerProvider>

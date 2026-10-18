@@ -5,7 +5,8 @@ import "./invoices-ledger.css";
 import "./settings-pages.css";
 import "./roles-users.css";
 import "./roles.css";
-import { useRoles } from "../state/RolesContext";
+import { ROLE_EDITING, useRoles } from "../state/RolesContext";
+import { COMPANY } from "../data/seed/company";
 import { useCurrentUser } from "../state/CurrentUserContext";
 import CreateRoleModal from "../components/CreateRoleModal";
 import SodRiskAcceptance, { riskAccepted } from "../components/SodRiskAcceptance";
@@ -17,7 +18,9 @@ import {
   hasCap, sodInvolvement, toggleCap,
 } from "../lib/roleCapabilities";
 
-// Settings → Access → Roles → one role. Edits are a draft until saved; a save
+// Settings → Users & Roles → Roles → one role. Read-only in v1 (see
+// ROLE_EDITING in RolesContext): the page shows what the role can do. With
+// custom roles (v2) it becomes the editor below. Edits are a draft until saved; a save
 // writes a new version of the role and applies to every holder at once, so the
 // right-hand panel answers "what will this change do?" before it happens:
 // conflicts inside the role, conflicts it would create for a holder in
@@ -92,7 +95,7 @@ function RoleEditor({ role, showToast }) {
   const { user, hasCapability } = useCurrentUser();
   const { sodMode } = useAccountingSettings();
   const navigate = useNavigate();
-  const canManage = hasCapability("roles.manage");
+  const canManage = ROLE_EDITING && hasCapability("roles.manage");
 
   const saved = useMemo(() => ({ meta: { ...role }, caps: capsOf(role.key) }), [role, capsOf]);
   const [meta, setMeta] = useState(saved.meta);
@@ -118,7 +121,7 @@ function RoleEditor({ role, showToast }) {
   const changeCount = capChanges.length + metaChanges.length;
   const dirty = changeCount > 0;
 
-  // Segregation of duties follows the entity's mode (Settings → Access policy),
+  // Segregation of duties follows the company's mode (set by Klay),
   // exactly as the backend does: ENFORCED blocks HARD conflicts; RELAXED lets a
   // relaxable HARD conflict through once a risk is accepted. SOFT conflicts
   // always need an accepted risk; the forbidden capability is always blocked.
@@ -235,7 +238,7 @@ function RoleEditor({ role, showToast }) {
       <div className="lg-scroll-container">
         <div className="rl-head">
           <div className="rl-crumb">
-            <Link to="/roles">Roles</Link>
+            <Link to="/roles">Users & Roles</Link>
             <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6" /></svg>
             <span>{role.name}</span>
           </div>
@@ -270,7 +273,14 @@ function RoleEditor({ role, showToast }) {
           </div>
         </div>
 
-        {!canManage && (
+        {!ROLE_EDITING && (
+          <div className="rl-ro-banner">
+            Roles can't be edited yet. This is {COMPANY.legalName}'s copy of the {role.name} role, set up by Klay
+            when the company was created. To give one person extra access for a while, add temporary access on their
+            user in <Link to={`/users?role=${role.key}`} className="ru-inline-link">Users</Link>.
+          </div>
+        )}
+        {ROLE_EDITING && !canManage && (
           <div className="rl-ro-banner">
             You're viewing as <strong>{user.name}</strong>, who can't edit roles. Only people with the{" "}
             <em>Manage roles</em> capability (such as the Admin role) can change them — switch persona to edit.
