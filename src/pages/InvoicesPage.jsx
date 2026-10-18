@@ -896,14 +896,18 @@ export default function InvoicesPage() {
     else setFilter({ kind: "card", value: c });
     clearChecks();
   }
-  // Deep-link focus from the Home task hub: /invoices?tab=draft.
+  // Deep-link focus from the Home task hub: /invoices?tab=draft. And
+  // /invoices?open=<id> opens that invoice's drawer (Cash Position & Aging
+  // links its AR rows here).
   const [focusParams, setFocusParams] = useSearchParams();
   useEffect(() => {
     const card = focusParams.get("card");
     const tab = focusParams.get("tab");
-    if (!card && !tab) return;
+    const open = focusParams.get("open");
+    if (!card && !tab && !open) return;
+    if (open) { setSelectedId(open); setDrawerTab("detail"); }
     if (card) selectCard(card);
-    else selectTab(tab);
+    else if (tab) selectTab(tab);
     setFocusParams({}, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

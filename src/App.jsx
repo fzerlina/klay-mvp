@@ -12,6 +12,7 @@ import BillsPage from "./pages/BillsPage";
 import BillCreatePage from "./pages/BillCreatePage";
 import BillDetailPage from "./pages/BillDetailPage";
 import CashflowReportPage from "./pages/CashflowReportPage";
+import ProfitLossPage from "./pages/ProfitLossPage";
 import InvoicesPage from "./pages/InvoicesPage";
 import InvoiceCreatePage from "./pages/InvoiceCreatePage";
 import VendorsPage from "./pages/VendorsPage";
@@ -176,6 +177,7 @@ export default function App() {
                 <Route path="/inventory/:id" element={<Navigate to="/items" replace />} />
                 <Route path="/reports" element={<ReportsPage />} />
                 <Route path="/reports/cashflow" element={<CashflowReportPage />} />
+                <Route path="/reports/profit-loss" element={<ProfitLossPage />} />
                 <Route path="/trial-balance" element={<TrialBalancePage />} />
                 <Route path="/close" element={<ApCloseCommandCenterPage />} />
                 <Route path="/bank-reconciliation" element={<BankReconciliationPage />} />

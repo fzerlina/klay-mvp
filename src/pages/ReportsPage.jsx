@@ -5,8 +5,8 @@ import "./reports.css";
 // Reports — a hub, not a report. Each financial statement lives on its own
 // route; this page is the single nav entry that indexes them. AP Aging folds
 // in here too (it was a top-level nav item before the /reports consolidation).
-// P&L has no page yet, so its card is marked coming soon rather than linking
-// to a dead route.
+// MVP shows three reports; the General Ledger (/general-ledger)
+// and Inventory Sub-Ledger (/inventory) pages still exist but aren't listed.
 const REPORTS = [
   {
     key: "trial-balance",
@@ -23,8 +23,7 @@ const REPORTS = [
     key: "pl",
     title: "Profit & Loss",
     blurb: "Revenue less expenses over the period — the income statement that rolls up to net profit.",
-    to: null,
-    soon: true,
+    to: "/reports/profit-loss",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
         <path d="M3 3v18h18" /><path d="M7 14l3-3 3 3 5-6" />
@@ -33,35 +32,12 @@ const REPORTS = [
   },
   {
     key: "cashflow",
-    title: "Cashflow Report",
-    blurb: "Payables and receivables aging side by side — where cash is tied up and where it's owed, bucketed by age.",
+    title: "Cash Position & Aging",
+    blurb: "Cash in the bank, what customers owe and what you owe vendors — by age, as of any date.",
     to: "/reports/cashflow",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
-      </svg>
-    ),
-  },
-  {
-    key: "general-ledger",
-    title: "General Ledger",
-    blurb: "Every posted journal line by account — the full transaction detail behind the trial balance.",
-    to: "/general-ledger",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" /><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
-      </svg>
-    ),
-  },
-  {
-    key: "inventory-subledger",
-    title: "Inventory Sub-Ledger",
-    blurb: "Every stock movement by item and location — the trail behind each on-hand figure and the journal it drafted.",
-    to: "/inventory",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-        <line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" />
-        <polyline points="3 5 4 6 6 4" /><polyline points="3 11 4 12 6 10" /><polyline points="3 17 4 18 6 16" />
       </svg>
     ),
   },

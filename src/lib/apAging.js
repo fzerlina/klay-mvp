@@ -14,6 +14,7 @@ import { BILLS } from "../data/seed/bills";
 import { VENDORS } from "../data/seed/vendors";
 import { seedTierFor } from "../data/seed/vendorTiers";
 import { TODAY, daysSince } from "./clock";
+import { todayIso } from "./reportPeriods";
 import { workflowStatus } from "./billStatus";
 
 // ── Constants from PRD ─────────────────────────────────────────────────────
@@ -105,23 +106,67 @@ function buildAccrualRecords() {
   });
 }
 
+// An as-of date as ISO (YYYY-MM-DD). Accepts a Date (the demo clock) or ISO;
+// read in local calendar terms, never toISOString() — see clock.js.
+export const asOfIso = (asOfDate = TODAY) =>
+  typeof asOfDate === "string" ? asOfDate.slice(0, 10) : todayIso(asOfDate || TODAY);
+
+// An accrual belongs to the month it accrues for (posted at that month's end,
+// reversed on the 1st of the next). It counts for an as-of date inside that
+// month — today included, ahead of the month-end posting, because it is the
+// estimate the close will book — and not for a date before or after it.
+function accrualInScope(a, asOf) {
+  if (asOf.slice(0, 7) < a.date.slice(0, 7)) return false;
+  if (a.accrual_reversal_date && asOf >= a.accrual_reversal_date) return false;
+  return true;
+}
+
 // ── Aging line — one row per outstanding bill ─────────────────────────────
 // Joins bill + vendor + derived fields. The Decision Queue and Aging Table
 // both consume this. Filter at the view layer.
-export function buildAgingLines(asOfDate, bills = BILLS) {
-  const accruals = buildAccrualRecords();
-  const allBills = [...bills, ...accruals];
+//
+// `asOfDate` ages every bill against that date and drops bills dated after
+// it. For a past as-of date the balance is rebuilt as far as the data allows:
+//   · a bill paid in full AFTER the as-of date (`paymentDate`) was still open
+//     then, for its whole total, and already posted (it had to be, to be paid);
+//   · part-payments are added back only when `paymentHistory` is passed
+//     (PaymentsContext's history, `{ [billId]: [{ at, cleared }] }`) — the bill
+//     itself carries only today's `sisa`, not when it fell;
+//   · a paid bill with no `paymentDate` can't be placed in time and is
+//     treated as paid on any date (it drops off, as it does today);
+//   · workflow stage is today's — a bill approved but posted after the as-of
+//     date still reads as posted. The seed keeps no posting date on the bill.
+export function buildAgingLines(asOfDate = TODAY, bills = BILLS, { paymentHistory = null } = {}) {
+  const asOf = asOfIso(asOfDate);
+  const accruals = buildAccrualRecords().filter((a) => accrualInScope(a, asOf));
+  const allBills = [...bills.filter((b) => !b.date || b.date <= asOf), ...accruals];
 
   return allBills.map((b) => {
     const v = VENDORS.find((x) => x.id === b.vendor) || null;
     const tier = relationshipTier(b.vendor);
-    const ws = b.workflow_status || workflowStatus(b);  // accruals carry it explicitly
+    let ws = b.workflow_status || workflowStatus(b);  // accruals carry it explicitly
     const isAccrual = ws === "ACCRUAL_POSTED" || b.source === "ACCRUAL" || b.source === "MIGRATION_ACCRUAL";
 
+    // Balance as of the date (see above). For today this is simply `sisa`.
+    let remaining = b.sisa;
+    let payStatus = b.pay;
+    if (!isAccrual && b.pay === "paid" && b.paymentDate && b.paymentDate > asOf) {
+      remaining = b.total;
+      payStatus = "unpaid";
+      ws = "POSTED";
+    } else if (!isAccrual && paymentHistory?.[b.id]) {
+      const later = paymentHistory[b.id].filter((p) => p.at > asOf).reduce((sum, p) => sum + (p.cleared || 0), 0);
+      if (later) {
+        remaining = Math.min(b.total, (remaining || 0) + later);
+        // Settled in full after the date (this session, say): open then.
+        if (ws === "PAID") { ws = "POSTED"; payStatus = "unpaid"; }
+      }
+    }
+
     // Aging
-    const daysOverdue = isAccrual ? 0 : daysSince(b.due);  // accruals never age
+    const daysOverdue = isAccrual ? 0 : daysSince(b.due, asOf);  // accruals never age
     const ageBucket  = isAccrual ? "current" : ageBucketOf(daysOverdue);
-    const ageDays    = isAccrual ? 0 : Math.max(0, daysSince(b.date));
+    const ageDays    = isAccrual ? 0 : Math.max(0, daysSince(b.date, asOf));
 
     // Hold state — set by FM via Bill Detail Hold action in production
     const hold = onHoldFor(b.id);
@@ -143,7 +188,7 @@ export function buildAgingLines(asOfDate, bills = BILLS) {
 
       // state
       workflow_status: ws,
-      payment_status: b.pay,
+      payment_status: payStatus,
       is_accrual: isAccrual,
       on_hold: !!hold,
       hold_reason: hold?.reason || null,
@@ -152,7 +197,7 @@ export function buildAgingLines(asOfDate, bills = BILLS) {
 
       // money (IDR)
       total: b.total,
-      remaining: b.sisa,
+      remaining,
       pph23: b.pph23 || 0,
 
       // aging
@@ -296,12 +341,14 @@ export function buildSnapshot(lines, asOfDate = TODAY) {
     bucketTotals[l.ageBucket] += l.remaining;
 
     // Due in next 7 days — based on due date, regardless of overdue state
-    const dueDays = -daysSince(l.dueDate);  // positive = future
+    const dueDays = -daysSince(l.dueDate, asOfDate);  // positive = future
     if (dueDays >= 0 && dueDays <= 7) dueIn7Days += l.remaining;
   }
 
-  // DPO — simple approximation: avg age across open invoices weighted by
-  // remaining. Real formula needs purchases base; this is a reasonable proxy.
+  // Remaining-weighted average age of open bills, in days. Kept as `dpoDays`
+  // for existing callers, but it is NOT days payable outstanding (that needs
+  // the period's purchases as a base) — the report labels it "Avg. age
+  // (weighted)".
   let weightedAge = 0;
   let weightTotal = 0;
   for (const l of lines) {

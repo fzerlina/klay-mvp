@@ -5,34 +5,64 @@
 // (receivables, bucketed by how overdue the invoice is). It reuses the same age
 // buckets so the two tables read identically side-by-side in the Cashflow
 // Report. There are no accruals or payment-lifecycle stages on the AR side —
-// an outstanding receivable is simply a non-draft, unpaid invoice.
+// an outstanding receivable is simply a non-draft invoice not yet settled.
 
 import { INVOICES } from "../data/seed/invoices";
 import { CUSTOMERS } from "../data/seed/customers";
 import { TODAY, daysSince } from "./clock";
-import { AGE_BUCKETS, ageBucketOf } from "./apAging";
+import { AGE_BUCKETS, ageBucketOf, asOfIso } from "./apAging";
 
 export { AGE_BUCKETS };
 
+// ── Payment facts, placed in time ─────────────────────────────────────────
+// When an invoice was settled: the last receipt reconciled against it, or
+// failing that the last "paid" entry in its audit trail (every seeded paid
+// invoice carries one). null = no date known.
+function paidDateOf(inv) {
+  const receipts = inv.receipts || [];
+  if (receipts.length) return receipts.reduce((d, r) => (r.date > d ? r.date : d), "");
+  const paid = (inv.audit || []).filter((a) => a.type === "paid" && a.date);
+  return paid.length ? paid[paid.length - 1].date : null;
+}
+
+// Receipts on the books by the as-of date (InvoicesContext.recordReceipt adds
+// them when a customer payment is reconciled on a bank statement).
+const receivedBy = (inv, asOf) =>
+  (inv.receipts || []).filter((r) => !r.date || r.date <= asOf).reduce((s, r) => s + (r.amount || 0), 0);
+
 // ── Aging line — one row per outstanding invoice ──────────────────────────
-// A receivable is "outstanding" when it's a real (non-draft) invoice that
-// hasn't been paid in full. Drafts aren't receivables yet; paid invoices drop
-// off the report.
-export function isArAgingRow(inv) {
+// A receivable is "outstanding" on the as-of date when it's a real (non-draft)
+// invoice dated on or before that date and not yet settled by it. Drafts
+// aren't receivables yet; settled invoices drop off the report.
+//
+// Rebuilding a past date: an invoice paid AFTER the as-of date (receipt or
+// audit "paid" date) was still open then; one paid with no date we can find is
+// treated as paid on every date. A part-paid invoice owes its total less the
+// receipts dated on or before the as-of date. Receipts are recorded net of any
+// PPh 23 the customer withheld, so a part-paid balance can overstate what's
+// actually still to come by that withholding — the invoice doesn't say.
+export function isArAgingRow(inv, asOf = asOfIso(TODAY)) {
   if (!inv) return false;
   if (inv.approval === "draft") return false;
-  if (inv.payStatus === "paid") return false;
-  return (inv.total || 0) > 0;
+  if ((inv.total || 0) <= 0) return false;
+  if (inv.date && inv.date > asOf) return false;
+  if (inv.payStatus === "paid") {
+    const paidOn = paidDateOf(inv);
+    if (!paidOn || paidOn <= asOf) return false;
+  }
+  return true;
 }
 
 export function buildArAgingLines(asOfDate = TODAY, invoices = INVOICES) {
-  return invoices.filter(isArAgingRow).map((inv) => {
+  const asOf = asOfIso(asOfDate);
+  return invoices.filter((inv) => isArAgingRow(inv, asOf)).map((inv) => {
     const c = CUSTOMERS.find((x) => x.id === inv.customer) || null;
-    const daysOverdue = daysSince(inv.due);
+    const daysOverdue = daysSince(inv.due, asOf);
     const ageBucket = ageBucketOf(daysOverdue);
-    // AR has no partial-settlement tracking in the prototype — the whole
-    // invoice total is the open receivable until it's marked paid.
-    const remaining = inv.total || 0;
+    // The total less what had been received by the date — for an invoice
+    // settled later, that's usually the whole total.
+    const settledLater = inv.payStatus === "paid";
+    const remaining = Math.max(0, (inv.total || 0) - receivedBy(inv, asOf));
     return {
       id: inv.id,
       customerId: inv.customer,
@@ -41,11 +71,13 @@ export function buildArAgingLines(asOfDate = TODAY, invoices = INVOICES) {
       invNo: inv.invNo === "—" || !inv.invNo ? inv.id : inv.invNo,
       invoiceDate: inv.date,
       dueDate: inv.due,
-      payStatus: inv.payStatus,
+      payStatus: settledLater ? "unpaid" : inv.payStatus,
       total: inv.total || 0,
       remaining,
+      partial: remaining < (inv.total || 0),
       daysOverdue,
       ageBucket,
+      ageDays: Math.max(0, daysSince(inv.date, asOf)),
       raw: inv,
       customerRaw: c,
     };
@@ -89,17 +121,18 @@ export function buildArSnapshot(lines, asOfDate = TODAY) {
     arOutstanding += l.remaining;
     bucketTotals[l.ageBucket] += l.remaining;
     if (l.daysOverdue > 0) overdue += l.remaining;
-    const dueDays = -daysSince(l.dueDate); // positive = future
+    const dueDays = -daysSince(l.dueDate, asOfDate); // positive = future
     if (dueDays >= 0 && dueDays <= 7) dueIn7Days += l.remaining;
   }
 
-  // DSO proxy — remaining-weighted average age of open receivables. Same shape
-  // as the AP DPO proxy so the two read comparably.
+  // Remaining-weighted average age of open receivables. Kept as `dsoDays` for
+  // existing callers, but it is NOT days sales outstanding (that needs the
+  // period's credit sales) — the report labels it "Avg. age (weighted)".
   let weightedAge = 0;
   let weightTotal = 0;
   for (const l of lines) {
     if (l.remaining <= 0) continue;
-    const ageDays = Math.max(0, daysSince(l.invoiceDate));
+    const ageDays = Math.max(0, daysSince(l.invoiceDate, asOfDate));
     weightedAge += ageDays * l.remaining;
     weightTotal += l.remaining;
   }

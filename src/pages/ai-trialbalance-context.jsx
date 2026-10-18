@@ -1,19 +1,25 @@
 import { ChatChip } from "./AiChatDrawer";
 
+// Short rupiah: "Rp 1,2 M" (miliar), "Rp 85 jt" (juta). Losses keep their sign.
 function fmtRpShort(n) {
   if (n == null) return "—";
-  if (n >= 1e9) return "Rp " + (n / 1e9).toLocaleString("id-ID", { maximumFractionDigits: 1 }) + " M";
-  if (n >= 1e6) return "Rp " + (n / 1e6).toLocaleString("id-ID", { maximumFractionDigits: 0 }) + " jt";
-  return "Rp " + n.toLocaleString("id-ID");
+  const sign = n < 0 ? "−" : "";
+  const a = Math.abs(n);
+  if (a >= 1e9) return sign + "Rp " + (a / 1e9).toLocaleString("id-ID", { maximumFractionDigits: 1 }) + " M";
+  if (a >= 1e6) return sign + "Rp " + (a / 1e6).toLocaleString("id-ID", { maximumFractionDigits: 0 }) + " jt";
+  return sign + "Rp " + a.toLocaleString("id-ID");
 }
 
 // ── Insights ──────────────────────────────────────────────────────────────
+// netIncome / totalRev / totalExp come from lib/trialBalance.js →
+// netProfitForPeriod, the same rule Profit & Loss uses, so the two agree.
+// margin is null when the period has no revenue.
 
-export function computeTbInsights({ balance, anomalyes, netIncome, totalRev, totalExp, margin, period }) {
+export function computeTbInsights({ balance, anomalies, netIncome, margin, period }) {
   const insights = [];
-  const critical = anomalyes.filter((a) => a.severity === "critical");
-  const warn     = anomalyes.filter((a) => a.severity === "warn");
-  const info     = anomalyes.filter((a) => a.severity === "info");
+  const critical = anomalies.filter((a) => a.severity === "critical");
+  const warn     = anomalies.filter((a) => a.severity === "warn");
+  const info     = anomalies.filter((a) => a.severity === "info");
 
   // 1. Balance status
   if (balance.balanced) {
@@ -21,59 +27,60 @@ export function computeTbInsights({ balance, anomalyes, netIncome, totalRev, tot
       id: "balanced",
       node: (
         <>
-          Trial Balance <strong className="lg-ai-strong">balanced</strong> per{" "}
-          <strong className="lg-ai-strong">{period}</strong> — total debit ={" "}
-          credit <strong className="lg-ai-strong">{fmtRpShort(balance.dr)}</strong>.
+          Trial Balance is <strong className="lg-ai-strong">in balance</strong> for{" "}
+          <strong className="lg-ai-strong">{period}</strong> — ending debits = ending{" "}
+          credits = <strong className="lg-ai-strong">{fmtRpShort(balance.dr)}</strong>.
         </>
       ),
-      question: "What total debit & credit this period?",
+      question: "What are total debits and credits this period?",
     });
   } else {
     insights.push({
       id: "unbalanced",
       node: (
         <>
-          Trial Balance <span className="lg-ai-danger">unbalanced</span> —{" "}
-          variance <span className="lg-ai-danger">{fmtRpShort(balance.variance)}</span>.
+          Trial Balance is <span className="lg-ai-danger">out of balance</span> by{" "}
+          <span className="lg-ai-danger">{fmtRpShort(balance.variance)}</span>.
         </>
       ),
-      question: "Why is the Trial Balance unbalanced?",
+      question: "Why is the Trial Balance out of balance?",
     });
   }
 
-  // 2. Net income
+  // 2. Net profit
   insights.push({
     id: "netIncome",
     node: (
       <>
-        Esteamated laba bersih{" "}
+        Net profit{" "}
         {netIncome >= 0 ? (
           <strong className="lg-ai-strong" style={{ color: "var(--color-success-text)" }}>{fmtRpShort(netIncome)}</strong>
         ) : (
           <span className="lg-ai-danger">{fmtRpShort(netIncome)}</span>
         )}
-        {totalRev > 0 && (
+        {margin !== null && (
           <>
-            {" "}— margin <strong className="lg-ai-strong">{margin}%</strong>.
+            {" "}— margin <strong className="lg-ai-strong">{margin}%</strong>
           </>
         )}
+        {" "}for {period}.
       </>
     ),
-    question: "Detail pendapatan & beban",
+    question: "Revenue & expense detail",
   });
 
-  // 3. Critical anomalyes
+  // 3. Critical anomalies
   if (critical.length > 0) {
     insights.push({
       id: "critical",
       node: (
         <>
-          <strong className="lg-ai-strong">{critical.length} finding kritis</strong> —{" "}
+          <strong className="lg-ai-strong">{critical.length} critical {critical.length === 1 ? "finding" : "findings"}</strong> —{" "}
           <span className="lg-ai-danger">{critical[0].name}</span>
-          {critical.length > 1 && ` + ${critical.length - 1} lainnya`}.
+          {critical.length > 1 && ` + ${critical.length - 1} more`}.
         </>
       ),
-      question: "Detail finding kritis",
+      question: "Show the critical findings",
     });
   }
 
@@ -83,11 +90,11 @@ export function computeTbInsights({ balance, anomalyes, netIncome, totalRev, tot
       id: "warn",
       node: (
         <>
-          <strong className="lg-ai-strong">{warn.length} peringatan</strong> — needs review:{" "}
-          {warn[0].name}{warn.length > 1 && ` + ${warn.length - 1} lainnya`}.
+          <strong className="lg-ai-strong">{warn.length} {warn.length === 1 ? "warning" : "warnings"}</strong> to review:{" "}
+          {warn[0].name}{warn.length > 1 && ` + ${warn.length - 1} more`}.
         </>
       ),
-      question: "What peringatan this period?",
+      question: "What warnings are there this period?",
     });
   }
 
@@ -97,20 +104,20 @@ export function computeTbInsights({ balance, anomalyes, netIncome, totalRev, tot
       id: "info",
       node: (
         <>
-          <strong className="lg-ai-strong">{info.length} info</strong> tambahan from Klay AI about account related.
+          <strong className="lg-ai-strong">{info.length} {info.length === 1 ? "note" : "notes"}</strong> from Klay AI on related accounts.
         </>
       ),
-      question: "Show info & rekomendasi AI",
+      question: "Show AI notes & recommendations",
     });
   }
 
-  // No anomalyes — happy path
-  if (anomalyes.length === 0) {
+  // No anomalies — happy path
+  if (anomalies.length === 0) {
     insights.push({
       id: "clean",
       node: (
         <>
-          <strong className="lg-ai-strong">None anomaly</strong> — semua account within normal range.
+          <strong className="lg-ai-strong">No anomalies</strong> — every account is within normal range.
         </>
       ),
       question: "Why is this period clean?",
@@ -122,19 +129,20 @@ export function computeTbInsights({ balance, anomalyes, netIncome, totalRev, tot
 
 // ── AI chat context ──────────────────────────────────────────────────────
 
-export function makeTbAiContext({ balance, anomalyes, netIncome, totalRev, totalExp, margin, period, accountCount, topAssets = [], topLiabilities = [] }) {
-  const critical = anomalyes.filter((a) => a.severity === "critical");
-  const warn     = anomalyes.filter((a) => a.severity === "warn");
+export function makeTbAiContext({ balance, anomalies, netIncome, totalRev, totalExp, margin, period, userName, accountCount, topAssets = [], topLiabilities = [] }) {
+  const critical = anomalies.filter((a) => a.severity === "critical");
+  const warn     = anomalies.filter((a) => a.severity === "warn");
+  const firstName = (userName || "").split(" ")[0];
 
   const welcome = (
-    <p>Hi Sside — I have reviewed Trial Balance as of {period}. How can I help?</p>
+    <p>Hi{firstName ? ` ${firstName}` : ""} — I have reviewed the Trial Balance for {period}. How can I help?</p>
   );
 
   const suggestions = [
-    "What finding most penting this period?",
-    "Detail pendapatan & beban",
-    "What total debit & credit this period?",
-    "Account which with the largest?",
+    "What are the most important findings this period?",
+    "Revenue & expense detail",
+    "What are total debits and credits this period?",
+    "Which accounts have the largest balances?",
   ];
 
   function anomalyList(list, max = 5) {
@@ -160,12 +168,12 @@ export function makeTbAiContext({ balance, anomalyes, netIncome, totalRev, total
       role: "ai",
       content: (
         <>
-          <p>Summary Trial Balance as of {period}:</p>
+          <p>Trial Balance summary for {period}:</p>
           <ul style={{ paddingLeft: 16, margin: "8px 0", fontSize: 12 }}>
-            <li>Total account: <strong>{accountCount}</strong></li>
-            <li>Total debit: <strong>{fmtRpShort(balance.dr)}</strong></li>
-            <li>Total credit: <strong>{fmtRpShort(balance.cr)}</strong></li>
-            <li>Status: {balance.balanced ? <strong style={{ color: "var(--color-success-text)" }}>balanced ✓</strong> : <strong style={{ color: "var(--color-danger-text)" }}>variance {fmtRpShort(balance.variance)}</strong>}</li>
+            <li>Accounts with balances: <strong>{accountCount}</strong></li>
+            <li>Total ending debits: <strong>{fmtRpShort(balance.dr)}</strong></li>
+            <li>Total ending credits: <strong>{fmtRpShort(balance.cr)}</strong></li>
+            <li>Status: {balance.balanced ? <strong style={{ color: "var(--color-success-text)" }}>in balance ✓</strong> : <strong style={{ color: "var(--color-danger-text)" }}>out of balance by {fmtRpShort(balance.variance)}</strong>}</li>
           </ul>
         </>
       ),
@@ -177,19 +185,19 @@ export function makeTbAiContext({ balance, anomalyes, netIncome, totalRev, total
       role: "ai",
       content: (
         <>
-          <p>Esteamated laporan laba-rugi this period:</p>
+          <p>Profit &amp; loss for {period}, from posted journals — the same figures as the Profit &amp; Loss report:</p>
           <ul style={{ paddingLeft: 16, margin: "8px 0", fontSize: 12 }}>
-            <li>Total Revenue: <strong>{fmtRpShort(totalRev)}</strong></li>
-            <li>Total Expenses: <strong>{fmtRpShort(totalExp)}</strong></li>
-            <li>Net Income: {netIncome >= 0
+            <li>Revenue: <strong>{fmtRpShort(totalRev)}</strong></li>
+            <li>Expenses: <strong>{fmtRpShort(totalExp)}</strong></li>
+            <li>Net profit: {netIncome >= 0
               ? <strong style={{ color: "var(--color-success-text)" }}>{fmtRpShort(netIncome)}</strong>
               : <strong style={{ color: "var(--color-danger-text)" }}>{fmtRpShort(netIncome)}</strong>}
             </li>
-            <li>Margin: <strong>{margin}%</strong></li>
+            {margin !== null && <li>Margin: <strong>{margin}%</strong></li>}
           </ul>
           <div className="chat-chips">
-            <ChatChip primary>Breakdown pendapatan as of produk</ChatChip>
-            <ChatChip>Breakdown beban as of category</ChatChip>
+            <ChatChip primary>Revenue by product</ChatChip>
+            <ChatChip>Expenses by category</ChatChip>
           </div>
         </>
       ),
@@ -197,15 +205,15 @@ export function makeTbAiContext({ balance, anomalyes, netIncome, totalRev, total
   }
 
   function makeCriticalResponse() {
-    if (critical.length === 0) return { role: "ai", content: <p>None finding kritis this period.</p> };
+    if (critical.length === 0) return { role: "ai", content: <p>No critical findings this period.</p> };
     return {
       role: "ai",
       content: (
         <>
-          <p><strong>{critical.length} finding kritis</strong> ditemukan:</p>
+          <p><strong>{critical.length} critical {critical.length === 1 ? "finding" : "findings"}</strong>:</p>
           {anomalyList(critical)}
           <div className="chat-chips">
-            <ChatChip primary>Review satu as of satu</ChatChip>
+            <ChatChip primary>Review one by one</ChatChip>
             <ChatChip>Mark all as valid</ChatChip>
           </div>
         </>
@@ -214,12 +222,12 @@ export function makeTbAiContext({ balance, anomalyes, netIncome, totalRev, total
   }
 
   function makeWarnResponse() {
-    if (warn.length === 0) return { role: "ai", content: <p>None peringatan this period.</p> };
+    if (warn.length === 0) return { role: "ai", content: <p>No warnings this period.</p> };
     return {
       role: "ai",
       content: (
         <>
-          <p><strong>{warn.length} peringatan</strong>:</p>
+          <p><strong>{warn.length} {warn.length === 1 ? "warning" : "warnings"}</strong>:</p>
           {anomalyList(warn)}
         </>
       ),
@@ -231,7 +239,7 @@ export function makeTbAiContext({ balance, anomalyes, netIncome, totalRev, total
       role: "ai",
       content: (
         <>
-          <p>Account with balance largest this period:</p>
+          <p>Accounts with the largest balances this period:</p>
           {topAssets.length > 0 && (
             <>
               <p style={{ fontSize: 11, color: "var(--color-text-tertiary)", margin: "8px 0 4px" }}>Assets</p>
@@ -274,13 +282,13 @@ export function makeTbAiContext({ balance, anomalyes, netIncome, totalRev, total
       role: "ai",
       content: (
         <>
-          <p>I can't answer "{text}" in this prototype, but can help with:</p>
+          <p>I can't answer "{text}" in this prototype, but I can help with:</p>
           <div className="chat-chips">
-            <ChatChip>Finding kritis</ChatChip>
-            <ChatChip>Warning</ChatChip>
-            <ChatChip>Laba & beban</ChatChip>
-            <ChatChip>Account largest</ChatChip>
-            <ChatChip>Status balanced</ChatChip>
+            <ChatChip>Critical findings</ChatChip>
+            <ChatChip>Warnings</ChatChip>
+            <ChatChip>Profit &amp; expenses</ChatChip>
+            <ChatChip>Largest accounts</ChatChip>
+            <ChatChip>Balance status</ChatChip>
           </div>
         </>
       ),
@@ -289,11 +297,13 @@ export function makeTbAiContext({ balance, anomalyes, netIncome, totalRev, total
 
   function respond(text) {
     const t = text.toLowerCase();
+    // Indonesian keywords too — users ask both ways.
     if (t.includes("kritis") || t.includes("critical") || t.includes("finding")) return makeCriticalResponse();
     if (t.includes("peringatan") || t.includes("warn")) return makeWarnResponse();
-    if (t.includes("pendapatan") || t.includes("beban") || t.includes("laba") || t.includes("rugi") || t.includes("income")) return makeIncomeResponse();
-    if (t.includes("debit") || t.includes("credit") || t.includes("balanced") || t.includes("balance") || t.includes("total")) return makeBalanceResponse();
-    if (t.includes("largest") || t.includes("most besar") || t.includes("top")) return makeTopAccountsResponse();
+    if (t.includes("pendapatan") || t.includes("beban") || t.includes("laba") || t.includes("rugi") || t.includes("income") || t.includes("profit") || t.includes("revenue") || t.includes("expense")) return makeIncomeResponse();
+    // Before the balance check: "largest balances" is about accounts, not the totals.
+    if (t.includes("largest") || t.includes("terbesar") || t.includes("top")) return makeTopAccountsResponse();
+    if (t.includes("debit") || t.includes("credit") || t.includes("balance") || t.includes("total")) return makeBalanceResponse();
     return makeDefaultResponse(text);
   }
 

@@ -1,0 +1,62 @@
+/* Trial Balance — on top of the shared ledger list (invoices-ledger.css).
+   Scoped under .tb-report so the shared .lg-table-tb grid stays untouched. */
+
+/* Code · Account · Opening · Debit · Credit · Ending Dr · Ending Cr · GL link */
+.tb-report .lg-card.lg-table-tb .lg-row,
+.tb-report .lg-card.lg-table-tb .lg-col-header{grid-template-columns:72px minmax(150px,1.4fr) repeat(5,minmax(118px,1fr)) 28px;min-width:900px}
+/* Narrower panes scroll the table sideways rather than clipping Ending Cr. */
+.tb-report .lg-card.lg-table-tb{overflow-x:auto}
+.tb-report .lg-card.lg-table-tb .lg-cell-total{font-size:12px}
+.tb-report .tb-cell-end{font-weight:700}
+.tb-report .tb-total-lbl{font-weight:700;color:var(--color-text-secondary);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+.tb-report .lg-row.tb-total-row{border-top:2px solid var(--color-border-strong);cursor:default}
+.tb-report .lg-row.tb-total-row .lg-cell-total{color:var(--color-text-primary)}
+
+/* The row's GL link replaces the old ⋮ — an outline arrow, not a filled dot icon */
+.tb-report .tb-gl-btn svg{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;width:13px;height:13px}
+.tb-report .tb-gl-btn:hover{color:var(--color-action)}
+
+/* Journal number in the drawer — opens the entry */
+.tb-je-link{font-family:var(--font-mono);font-size:11px;color:var(--color-action);background:none;border:none;padding:0;cursor:pointer}
+.tb-je-link:hover{text-decoration:underline;text-underline-offset:2px}
+.tb-show-more{width:100%;margin-top:4px;padding:8px;font-family:var(--font-sans);font-size:12px;font-weight:600;color:var(--color-action);background:var(--color-surface-raised);border:1px dashed var(--color-border-default);border-radius:var(--radius-md);cursor:pointer}
+.tb-show-more:hover{border-color:var(--color-action)}
+
+/* Period picker */
+.tb-period-pop{width:360px}
+.tb-period-pop .lg-popover-list{border-bottom:1px solid var(--color-border-default)}
+.tb-period-range{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--color-text-tertiary);font-weight:400}
+.tb-period-err{font-size:11px;color:var(--color-danger-text)}
+.tb-report .lg-filter-apply:disabled{background:var(--color-surface-sunken);color:var(--color-text-tertiary);cursor:not-allowed}
+
+/* Period status line under the title */
+.tb-status{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:14px;font-size:12px;color:var(--color-text-secondary)}
+.tb-status-chip{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:2px 8px;border-radius:9999px;border:1px solid var(--color-border-default);background:var(--color-surface-sunken);color:var(--color-text-secondary)}
+.tb-status-chip.closed{background:var(--color-success-surface);border-color:var(--color-success-border);color:var(--color-success-text)}
+.tb-status-chip.partial,.tb-status-chip.open{background:var(--color-warning-surface);border-color:var(--color-warning-border);color:var(--color-warning-text)}
+.tb-status-sep{color:var(--color-text-tertiary)}
+.tb-status-link{font-family:inherit;font-size:12px;color:var(--color-action);background:none;border:none;padding:0;cursor:pointer}
+.tb-status-link:hover{text-decoration:underline;text-underline-offset:2px}
+
+/* Footer balance flag */
+.tb-balance-flag{font-weight:700}
+.tb-balance-flag.ok{color:#7FD3A0}
+.tb-balance-flag.off{color:#FF9B9B}
+
+/* Print header (print / PDF only — index.css shows .print-only when printing) */
+.tb-print-head{margin:0 0 10px}
+.tb-print-company{font-size:11px;color:#555}
+.tb-print-title{font-size:18px;font-weight:700;margin-top:2px}
+.tb-print-period{font-size:11px;color:#555;margin-top:2px}
+
+@media print{
+  .tb-report .lg-head-top{display:none}
+  .tb-report .lg-head,.tb-report .lg-table-wrap{padding:0!important}
+  .tb-report .lg-card.lg-table-tb{border:none;box-shadow:none;overflow:visible}
+  .tb-report .lg-card.lg-table-tb .lg-row,
+  .tb-report .lg-card.lg-table-tb .lg-col-header{grid-template-columns:52px 1fr repeat(5,98px) 0;padding:4px 0;position:static;min-width:0}
+  .tb-report .lg-card.lg-table-tb .lg-cell-total{font-size:8.5px}
+  .tb-report .lg-row{break-inside:avoid}
+  .tb-report .lg-row .badge,.tb-report .lg-anom-flag,.tb-report .lg-group-chevron{display:none}
+  .tb-status-chip{border:1px solid #999}
+}

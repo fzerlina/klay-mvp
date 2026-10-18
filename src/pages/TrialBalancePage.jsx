@@ -1,32 +1,22 @@
 import { useState, useMemo, useEffect, useRef, Fragment } from "react";
-import { COA, COA_BY_CODE } from "../data/seed/coa";
+import { useNavigate } from "react-router-dom";
+import { COA_BY_CODE } from "../data/seed/coa";
+import { COMPANY } from "../data/seed/company";
 import { useJournalEntries } from "../state/JournalEntriesContext";
-import { OPENING_BALANCES } from "../data/seed/openingBalances";
+import { useAccountingSettings } from "../state/AccountingSettingsContext";
+import { useCurrentUser } from "../state/CurrentUserContext";
+import { useClosePeriod } from "../state/ClosePeriodContext";
+import { periodPresets, rangeLabel, monthLabel } from "../lib/reportPeriods";
+import { downloadCsv, reportHeader, exportName, printReport } from "../lib/reportExport";
+import {
+  computeTrialBalance, ledgerBalance, netProfitForPeriod, unpostedInPeriod, periodCloseState,
+} from "../lib/trialBalance";
 import AiChatDrawer from "./AiChatDrawer";
 import SummaryDrawer from "./SummaryDrawer";
 import { computeTbInsights, makeTbAiContext } from "./ai-trialbalance-context";
 import "./modules.css";
 import "./invoices-ledger.css";
-
-// ── Source views ──────────────────────────────────────────────────────────
-const TB_COA = COA.filter((n) => n.code).map((n) => ({
-  code: n.code,
-  name: n.name,
-  type: n.type,
-  normal_balance: n.normal_balance,
-  parent: n.parent,
-  is_active: n.is_active,
-}));
-const TB_OPENING = OPENING_BALANCES.reduce((m, r) => {
-  const acct = COA_BY_CODE[r.account_code];
-  if (!acct) return m;
-  const debitNormal = acct.normal_balance === "debit";
-  const oriented = debitNormal ? r.debit - r.credit : r.credit - r.debit;
-  m[r.account_code] = (m[r.account_code] || 0) + oriented;
-  return m;
-}, {});
-const PARENT_SET = new Set(TB_COA.filter((a) => a.parent).map((a) => a.parent));
-const LEAF = TB_COA.filter((a) => !PARENT_SET.has(a.code));
+import "./trial-balance.css";
 
 const TYPE_LABELS = {
   asset: "Assets",
@@ -37,7 +27,25 @@ const TYPE_LABELS = {
   contra_revenue: "Contra Revenue",
   expense: "Expenses",
 };
+// Singular, for the export's Type column.
+const TYPE_NAMES = {
+  asset: "Asset",
+  contra_asset: "Contra asset",
+  liability: "Liability",
+  equity: "Equity",
+  revenue: "Revenue",
+  contra_revenue: "Contra revenue",
+  expense: "Expense",
+};
 const TYPE_ORDER = ["asset", "contra_asset", "liability", "equity", "revenue", "contra_revenue", "expense"];
+const TABS = [
+  { k: "all",        lbl: "All",          types: TYPE_ORDER },
+  { k: "asset",      lbl: "Assets",       types: ["asset", "contra_asset"] },
+  { k: "liability",  lbl: "Liabilities",  types: ["liability"] },
+  { k: "equity",     lbl: "Equity",       types: ["equity"] },
+  { k: "revenue",    lbl: "Revenue",      types: ["revenue", "contra_revenue"] },
+  { k: "expense",    lbl: "Expenses",     types: ["expense"] },
+];
 const TYPE_BADGE_CLS = {
   asset: "approved",
   contra_asset: "draft",
@@ -53,119 +61,69 @@ const SEVERITY_ICON = {
   warn: <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
   info: <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>,
 };
+const GL_ICON = <svg viewBox="0 0 24 24"><path d="M7 17L17 7"/><path d="M8 7h9v9"/></svg>;
 
 const rp = (v) => {
   if (v === 0 || v === null || v === undefined) return "—";
   const abs = Math.abs(v);
   return (v < 0 ? "(" : "") + "Rp " + abs.toLocaleString("id-ID") + (v < 0 ? ")" : "");
 };
-const rpZ = (v) => {
-  if (v === undefined || v === null) return "—";
-  const abs = Math.abs(v);
-  return (v < 0 ? "(" : "") + "Rp " + abs.toLocaleString("id-ID") + (v < 0 ? ")" : "");
-};
 const fmtIdDate = (s) =>
   new Date(s + "T00:00:00").toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
+const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-// ── TB compute ────────────────────────────────────────────────────────────
-function computeTB(dateFrom, dateTo, journalEntries) {
-  const acc = {};
-  LEAF.forEach((a) => { acc[a.code] = { preDr: 0, preCr: 0, perDr: 0, perCr: 0, entries: [] }; });
-  journalEntries.forEach((je) => {
-    if (je.status !== "posted") return;
-    je.lines.forEach((line) => {
-      const a = acc[line.account_code];
-      if (!a) return;
-      const dr = line.debit || 0;
-      const cr = line.credit || 0;
-      if (je.je_date < dateFrom) {
-        a.preDr += dr; a.preCr += cr;
-      } else if (je.je_date >= dateFrom && je.je_date <= dateTo) {
-        a.perDr += dr; a.perCr += cr;
-        a.entries.push({
-          je_ref: je.je_number,
-          date: je.je_date,
-          debit: dr,
-          credit: cr,
-          description: line.description,
-          memo: je.memo,
-          posted_by: je.posted_by,
-          posted_date: je.posted_date,
-        });
-      }
-    });
-  });
-  return LEAF.map((acct) => {
-    const a = acc[acct.code];
-    const ini = TB_OPENING[acct.code] || 0;
-    const openBal = acct.normal_balance === "debit"
-      ? ini + a.preDr - a.preCr
-      : ini + a.preCr - a.preDr;
-    const closeBal = acct.normal_balance === "debit"
-      ? openBal + a.perDr - a.perCr
-      : openBal + a.perCr - a.perDr;
-    return {
-      code: acct.code,
-      name: acct.name,
-      type: acct.type,
-      normal_balance: acct.normal_balance,
-      opening_balance: openBal,
-      period_debit: a.perDr,
-      period_credit: a.perCr,
-      closing_balance: closeBal,
-      entries: a.entries,
-      has_activity: a.perDr > 0 || a.perCr > 0 || openBal !== 0 || closeBal !== 0,
-    };
-  });
-}
+// Column totals for a set of rows (a type group, or everything shown).
+const sumRows = (rows) => ({
+  sumOpen:   rows.reduce((s, r) => s + r.opening_balance, 0),
+  sumDebit:  rows.reduce((s, r) => s + r.period_debit, 0),
+  sumCredit: rows.reduce((s, r) => s + r.period_credit, 0),
+  sumEndDr:  rows.reduce((s, r) => s + r.ending_dr, 0),
+  sumEndCr:  rows.reduce((s, r) => s + r.ending_cr, 0),
+});
 
-function checkBalance(rows) {
-  let dr = 0, cr = 0;
-  rows.forEach((r) => {
-    const cb = r.closing_balance;
-    if (r.normal_balance === "debit") cb >= 0 ? (dr += cb) : (cr += Math.abs(cb));
-    else                              cb >= 0 ? (cr += cb) : (dr += Math.abs(cb));
-  });
-  return { dr, cr, variance: Math.abs(dr - cr), balanced: Math.abs(dr - cr) < 1 };
-}
+// Drawer lists grow in pages of this many lines.
+const PAGE = 50;
 
-function detectAnomalyes(tb) {
+// ── Anomalies ─────────────────────────────────────────────────────────────
+// Rule-of-thumb checks on the closing balances, shown as row flags, KPI cards
+// and the drawer's AI Insight tab.
+function detectAnomalies(tb) {
   const out = [];
   const byCode = {};
   tb.forEach((r) => { byCode[r.code] = r; });
 
   tb.filter((r) => r.type === "contra_asset").forEach((r) => {
     if (r.closing_balance < 0) {
-      out.push({ severity: "critical", code: r.code, name: r.name, title: "Contra asset balance moved to the debit side — abnormal", desc: `${r.name} has closing balance ${rp(r.closing_balance)}, should have a credit balance for account contra asset. Possibly reversed journal entry.`, action: "Check JEs affecting this account." });
+      out.push({ severity: "critical", code: r.code, name: r.name, title: "Contra asset balance has moved to the debit side", desc: `${r.name} closes at ${rp(r.closing_balance)} — a contra asset should carry a credit balance. Possibly a reversed journal entry.`, action: "Check the journal entries posted to this account." });
     }
   });
   const ar = byCode["1-2100"];
   const allowance = byCode["1-2200"];
   if (ar && allowance && ar.closing_balance > 0 && allowance.closing_balance === 0) {
-    out.push({ severity: "critical", code: "1-2200", name: allowance.name, title: "Allowance pipayables doubtful not yet set up", desc: `${ar.name} has ${rp(ar.closing_balance)} while allowance is still zero.`, action: "Calculate and catat penallowance pipayables." });
+    out.push({ severity: "critical", code: "1-2200", name: allowance.name, title: "Allowance for doubtful accounts not yet set up", desc: `${ar.name} stands at ${rp(ar.closing_balance)} while the allowance is still zero.`, action: "Estimate the allowance and record it." });
   }
   const totalRev = ["4-1100", "4-1200", "4-1300", "4-1400", "4-1500"].reduce((s, c) => s + (byCode[c]?.closing_balance || 0), 0);
   if (ar && totalRev > 0 && ar.closing_balance > totalRev * 0.55) {
-    out.push({ severity: "warn", code: "1-2100", name: ar.name, title: "Pitrade payables high relative to pendapatan", desc: `Pipayables ${rp(ar.closing_balance)} = ${Math.round(ar.closing_balance / totalRev * 100)}% from total pendapatan.`, action: "Review aging pipayables." });
+    out.push({ severity: "warn", code: "1-2100", name: ar.name, title: "Trade receivables high relative to revenue", desc: `Receivables of ${rp(ar.closing_balance)} are ${Math.round(ar.closing_balance / totalRev * 100)}% of total revenue.`, action: "Review the receivables aging." });
   }
   const marketing = byCode["6-1200"];
   if (marketing && marketing.opening_balance === 0 && marketing.period_debit > 15000000) {
-    out.push({ severity: "warn", code: "6-1200", name: marketing.name, title: "Spito beban iklan with no opening balance history", desc: `${marketing.name} recorded a debit ${rp(marketing.period_debit)} with opening balance zero.`, action: "Confirm authorization budget." });
+    out.push({ severity: "warn", code: "6-1200", name: marketing.name, title: "Spike in advertising spend with no prior balance", desc: `${marketing.name} took ${rp(marketing.period_debit)} in debits this period, from an opening balance of zero.`, action: "Confirm the spend was budgeted and approved." });
   }
   const ap = byCode["2-1100"];
   if (ap && ap.closing_balance > 80000000) {
-    out.push({ severity: "warn", code: "2-1100", name: ap.name, title: "Balance trade payables exceeds threshold", desc: `${ap.name} has ${rp(ap.closing_balance)} — exceeds internal threshold Rp 80 juta.`, action: "Review aging schedule payables." });
+    out.push({ severity: "warn", code: "2-1100", name: ap.name, title: "Trade payables above threshold", desc: `${ap.name} stands at ${rp(ap.closing_balance)} — above the internal threshold of Rp 80 million.`, action: "Review the payables aging." });
   }
   const proSvc = byCode["6-2700"];
   if (proSvc && proSvc.period_debit >= 25000000) {
-    out.push({ severity: "warn", code: "6-2700", name: proSvc.name, title: "Possibly duplicate billing from consultant", desc: `${proSvc.entries.length} transactions consultant in period that same.`, action: "Match with contract and invoice fisik." });
+    out.push({ severity: "warn", code: "6-2700", name: proSvc.name, title: "Possible duplicate billing from a consultant", desc: `${plural(proSvc.entries.length, "consultant line")} posted in the same period.`, action: "Match against the contract and the original invoices." });
   }
   const vatIn = byCode["1-5100"];
   if (vatIn && vatIn.closing_balance > 10000000) {
-    out.push({ severity: "info", code: "1-5100", name: vatIn.name, title: "PPN masukan not yet credited", desc: `Input VAT (PPN) balance ${rp(vatIn.closing_balance)} is still held as aset.`, action: "Coordinate with tax team." });
+    out.push({ severity: "info", code: "1-5100", name: vatIn.name, title: "Input VAT (PPN) not yet credited", desc: `Input VAT of ${rp(vatIn.closing_balance)} is still held as an asset.`, action: "Coordinate with the tax team." });
   }
-  tb.filter((r) => r.opening_balance !== 0 && r.closing_balance === 0 && r.has_activity && r.type === "liability").forEach((r) => {
-    out.push({ severity: "info", code: r.code, name: r.name, title: "Liability fully settled in period", desc: `${r.name} settled until zero on this period.`, action: "Archive evidence settlement." });
+  tb.filter((r) => r.opening_balance !== 0 && r.closing_balance === 0 && r.type === "liability").forEach((r) => {
+    out.push({ severity: "info", code: r.code, name: r.name, title: "Liability fully settled in the period", desc: `${r.name} was paid down to zero this period.`, action: "Archive the settlement evidence." });
   });
   return out;
 }
@@ -198,7 +156,7 @@ function AiSubtitle({ insights, onOpenSummary, onOpenChat, chatActive, summaryAc
   useEffect(() => { if (idx >= insights.length) setIdx(0); }, [insights.length, idx]);
   const current = insights[idx] || insights[0];
   return (
-    <div className={`lg-ai-subtitle${summaryActive || chatActive ? " active" : ""}`}>
+    <div className={`lg-ai-subtitle no-print${summaryActive || chatActive ? " active" : ""}`}>
       <p className={`lg-ai-text${fading ? " fading" : ""}`}>
         <span className="lg-ai-sparkle"><SparkleIcon /></span>
         {current?.node}
@@ -224,10 +182,10 @@ const SORT_LABELS = {
   "code-asc":     "Code A-Z",
   "code-desc":    "Code Z-A",
   "name-asc":     "Name A-Z",
-  "close-desc":   "Closing balance ↓",
-  "close-asc":    "Closing balance ↑",
-  "debit-desc":   "Debit period ↓",
-  "credit-desc":  "Credit period ↓",
+  "close-desc":   "Ending balance ↓",
+  "close-asc":    "Ending balance ↑",
+  "debit-desc":   "Period debit ↓",
+  "credit-desc":  "Period credit ↓",
 };
 const GROUP_LABELS = {
   "type":  "Account Type",
@@ -242,6 +200,8 @@ function useClickOutside(ref, onClose) {
   }, [ref, onClose]);
 }
 
+const Check = () => <svg className="lg-popover-check" viewBox="0 0 12 12"><polyline points="2 6 5 9 10 3"/></svg>;
+
 function SortPopover({ value, onPick, onClose }) {
   const ref = useRef(null);
   useClickOutside(ref, onClose);
@@ -251,7 +211,7 @@ function SortPopover({ value, onPick, onClose }) {
         {Object.entries(SORT_LABELS).map(([k, lbl]) => (
           <button key={k} className={`lg-popover-item${value === k ? " selected" : ""}`} onClick={() => onPick(k)}>
             {lbl}
-            {value === k && <svg className="lg-popover-check" viewBox="0 0 12 12"><polyline points="2 6 5 9 10 3"/></svg>}
+            {value === k && <Check />}
           </button>
         ))}
       </div>
@@ -272,7 +232,7 @@ function GroupPopover({ value, onPick, onClose }) {
         {items.map((it) => (
           <button key={it.k} className={`lg-popover-item${value === it.k ? " selected" : ""}`} onClick={() => onPick(it.k)}>
             {it.lbl}
-            {value === it.k && <svg className="lg-popover-check" viewBox="0 0 12 12"><polyline points="2 6 5 9 10 3"/></svg>}
+            {value === it.k && <Check />}
           </button>
         ))}
       </div>
@@ -280,50 +240,50 @@ function GroupPopover({ value, onPick, onClose }) {
   );
 }
 
-function FilterPopover({ values, onChange, onClose }) {
+// Period picker — the shared report presets, plus a custom from/to range.
+function PeriodPopover({ presets, period, onPick, onClose }) {
   const ref = useRef(null);
   useClickOutside(ref, onClose);
-  const [draft, setDraft] = useState(values);
-  const update = (patch) => setDraft((d) => ({ ...d, ...patch }));
-  const reset = () => setDraft({ dateFrom: "2025-01-01", dateTo: "2025-04-30", hideZero: false });
-  const apply = () => { onChange(draft); onClose(); };
-  function pickShortcut(r) {
-    if (r === "ytd")   update({ dateFrom: "2025-01-01", dateTo: "2025-04-30" });
-    else if (r === "q1") update({ dateFrom: "2025-01-01", dateTo: "2025-03-31" });
-    else if (r === "feb") update({ dateFrom: "2025-01-01", dateTo: "2025-02-28" });
-    else if (r === "jan") update({ dateFrom: "2025-01-01", dateTo: "2025-01-31" });
-  }
+  const [from, setFrom] = useState(period.from);
+  const [to, setTo] = useState(period.to);
+  const invalid = !from || !to || from > to;
   return (
-    <div className="lg-popover lg-filter-pop" ref={ref}>
+    <div className="lg-popover lg-filter-pop tb-period-pop" ref={ref}>
+      <div className="lg-popover-list">
+        {presets.map((p) => (
+          <button key={p.key} className={`lg-popover-item${period.key === p.key ? " selected" : ""}`} onClick={() => onPick({ key: p.key })}>
+            <span>{p.label}</span>
+            <span className="tb-period-range">{rangeLabel(p.from, p.to)}{period.key === p.key && <Check />}</span>
+          </button>
+        ))}
+      </div>
       <div className="lg-filter-body">
         <div className="lg-filter-fld">
-          <div className="lg-filter-fld-lbl">Period quick</div>
-          <div className="lg-toggle-row">
-            <button className="lg-toggle" onClick={() => pickShortcut("jan")}>Jan 2025</button>
-            <button className="lg-toggle" onClick={() => pickShortcut("feb")}>Feb 2025</button>
-            <button className="lg-toggle" onClick={() => pickShortcut("q1")}>Q1 2025</button>
-            <button className="lg-toggle" onClick={() => pickShortcut("ytd")}>YTD</button>
-          </div>
-        </div>
-        <div className="lg-filter-fld">
-          <div className="lg-filter-fld-lbl">Range date custom</div>
+          <div className="lg-filter-fld-lbl">Custom range</div>
           <div className="lg-filter-row2">
-            <input type="date" className="lg-filter-input" value={draft.dateFrom} onChange={(e) => update({ dateFrom: e.target.value })} />
+            <input type="date" className="lg-filter-input" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} aria-label="From date" />
             <span style={{ color: "var(--color-text-tertiary)", fontSize: 11 }}>—</span>
-            <input type="date" className="lg-filter-input" value={draft.dateTo} onChange={(e) => update({ dateTo: e.target.value })} />
+            <input type="date" className="lg-filter-input" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} aria-label="To date" />
           </div>
-        </div>
-        <div className="lg-filter-fld">
-          <div className="lg-filter-fld-lbl">Display</div>
-          <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, color: "var(--color-text-secondary)", cursor: "pointer" }}>
-            <input type="checkbox" checked={draft.hideZero} onChange={(e) => update({ hideZero: e.target.checked })} style={{ accentColor: "var(--color-action)", cursor: "pointer" }} />
-            Hide account without activity
-          </label>
+          {from && to && from > to && <div className="tb-period-err">The start date is after the end date.</div>}
         </div>
       </div>
       <div className="lg-filter-foot">
-        <button className="lg-filter-reset" onClick={reset}>Reset</button>
-        <button className="lg-filter-apply" onClick={apply}>Apply filter</button>
+        <button className="lg-filter-reset" onClick={onClose}>Cancel</button>
+        <button className="lg-filter-apply" disabled={invalid} onClick={() => onPick({ key: "custom", from, to })}>Apply range</button>
+      </div>
+    </div>
+  );
+}
+
+function ExportPopover({ onCsv, onPrint, onClose }) {
+  const ref = useRef(null);
+  useClickOutside(ref, onClose);
+  return (
+    <div className="lg-popover" ref={ref}>
+      <div className="lg-popover-list">
+        <button className="lg-popover-item" onClick={onCsv}>Excel (CSV)</button>
+        <button className="lg-popover-item" onClick={onPrint}>Print / PDF</button>
       </div>
     </div>
   );
@@ -331,20 +291,30 @@ function FilterPopover({ values, onChange, onClose }) {
 
 // ── Page ──────────────────────────────────────────────────────────────────
 
+const DEFAULT_PERIOD = { key: "ytd" };
+
 export default function TrialBalancePage() {
+  const navigate = useNavigate();
+  const { fiscalYearStart } = useAccountingSettings();
+  const { user } = useCurrentUser();
+  const { closedThrough } = useClosePeriod();
+
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState({ kind: "tab", value: "all" });
   const [sortChoice, setSortChoice] = useState(null);
   const [groupChoice, setGroupChoice] = useState(null);
-  const emptyFilters = { dateFrom: "2025-01-01", dateTo: "2025-04-30", hideZero: false };
-  const [filterValues, setFilterValues] = useState(emptyFilters);
+  // { key } for a preset, or { key: "custom", from, to }.
+  const [periodChoice, setPeriodChoice] = useState(DEFAULT_PERIOD);
+  const [showZero, setShowZero] = useState(false);
 
   const [drawerCode, setDrawerCode] = useState(null);
   const [drawerTab, setDrawerTab] = useState("detail");
+  const [drawerLimit, setDrawerLimit] = useState(PAGE);
 
   const [sortPopOpen, setSortPopOpen] = useState(false);
   const [groupPopOpen, setGroupPopOpen] = useState(false);
-  const [filterPopOpen, setFilterPopOpen] = useState(false);
+  const [periodPopOpen, setPeriodPopOpen] = useState(false);
+  const [exportPopOpen, setExportPopOpen] = useState(false);
 
   const [aiOpen, setAiOpen] = useState(false);
   const [aiSeedQuestion, setAiSeedQuestion] = useState(null);
@@ -360,36 +330,57 @@ export default function TrialBalancePage() {
     toastTmr.current = setTimeout(() => setToast(""), 1800);
   }
 
-  const { dateFrom, dateTo } = filterValues;
+  // ── Period ──
+  const presets = useMemo(() => periodPresets({ fiscalYearStart }), [fiscalYearStart]);
+  const period = useMemo(() => {
+    if (periodChoice.key === "custom") return { ...periodChoice, label: "Custom" };
+    const p = presets.find((x) => x.key === periodChoice.key) || presets.find((x) => x.key === "ytd");
+    return { key: p.key, from: p.from, to: p.to, label: p.label };
+  }, [periodChoice, presets]);
+  const { from: dateFrom, to: dateTo } = period;
+  const periodRange = rangeLabel(dateFrom, dateTo);
+  const periodEndYm = dateTo.slice(0, 7);
+
+  // ── Numbers ──
   const { entries: JOURNAL_ENTRIES } = useJournalEntries();
-  const ALL_TB = useMemo(() => computeTB(dateFrom, dateTo, JOURNAL_ENTRIES), [dateFrom, dateTo, JOURNAL_ENTRIES]);
-  const balance = useMemo(() => checkBalance(ALL_TB), [ALL_TB]);
-  const anomalyes = useMemo(() => detectAnomalyes(ALL_TB), [ALL_TB]);
-  const anomalyesByCode = useMemo(() => {
+  const ALL_TB = useMemo(
+    () => computeTrialBalance({ from: dateFrom, to: dateTo, entries: JOURNAL_ENTRIES, fiscalYearStart }),
+    [dateFrom, dateTo, JOURNAL_ENTRIES, fiscalYearStart],
+  );
+  const balance = useMemo(() => ledgerBalance(ALL_TB), [ALL_TB]);
+  const anomalies = useMemo(() => detectAnomalies(ALL_TB), [ALL_TB]);
+  const anomaliesByCode = useMemo(() => {
     const m = {};
-    anomalyes.forEach((a) => { (m[a.code] ||= []).push(a); });
+    anomalies.forEach((a) => { (m[a.code] ||= []).push(a); });
     return m;
-  }, [anomalyes]);
+  }, [anomalies]);
 
-  const totalRev = useMemo(() => ALL_TB.filter((r) => r.type === "revenue").reduce((s, r) => s + r.closing_balance, 0), [ALL_TB]);
-  const totalExp = useMemo(() => ALL_TB.filter((r) => r.type === "expense").reduce((s, r) => s + r.period_debit, 0), [ALL_TB]);
-  const netIncome = totalRev - totalExp;
-  const margin = totalRev > 0 ? Math.round((netIncome / totalRev) * 100) : 0;
+  // Same rule as Profit & Loss (lib/trialBalance.js → netProfitForPeriod).
+  const { revenue: totalRev, expenses: totalExp, netProfit: netIncome } = useMemo(
+    () => netProfitForPeriod({ from: dateFrom, to: dateTo, entries: JOURNAL_ENTRIES }),
+    [dateFrom, dateTo, JOURNAL_ENTRIES],
+  );
+  const margin = totalRev > 0 ? Math.round((netIncome / totalRev) * 100) : null;
 
-  const periodLabel = fmtIdDate(dateTo);
-  const critCount = anomalyes.filter((a) => a.severity === "critical").length;
-  const warnCount = anomalyes.filter((a) => a.severity === "warn").length;
+  // Period status: closed / open, and what isn't in the numbers yet.
+  const closeState = periodCloseState(dateFrom, dateTo, closedThrough);
+  const unposted = useMemo(() => unpostedInPeriod(JOURNAL_ENTRIES, dateFrom, dateTo), [JOURNAL_ENTRIES, dateFrom, dateTo]);
+
+  const critCount = anomalies.filter((a) => a.severity === "critical").length;
+  const warnCount = anomalies.filter((a) => a.severity === "warn").length;
+  const nonZeroCount = useMemo(() => ALL_TB.filter((r) => r.has_activity).length, [ALL_TB]);
 
   const insights = useMemo(() => computeTbInsights({
-    balance, anomalyes, netIncome, totalRev, totalExp, margin, period: periodLabel,
-  }), [balance, anomalyes, netIncome, totalRev, totalExp, margin, periodLabel]);
+    balance, anomalies, netIncome, totalRev, totalExp, margin, period: periodRange,
+  }), [balance, anomalies, netIncome, totalRev, totalExp, margin, periodRange]);
 
   const aiContext = useMemo(() => makeTbAiContext({
-    balance, anomalyes, netIncome, totalRev, totalExp, margin, period: periodLabel,
-    accountCount: ALL_TB.length,
+    balance, anomalies, netIncome, totalRev, totalExp, margin, period: periodRange,
+    userName: user?.name,
+    accountCount: nonZeroCount,
     topAssets: [...ALL_TB].filter((r) => r.type === "asset" && r.closing_balance > 0).sort((a, b) => b.closing_balance - a.closing_balance).slice(0, 5),
     topLiabilities: [...ALL_TB].filter((r) => r.type === "liability" && r.closing_balance > 0).sort((a, b) => b.closing_balance - a.closing_balance).slice(0, 5),
-  }), [balance, anomalyes, netIncome, totalRev, totalExp, margin, periodLabel, ALL_TB]);
+  }), [balance, anomalies, netIncome, totalRev, totalExp, margin, periodRange, user?.name, nonZeroCount, ALL_TB]);
 
   function askAi(question) {
     setSummaryOpen(false);
@@ -399,10 +390,10 @@ export default function TrialBalancePage() {
 
   // KPI strip — 4 cells
   const kpis = [
-    { lbl: "Total Accounts",            card: null,        val: String(ALL_TB.filter((r) => r.has_activity).length), sub: `from ${ALL_TB.length} total`,   tone: "primary" },
-    { lbl: "Net Income (est.)",  card: null,        val: rp(netIncome),                                       sub: netIncome >= 0 ? `Margin ${margin}%` : "Rugi this period",  tone: netIncome >= 0 ? "primary" : "danger" },
-    { lbl: "Critical",                card: "critical",  val: String(critCount),                                  sub: critCount > 0 ? "needs action" : "safe",                  tone: "danger"  },
-    { lbl: "Warning",            card: "warn",      val: String(warnCount),                                  sub: warnCount > 0 ? "needs review" : "safe",                  tone: "warn"    },
+    { lbl: "Accounts with balances", card: null,       val: String(nonZeroCount),  sub: `of ${ALL_TB.length} in the chart`, tone: "primary" },
+    { lbl: "Net Profit",             card: null,       val: rp(netIncome),         sub: netIncome < 0 ? "Loss this period" : margin !== null ? `Margin ${margin}%` : "No revenue this period", tone: netIncome >= 0 ? "primary" : "danger" },
+    { lbl: "Critical",               card: "critical", val: String(critCount),     sub: critCount > 0 ? "needs action" : "all clear", tone: "danger" },
+    { lbl: "Warning",                card: "warn",     val: String(warnCount),     sub: warnCount > 0 ? "needs review" : "all clear", tone: "warn"   },
   ];
 
   // Spotlight cards (always 4)
@@ -419,58 +410,40 @@ export default function TrialBalancePage() {
   }, [ALL_TB]);
   const spotMax = Math.max(...SPOTLIGHTS.map((s) => Math.abs(spotByCode[s.code]?.closing_balance || 0)), 1);
 
+  // Zero-balance accounts (no opening, no movement, no closing) are hidden
+  // unless asked for; tab counts follow what the table can show.
+  const baseRows = useMemo(() => (showZero ? ALL_TB : ALL_TB.filter((r) => r.has_activity)), [ALL_TB, showZero]);
+
   // Tabs by type chip
-  const tabs = [
-    { k: "all",        lbl: "All",       count: ALL_TB.length, types: TYPE_ORDER },
-    { k: "asset",      lbl: "Assets",        count: ALL_TB.filter((r) => r.type === "asset" || r.type === "contra_asset").length, types: ["asset", "contra_asset"] },
-    { k: "liability",  lbl: "Liabilities",  count: ALL_TB.filter((r) => r.type === "liability").length, types: ["liability"] },
-    { k: "equity",     lbl: "Equity",     count: ALL_TB.filter((r) => r.type === "equity").length, types: ["equity"] },
-    { k: "revenue",    lbl: "Revenue",  count: ALL_TB.filter((r) => r.type === "revenue" || r.type === "contra_revenue").length, types: ["revenue", "contra_revenue"] },
-    { k: "expense",    lbl: "Expenses",       count: ALL_TB.filter((r) => r.type === "expense").length, types: ["expense"] },
-  ];
+  const tabs = TABS.map((t) => ({ ...t, count: baseRows.filter((r) => t.types.includes(r.type)).length }));
 
   // Corpus
   const corpus = useMemo(() => {
-    let list = ALL_TB;
+    let list = baseRows;
     if (filter.kind === "tab" && filter.value !== "all") {
-      const tab = tabs.find((t) => t.k === filter.value);
-      const types = tab?.types || [];
+      const types = TABS.find((t) => t.k === filter.value)?.types || [];
       list = list.filter((r) => types.includes(r.type));
     } else if (filter.kind === "card") {
-      if (filter.value === "critical") {
-        const codes = new Set(anomalyes.filter((a) => a.severity === "critical").map((a) => a.code));
-        list = list.filter((r) => codes.has(r.code));
-      } else if (filter.value === "warn") {
-        const codes = new Set(anomalyes.filter((a) => a.severity === "warn").map((a) => a.code));
-        list = list.filter((r) => codes.has(r.code));
-      }
+      const codes = new Set(anomalies.filter((a) => a.severity === filter.value).map((a) => a.code));
+      // A flagged account stays visible even if it would otherwise be hidden as zero.
+      list = ALL_TB.filter((r) => codes.has(r.code));
     }
     return list;
-  }, [filter, anomalyes]);
+  }, [filter, anomalies, baseRows, ALL_TB]);
 
-  const hasActiveFilters = useMemo(() => (
-    filterValues.dateFrom !== emptyFilters.dateFrom ||
-    filterValues.dateTo !== emptyFilters.dateTo ||
-    filterValues.hideZero ||
+  const hasActiveFilters = (
+    periodChoice.key !== DEFAULT_PERIOD.key ||
+    showZero ||
     sortChoice !== null ||
     groupChoice !== null ||
     search.trim() !== ""
-  ), [filterValues, sortChoice, groupChoice, search]);
-
-  const activeFilterCount = useMemo(() => {
-    let n = 0;
-    if (filterValues.dateFrom !== emptyFilters.dateFrom || filterValues.dateTo !== emptyFilters.dateTo) n++;
-    if (filterValues.hideZero) n++;
-    return n;
-  }, [filterValues]);
+  );
 
   const filteredRows = useMemo(() => {
-    let list = corpus;
-    if (filterValues.hideZero) list = list.filter((r) => r.has_activity);
     const q = search.toLowerCase().trim();
-    if (q) list = list.filter((r) => r.code.toLowerCase().includes(q) || r.name.toLowerCase().includes(q));
-    return list;
-  }, [corpus, filterValues.hideZero, search]);
+    if (!q) return corpus;
+    return corpus.filter((r) => r.code.toLowerCase().includes(q) || r.name.toLowerCase().includes(q));
+  }, [corpus, search]);
 
   const effectiveSort = sortChoice || "code-asc";
   const effectiveGroup = groupChoice || "type";
@@ -490,6 +463,9 @@ export default function TrialBalancePage() {
     return arr;
   }, [filteredRows, effectiveSort]);
 
+  // Totals of exactly the rows on screen (tab, search, zero toggle applied).
+  const shownTotals = useMemo(() => sumRows(sortedRows), [sortedRows]);
+
   const groups = useMemo(() => {
     if (effectiveGroup === "none") return null;
     const map = new Map();
@@ -497,15 +473,7 @@ export default function TrialBalancePage() {
     sortedRows.forEach((r) => { (map.get(r.type) || map.set(r.type, []).get(r.type)).push(r); });
     return Array.from(map.entries())
       .filter(([, rows]) => rows.length > 0)
-      .map(([t, rows]) => ({
-        key: t,
-        label: TYPE_LABELS[t] || t,
-        rows,
-        sumDebit:  rows.reduce((s, r) => s + r.period_debit, 0),
-        sumCredit: rows.reduce((s, r) => s + r.period_credit, 0),
-        sumOpen:   rows.reduce((s, r) => s + r.opening_balance, 0),
-        sumClose:  rows.reduce((s, r) => s + r.closing_balance, 0),
-      }));
+      .map(([t, rows]) => ({ key: t, label: TYPE_LABELS[t] || t, rows, ...sumRows(rows) }));
   }, [effectiveGroup, sortedRows]);
 
   function selectTab(t) { setFilter({ kind: "tab", value: t }); }
@@ -519,7 +487,8 @@ export default function TrialBalancePage() {
   function resetAll() {
     setSortChoice(null);
     setGroupChoice(null);
-    setFilterValues(emptyFilters);
+    setPeriodChoice(DEFAULT_PERIOD);
+    setShowZero(false);
     setSearch("");
     setFilter({ kind: "tab", value: "all" });
   }
@@ -532,40 +501,75 @@ export default function TrialBalancePage() {
     });
   }
 
+  function closePops() {
+    setSortPopOpen(false); setGroupPopOpen(false); setPeriodPopOpen(false); setExportPopOpen(false);
+  }
+
+  function pickPeriod(choice) {
+    setPeriodChoice(choice);
+    setPeriodPopOpen(false);
+  }
+
+  // ── Drill-down ──
+  function openDrawer(code) {
+    setDrawerCode(code);
+    setDrawerTab("detail");
+    setDrawerLimit(PAGE);
+  }
+  const openGl = (code) => navigate(`/general-ledger?account=${encodeURIComponent(code)}&period=${periodEndYm}`);
+  const openJe = (jeNumber) => navigate(`/journal-entry?je=${encodeURIComponent(jeNumber)}`);
+
+  // ── Export ──
   function exportCsv() {
-    const headers = ["Code", "Name", "Type", "Opening Balance", "Debit", "Credit", "Closing Balance"];
-    const esc = (v) => {
-      const s = String(v == null ? "" : v);
-      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    setExportPopOpen(false);
+    const totalRow = {
+      code: "", name: `Total — ${plural(sortedRows.length, "account")}`, type: null,
+      opening_balance: null, period_debit: shownTotals.sumDebit, period_credit: shownTotals.sumCredit,
+      ending_dr: shownTotals.sumEndDr, ending_cr: shownTotals.sumEndCr,
     };
-    const lines = [headers.join(",")];
-    for (const r of sortedRows) {
-      lines.push([r.code, r.name, r.type, r.opening_balance, r.period_debit, r.period_credit, r.closing_balance].map(esc).join(","));
-    }
-    const blob = new Blob(["﻿" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `klay-trialbalance-${dateTo}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    showToast(`${sortedRows.length} account exported to CSV`);
+    downloadCsv(exportName("trial-balance", dateFrom, dateTo), {
+      header: reportHeader({ report: "Trial Balance", period: periodRange, runBy: user?.name }),
+      columns: [
+        { label: "Code",      value: (r) => r.code },
+        { label: "Account",   value: (r) => r.name },
+        { label: "Type",      value: (r) => TYPE_NAMES[r.type] || "" },
+        { label: "Opening",   value: (r) => r.opening_balance },
+        { label: "Debit",     value: (r) => r.period_debit },
+        { label: "Credit",    value: (r) => r.period_credit },
+        { label: "Ending Dr", value: (r) => r.ending_dr },
+        { label: "Ending Cr", value: (r) => r.ending_cr },
+      ],
+      rows: [...sortedRows, totalRow],
+    });
+    showToast(`${plural(sortedRows.length, "account")} exported to CSV`);
+  }
+  function exportPrint() {
+    setExportPopOpen(false);
+    // Let the menu close before the print dialog snapshots the page.
+    setTimeout(printReport, 50);
   }
 
   // Drawer data
   const drawerRow = drawerCode ? ALL_TB.find((r) => r.code === drawerCode) : null;
-  const drawerAcct = drawerCode ? LEAF.find((a) => a.code === drawerCode) : null;
-  const drawerAnom = drawerCode ? (anomalyesByCode[drawerCode] || []) : [];
+  const drawerAnom = drawerCode ? (anomaliesByCode[drawerCode] || []) : [];
+  const drawerLines = drawerRow ? drawerRow.entries.slice(0, drawerLimit) : [];
+  const drawerMore = drawerRow ? drawerRow.entries.length - drawerLines.length : 0;
+
+  const ShowMore = () => (drawerMore > 0 ? (
+    <button className="tb-show-more" onClick={() => setDrawerLimit((n) => n + PAGE)}>
+      Show {Math.min(PAGE, drawerMore)} more · {drawerMore} remaining
+    </button>
+  ) : null);
+
+  const amt = (v, color) => (v ? <span style={color ? { color } : undefined}>{rp(v)}</span> : <span className="lg-cell-em-dash">—</span>);
 
   // Render a TB row
   function TbRow({ r, isAlt }) {
-    const anom = anomalyesByCode[r.code] || [];
+    const anom = anomaliesByCode[r.code] || [];
     const top = anom[0];
     const tint = anom.find((a) => a.severity === "critical") ? " anomaly-danger" : anom.find((a) => a.severity === "warn") ? " anomaly-warn" : "";
     return (
-      <div className={`lg-row${isAlt ? " alt" : ""}${tint}${drawerCode === r.code ? " selected" : ""}`} onClick={() => { setDrawerCode(r.code); setDrawerTab("detail"); }}>
+      <div className={`lg-row${isAlt ? " alt" : ""}${tint}${drawerCode === r.code ? " selected" : ""}`} onClick={() => openDrawer(r.code)}>
         <div className="lg-cell-no">{r.code}</div>
         <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
           <span style={{ fontSize: 12, color: "var(--color-text-primary)", fontWeight: 500 }}>{r.name}</span>
@@ -573,26 +577,40 @@ export default function TrialBalancePage() {
           {top && (
             <span className={`lg-anom-flag ${top.severity}`}>
               {SEVERITY_ICON[top.severity]}
-              {anom.length > 1 ? `${anom.length} finding` : (top.severity === "critical" ? "Critical" : top.severity === "warn" ? "Warning" : "Info")}
+              {anom.length > 1 ? `${anom.length} findings` : (top.severity === "critical" ? "Critical" : top.severity === "warn" ? "Warning" : "Info")}
             </span>
           )}
         </div>
         <div className="lg-cell-total" style={{ color: "var(--color-text-tertiary)" }}>{rp(r.opening_balance)}</div>
-        <div className="lg-cell-total" style={{ color: r.period_debit ? "var(--color-action)" : undefined }}>{r.period_debit ? rp(r.period_debit) : <span className="lg-cell-em-dash">—</span>}</div>
-        <div className="lg-cell-total" style={{ color: r.period_credit ? "var(--color-success-text)" : undefined }}>{r.period_credit ? rp(r.period_credit) : <span className="lg-cell-em-dash">—</span>}</div>
-        <div className="lg-cell-total" style={{ color: r.closing_balance < 0 ? "var(--color-danger-text)" : "var(--color-text-primary)", fontWeight: 600 }}>{rpZ(r.closing_balance)}</div>
-        <div className="lg-cell-kebab" onClick={(e) => e.stopPropagation()}>
-          <button className="lg-kebab">
-            <svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>
+        <div className="lg-cell-total">{amt(r.period_debit, "var(--color-action)")}</div>
+        <div className="lg-cell-total">{amt(r.period_credit, "var(--color-success-text)")}</div>
+        <div className="lg-cell-total tb-cell-end">{amt(r.ending_dr)}</div>
+        <div className="lg-cell-total tb-cell-end">{amt(r.ending_cr)}</div>
+        <div className="lg-cell-kebab no-print" onClick={(e) => e.stopPropagation()}>
+          <button className="lg-kebab tb-gl-btn" title="View in General Ledger" aria-label={`View ${r.code} in General Ledger`} onClick={() => openGl(r.code)}>
+            {GL_ICON}
           </button>
         </div>
       </div>
     );
   }
 
+  const closedLabel = closedThrough ? monthLabel(`${closedThrough}-01`) : null;
+  const unpostedParts = [
+    unposted.drafts ? plural(unposted.drafts, "draft") : null,
+    unposted.pending ? plural(unposted.pending, "journal awaiting approval", "journals awaiting approval") : null,
+  ].filter(Boolean);
+
   return (
-    <div className="lg-page">
+    <div className="lg-page tb-report">
       <div className="lg-scroll-container">
+        {/* ── Print header (print / PDF only) ───────────────────────── */}
+        <div className="print-only tb-print-head">
+          <div className="tb-print-company">{COMPANY.legalName}</div>
+          <div className="tb-print-title">Trial Balance</div>
+          <div className="tb-print-period">{periodRange} · {balance.balanced ? "In balance" : `Out of balance by ${rp(balance.variance)}`}</div>
+        </div>
+
         {/* ── Editorial header ──────────────────────────────────────── */}
         <div className="lg-head">
           <div className="lg-head-top">
@@ -606,15 +624,46 @@ export default function TrialBalancePage() {
                 summaryActive={summaryOpen}
               />
             </div>
-            <div className="lg-head-actions">
-              <button className="lg-btn-brand" onClick={exportCsv}>
-                <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                Export TB
-              </button>
+            <div className="lg-head-actions no-print">
+              <div className="lg-meta-btn-wrap">
+                <button className="lg-btn-ghost" onClick={() => { const o = !periodPopOpen; closePops(); setPeriodPopOpen(o); }} aria-haspopup="dialog" aria-expanded={periodPopOpen}>
+                  <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                  {period.label} · {periodRange}
+                </button>
+                {periodPopOpen && <PeriodPopover presets={presets} period={period} onPick={pickPeriod} onClose={() => setPeriodPopOpen(false)} />}
+              </div>
+              <div className="lg-meta-btn-wrap">
+                <button className="lg-btn-brand" onClick={() => { const o = !exportPopOpen; closePops(); setExportPopOpen(o); }} aria-haspopup="menu" aria-expanded={exportPopOpen}>
+                  <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  Export
+                </button>
+                {exportPopOpen && <ExportPopover onCsv={exportCsv} onPrint={exportPrint} onClose={() => setExportPopOpen(false)} />}
+              </div>
             </div>
           </div>
 
-          <div className="lg-kpi-strip">
+          {/* Period status — closed or open, and what isn't posted yet */}
+          <div className="tb-status">
+            <span className={`tb-status-chip ${closeState}`}>
+              {closeState === "closed" ? "Closed period" : closeState === "partial" ? "Partly closed" : "Open period"}
+            </span>
+            <span>
+              {closeState === "closed" && `Books are closed through ${closedLabel} — these figures are final.`}
+              {closeState === "partial" && `Closed through ${closedLabel}; later months are still open and may change.`}
+              {closeState === "open" && "This period is still open — figures may change as journals are posted."}
+            </span>
+            {unpostedParts.length > 0 && (
+              <>
+                <span className="tb-status-sep">·</span>
+                <button className="tb-status-link no-print" onClick={() => navigate("/journal-entry")}>
+                  {unpostedParts.join(" and ")} dated in this period {unposted.drafts + unposted.pending === 1 ? "isn't" : "aren't"} included
+                </button>
+                <span className="print-only">{unpostedParts.join(" and ")} dated in this period {unposted.drafts + unposted.pending === 1 ? "isn't" : "aren't"} included</span>
+              </>
+            )}
+          </div>
+
+          <div className="lg-kpi-strip no-print">
             {kpis.map((k) => (
               <button
                 type="button"
@@ -623,6 +672,7 @@ export default function TrialBalancePage() {
                 onClick={() => k.card && selectCard(isCardActive(k.card) ? null : k.card)}
                 aria-pressed={k.card ? isCardActive(k.card) : false}
                 style={!k.card ? { cursor: "default" } : undefined}
+                title={k.lbl === "Net Profit" ? `Revenue ${rp(totalRev)} less expenses ${rp(totalExp)}, posted journals in ${periodRange} — same figure as Profit & Loss.` : undefined}
               >
                 <div className="lg-kpi-lbl">{k.lbl}</div>
                 <div className={`lg-kpi-val${k.tone === "danger" ? " danger" : k.tone === "warn" ? " warn" : ""}`}>{k.val}</div>
@@ -634,23 +684,23 @@ export default function TrialBalancePage() {
 
         {/* ── Spotlight row + Table card (single wrap so spacing is single-source) ── */}
         <div className="lg-table-wrap">
-          <div className="lg-spotlight-row">
+          <div className="lg-spotlight-row no-print">
             {SPOTLIGHTS.map((s) => {
               const row = spotByCode[s.code];
               const cb = row?.closing_balance ?? 0;
               const ob = row?.opening_balance ?? 0;
-              let delta = { text: "none activity", cls: "" };
+              let delta = { text: "No activity", cls: "" };
               if (ob !== 0) {
                 const pct = ((cb - ob) / Math.abs(ob) * 100).toFixed(1);
                 const dir = cb >= ob ? "up" : "dn";
                 const sign = cb >= ob ? "+" : "";
                 delta = { text: `${sign}${pct}% vs opening balance`, cls: dir };
               } else if (cb !== 0) {
-                delta = { text: "baru this period", cls: "up" };
+                delta = { text: "New this period", cls: "up" };
               }
               const widthPct = Math.round(Math.abs(cb) / spotMax * 100);
               return (
-                <button type="button" key={s.code} className="lg-spot-card" onClick={() => { setDrawerCode(s.code); setDrawerTab("detail"); }}>
+                <button type="button" key={s.code} className="lg-spot-card" onClick={() => openDrawer(s.code)}>
                   <div className="lg-spot-code">{s.code}</div>
                   <div className="lg-spot-name">{COA_BY_CODE[s.code]?.name || s.code}</div>
                   <div className="lg-spot-num">{rp(cb)}</div>
@@ -664,7 +714,7 @@ export default function TrialBalancePage() {
           </div>
 
           <div className="lg-card lg-table-tb">
-            <div className="lg-pills-row">
+            <div className="lg-pills-row no-print">
               {tabs.map((t) => (
                 <button key={t.k} className={`lg-pill${isTabActive(t.k) ? " active" : ""}`} onClick={() => selectTab(t.k)}>
                   {t.lbl}
@@ -673,38 +723,29 @@ export default function TrialBalancePage() {
               ))}
             </div>
 
-            <div className="lg-filter-row">
+            <div className="lg-filter-row no-print">
               <div className="lg-search">
                 <svg viewBox="0 0 14 14"><circle cx="6" cy="6" r="3.5"/><path d="M9 9l3 3" strokeLinecap="round"/></svg>
                 <input placeholder="Search account code or name…" value={search} onChange={(e) => setSearch(e.target.value)} />
               </div>
               <div className="lg-filter-meta">
+                <button className={`lg-toggle${showZero ? " on" : ""}`} onClick={() => setShowZero((v) => !v)} aria-pressed={showZero}>
+                  Show zero balances
+                </button>
                 <div className="lg-meta-btn-wrap">
-                  <button className={`lg-meta-btn${activeFilterCount > 0 ? " active" : ""}`} onClick={() => { setFilterPopOpen(!filterPopOpen); setSortPopOpen(false); setGroupPopOpen(false); }}>
-                    <svg viewBox="0 0 12 12"><path d="M2 3h8M3 6h6M4 9h4" strokeLinecap="round"/></svg>
-                    Filter
-                    {activeFilterCount > 0 && <span className="lg-filter-badge">{activeFilterCount}</span>}
-                  </button>
-                  {filterPopOpen && <FilterPopover values={filterValues} onChange={setFilterValues} onClose={() => setFilterPopOpen(false)} />}
-                </div>
-                <div className="lg-meta-btn-wrap">
-                  <button className="lg-meta-btn" onClick={() => { setSortPopOpen(!sortPopOpen); setFilterPopOpen(false); setGroupPopOpen(false); }}>
+                  <button className="lg-meta-btn" onClick={() => { const o = !sortPopOpen; closePops(); setSortPopOpen(o); }}>
                     <span className="meta-lbl">Sort:</span>
                     <span className="meta-val">{SORT_LABELS[effectiveSort]}</span>
                   </button>
                   {sortPopOpen && <SortPopover value={effectiveSort} onPick={(v) => { setSortChoice(v); setSortPopOpen(false); }} onClose={() => setSortPopOpen(false)} />}
                 </div>
                 <div className="lg-meta-btn-wrap">
-                  <button className="lg-meta-btn" onClick={() => { setGroupPopOpen(!groupPopOpen); setSortPopOpen(false); setFilterPopOpen(false); }}>
+                  <button className="lg-meta-btn" onClick={() => { const o = !groupPopOpen; closePops(); setGroupPopOpen(o); }}>
                     <span className="meta-lbl">Group:</span>
                     <span className="meta-val">{GROUP_LABELS[effectiveGroup]}</span>
                   </button>
                   {groupPopOpen && <GroupPopover value={effectiveGroup} onPick={(v) => { setGroupChoice(v); setGroupPopOpen(false); }} onClose={() => setGroupPopOpen(false)} />}
                 </div>
-                <button className="lg-filter-export" onClick={exportCsv}>
-                  <svg viewBox="0 0 12 12"><path d="M6 2v6M3 6l3 3 3-3M2 10.5h8" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                  Export CSV
-                </button>
                 {hasActiveFilters && <button className="lg-reset-all" onClick={resetAll}>Reset all</button>}
               </div>
             </div>
@@ -712,14 +753,20 @@ export default function TrialBalancePage() {
             <div className="lg-col-header">
               <div>Code</div>
               <div>Account Name</div>
-              <div style={{ textAlign: "right" }}>Opening Balance</div>
-              <div style={{ textAlign: "right" }}>Period Debit</div>
-              <div style={{ textAlign: "right" }}>Period Credit</div>
-              <div style={{ textAlign: "right" }}>Closing Balance</div>
+              <div style={{ textAlign: "right" }}>Opening</div>
+              <div style={{ textAlign: "right" }}>Debit</div>
+              <div style={{ textAlign: "right" }}>Credit</div>
+              <div style={{ textAlign: "right" }}>Ending Dr</div>
+              <div style={{ textAlign: "right" }}>Ending Cr</div>
               <div />
             </div>
 
             <div>
+              {sortedRows.length === 0 && (
+                <div className="lg-empty">
+                  {!showZero && search.trim() === "" && filter.kind === "tab" ? "No accounts with a balance here. Turn on “Show zero balances” to see them all." : "No accounts match."}
+                </div>
+              )}
               {groups ? (
                 groups.map((g) => {
                   const isCollapsed = collapsedGroups.has(g.key);
@@ -738,13 +785,12 @@ export default function TrialBalancePage() {
                       {!isCollapsed && (
                         <div className="lg-row subtotal">
                           <div />
-                          <div style={{ fontWeight: 700, color: "var(--color-text-secondary)", fontSize: 11, textTransform: "uppercase", letterSpacing: ".04em" }}>
-                            Subtotal {g.label}
-                          </div>
-                          <div className="lg-cell-total" style={{ color: "var(--color-text-tertiary)" }}>{g.sumOpen ? rp(g.sumOpen) : "—"}</div>
-                          <div className="lg-cell-total" style={{ color: "var(--color-action)" }}>{g.sumDebit ? rp(g.sumDebit) : "—"}</div>
-                          <div className="lg-cell-total" style={{ color: "var(--color-success-text)" }}>{g.sumCredit ? rp(g.sumCredit) : "—"}</div>
-                          <div className="lg-cell-total" style={{ fontWeight: 700, color: "var(--color-text-primary)" }}>{rp(g.sumClose)}</div>
+                          <div className="tb-total-lbl">Subtotal {g.label}</div>
+                          <div className="lg-cell-total" style={{ color: "var(--color-text-tertiary)" }}>{rp(g.sumOpen)}</div>
+                          <div className="lg-cell-total" style={{ color: "var(--color-action)" }}>{rp(g.sumDebit)}</div>
+                          <div className="lg-cell-total" style={{ color: "var(--color-success-text)" }}>{rp(g.sumCredit)}</div>
+                          <div className="lg-cell-total tb-cell-end">{rp(g.sumEndDr)}</div>
+                          <div className="lg-cell-total tb-cell-end">{rp(g.sumEndCr)}</div>
                           <div />
                         </div>
                       )}
@@ -752,10 +798,19 @@ export default function TrialBalancePage() {
                   );
                 })
               ) : (
-                <>
-                  {sortedRows.length === 0 && <div className="lg-empty">None account matching</div>}
-                  {sortedRows.map((r, i) => <TbRow key={r.code} r={r} isAlt={i % 2 === 1} />)}
-                </>
+                sortedRows.map((r, i) => <TbRow key={r.code} r={r} isAlt={i % 2 === 1} />)
+              )}
+              {sortedRows.length > 0 && (
+                <div className="lg-row subtotal tb-total-row">
+                  <div />
+                  <div className="tb-total-lbl">Total — {plural(sortedRows.length, "account")} shown</div>
+                  <div />
+                  <div className="lg-cell-total">{rp(shownTotals.sumDebit)}</div>
+                  <div className="lg-cell-total">{rp(shownTotals.sumCredit)}</div>
+                  <div className="lg-cell-total tb-cell-end">{rp(shownTotals.sumEndDr)}</div>
+                  <div className="lg-cell-total tb-cell-end">{rp(shownTotals.sumEndCr)}</div>
+                  <div />
+                </div>
               )}
             </div>
           </div>
@@ -763,21 +818,20 @@ export default function TrialBalancePage() {
       </div>{/* /lg-scroll-container */}
 
       {/* ── Sticky footer ──────────────────────────────────────────── */}
-      <div className="lg-footer">
+      <div className="lg-footer no-print">
         <div className="lg-footer-left">
-          <span><span className="lg-footer-num">{sortedRows.length}</span> account dishow</span>
+          <span><span className="lg-footer-num">{sortedRows.length}</span> of {ALL_TB.length} accounts shown</span>
           <span className="lg-footer-sep">·</span>
-          <span>Total Debit <span className="lg-footer-num" style={{ color: "var(--color-action)" }}>{rp(balance.dr)}</span></span>
+          <span>All accounts: Ending Dr <span className="lg-footer-num">{rp(balance.dr)}</span></span>
+          <span>Ending Cr <span className="lg-footer-num">{rp(balance.cr)}</span></span>
           <span className="lg-footer-sep">·</span>
-          <span>Total Credit <span className="lg-footer-num" style={{ color: "var(--color-success-text)" }}>{rp(balance.cr)}</span></span>
-          <span className="lg-footer-sep">·</span>
-          <span style={{ color: balance.balanced ? "var(--color-success-text)" : "var(--color-danger-text)" }}>
-            {balance.balanced ? "✓ Balanced" : `Variance ${rp(balance.variance)}`}
+          <span className={`tb-balance-flag${balance.balanced ? " ok" : " off"}`}>
+            {balance.balanced ? "✓ In balance" : `Out of balance by ${rp(balance.variance)}`}
           </span>
         </div>
         <div className="lg-footer-right">
-          <span className="lg-footer-lbl">Per</span>
-          <span className="lg-footer-total" style={{ fontSize: 13 }}>{fmtIdDate(dateTo)}</span>
+          <span className="lg-footer-lbl">Period</span>
+          <span className="lg-footer-total" style={{ fontSize: 13 }}>{periodRange}</span>
         </div>
       </div>
 
@@ -821,8 +875,10 @@ export default function TrialBalancePage() {
                       <div className="drawer-stat-val" style={{ color: "var(--color-text-tertiary)" }}>{rp(drawerRow.opening_balance)}</div>
                     </div>
                     <div className="drawer-stat-card">
-                      <div className="drawer-stat-lbl">Closing Balance</div>
-                      <div className={`drawer-stat-val${drawerRow.closing_balance < 0 ? " danger" : ""}`}>{rpZ(drawerRow.closing_balance)}</div>
+                      <div className="drawer-stat-lbl">Ending Balance</div>
+                      <div className={`drawer-stat-val${drawerRow.closing_balance < 0 ? " danger" : ""}`}>
+                        {drawerRow.ending_dr ? `Dr ${rp(drawerRow.ending_dr)}` : drawerRow.ending_cr ? `Cr ${rp(drawerRow.ending_cr)}` : "—"}
+                      </div>
                     </div>
                     <div className="drawer-stat-card">
                       <div className="drawer-stat-lbl">Period Debit</div>
@@ -834,48 +890,55 @@ export default function TrialBalancePage() {
                     </div>
                   </div>
                   <div className="drawer-section">
-                    <div className="drawer-section-title">Information Account</div>
+                    <div className="drawer-section-title">Account information</div>
                     {[
                       ["Code", drawerRow.code],
                       ["Name", drawerRow.name],
-                      ["Type", TYPE_LABELS[drawerRow.type]],
+                      ["Type", TYPE_NAMES[drawerRow.type]],
                       ["Normal Balance", drawerRow.normal_balance === "debit" ? "Debit" : "Credit"],
-                      ["Status", drawerAcct?.is_active ? "Active" : "Inactive"],
+                      ["Status", drawerRow.is_active ? "Active" : "Inactive"],
                     ].map(([label, value]) => (
                       <div key={label} className="drawer-row">
                         <div className="drawer-label">{label}</div>
                         <div className="drawer-value">{value}</div>
                       </div>
                     ))}
+                    {drawerRow.rolled_pl !== 0 && (
+                      <div className="drawer-row">
+                        <div className="drawer-label">Prior-year result</div>
+                        <div className="drawer-value">{rp(drawerRow.rolled_pl)} rolled into the opening balance</div>
+                      </div>
+                    )}
                   </div>
                   <div className="drawer-section">
                     <div className="drawer-section-title">Period</div>
                     <div className="drawer-row">
-                      <div className="drawer-label">Awal Period</div>
+                      <div className="drawer-label">Period start</div>
                       <div className="drawer-value">{fmtIdDate(dateFrom)}</div>
                     </div>
                     <div className="drawer-row">
-                      <div className="drawer-label">As-of</div>
+                      <div className="drawer-label">Period end</div>
                       <div className="drawer-value">{fmtIdDate(dateTo)}</div>
                     </div>
                     <div className="drawer-row">
-                      <div className="drawer-label">Jumlah Transactions</div>
-                      <div className="drawer-value">{drawerRow.entries.length} JE</div>
+                      <div className="drawer-label">Journal lines</div>
+                      <div className="drawer-value">{drawerRow.entries.length}</div>
                     </div>
                   </div>
                 </>
               )}
               {drawerTab === "transactions" && (
                 <div className="drawer-section">
-                  <div className="drawer-section-title">Transactions Period · {drawerRow.entries.length} entri</div>
+                  <div className="drawer-section-title">Period transactions · {plural(drawerRow.entries.length, "line")}</div>
                   {drawerRow.entries.length === 0 ? (
-                    <div style={{ color: "var(--color-text-tertiary)", fontSize: 12, padding: "12px 0" }}>Not yet there is transactions on this period.</div>
-                  ) : drawerRow.entries.slice(0, 50).map((e, i) => (
-                    <div key={i} style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-default)", borderRadius: "var(--radius-md)", padding: "10px 12px", marginBottom: 8 }}>
+                    <div style={{ color: "var(--color-text-tertiary)", fontSize: 12, padding: "12px 0" }}>No transactions in this period.</div>
+                  ) : drawerLines.map((e) => (
+                    <div key={e.key} style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-default)", borderRadius: "var(--radius-md)", padding: "10px 12px", marginBottom: 8 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                         <div style={{ minWidth: 0 }}>
-                          <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-action)" }}>{e.je_ref}</div>
+                          <button className="tb-je-link" onClick={() => openJe(e.je_ref)} title="Open journal entry">{e.je_ref}</button>
                           <div style={{ fontSize: 12, fontWeight: 600, marginTop: 2 }}>{e.memo}</div>
+                          {e.description && e.description !== e.memo && <div style={{ fontSize: 11, color: "var(--color-text-secondary)", marginTop: 2 }}>{e.description}</div>}
                           <div style={{ fontSize: 11, color: "var(--color-text-tertiary)", marginTop: 2 }}>{fmtIdDate(e.date)}</div>
                         </div>
                         <div style={{ textAlign: "right", flexShrink: 0 }}>
@@ -885,20 +948,27 @@ export default function TrialBalancePage() {
                       </div>
                     </div>
                   ))}
+                  <ShowMore />
                 </div>
               )}
               {drawerTab === "audit" && (
                 <div className="drawer-section">
                   <div className="drawer-section-title">Audit Trail</div>
-                  {drawerRow.entries.slice(0, 20).map((e, i) => (
-                    <div key={i} style={{ display: "flex", gap: 10, padding: "8px 0", borderBottom: i < 19 ? "1px solid var(--color-surface-sunken)" : "none" }}>
+                  {drawerRow.entries.length === 0 && (
+                    <div style={{ color: "var(--color-text-tertiary)", fontSize: 12, padding: "12px 0" }}>Nothing posted to this account in this period.</div>
+                  )}
+                  {drawerLines.map((e, i) => (
+                    <div key={e.key} style={{ display: "flex", gap: 10, padding: "8px 0", borderBottom: i < drawerLines.length - 1 ? "1px solid var(--color-surface-sunken)" : "none" }}>
                       <div style={{ width: 18, height: 18, borderRadius: 9, background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-default)", flexShrink: 0 }} />
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 12, fontWeight: 600 }}>{e.je_ref} posted</div>
+                        <div style={{ fontSize: 12, fontWeight: 600 }}>
+                          <button className="tb-je-link" onClick={() => openJe(e.je_ref)}>{e.je_ref}</button> posted
+                        </div>
                         <div style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>{e.posted_by || "—"} · {e.posted_date ? fmtIdDate(e.posted_date) : "—"}</div>
                       </div>
                     </div>
                   ))}
+                  <ShowMore />
                 </div>
               )}
               {drawerTab === "ai" && (
@@ -907,7 +977,7 @@ export default function TrialBalancePage() {
                   {drawerAnom.length === 0 ? (
                     <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 12, background: "var(--color-success-surface)", border: "1px solid var(--color-success-border)", borderRadius: "var(--radius-md)", fontSize: 12, color: "var(--color-success-text)" }}>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                      Account ini within normal range — none finding AI.
+                      This account is within normal range — no AI findings.
                     </div>
                   ) : drawerAnom.map((a, i) => (
                     <div key={i} style={{
@@ -928,6 +998,12 @@ export default function TrialBalancePage() {
                   ))}
                 </div>
               )}
+            </div>
+            <div className="drawer-footer">
+              <button className="drawer-btn primary" onClick={() => openGl(drawerRow.code)}>
+                {GL_ICON}
+                View in General Ledger
+              </button>
             </div>
           </div>
         </>

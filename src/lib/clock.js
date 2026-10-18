@@ -13,10 +13,14 @@ export function parseDate(input) {
 
 const MS_PER_DAY = 86400000;
 
-export function daysSince(input) {
+// Whole days from `input` to `asOf` (default: the demo clock). `asOf` takes the
+// same ISO string or Date as `input`, so an as-of report can age documents
+// against a past month-end instead of today.
+export function daysSince(input, asOf = TODAY) {
   const date = parseDate(input);
   if (!date) return Infinity;
-  return Math.floor((TODAY - date) / MS_PER_DAY);
+  const ref = parseDate(asOf) || TODAY;
+  return Math.floor((ref - date) / MS_PER_DAY);
 }
 
 // ── ISO date arithmetic ──────────────────────────────────────────────────────
