@@ -27,8 +27,8 @@
 
 import { COA, COA_BY_CODE } from "../data/seed/coa";
 import { OPENING_BALANCES } from "../data/seed/openingBalances";
+import { DEFAULT_ACCOUNTS } from "../data/seed/defaultAccounts";
 
-const RETAINED_EARNINGS = "3-1300";
 const REVENUE_SECTIONS = new Set(["Revenue", "Other Revenue"]);
 
 const pad = (n) => String(n).padStart(2, "0");
@@ -101,7 +101,7 @@ export function computeTrialBalance({ from, to, entries, fiscalYearStart = 1 }) 
 
   return ACCOUNTS.map((acct) => {
     const a = acc[acct.code];
-    const rolled = acct.code === RETAINED_EARNINGS ? rolledPl : 0;
+    const rolled = acct.code === DEFAULT_ACCOUNTS.retainedEarnings ? rolledPl : 0;
     const opening = r2((SEED_OPENING[acct.code] || 0) + a.pre + rolled);
     const closing = r2(opening + oriented(acct, a.perDr, a.perCr));
     const isZero = opening === 0 && closing === 0 && a.perDr === 0 && a.perCr === 0;

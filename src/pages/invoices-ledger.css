@@ -521,6 +521,9 @@
 .dje-line-main{display:flex;gap:8px;align-items:center}
 .dje-acct{flex:1;min-width:0}
 .dje-amt{width:120px;text-align:right;font-family:var(--font-mono)}
+.dje-amt.expected{border-color:var(--color-action)}
+.dje-acct-pick{border-color:var(--warning-border,#E8C77A);background:var(--warning-surface,#FFF6E0)}
+.dje-template{margin-left:auto;max-width:260px;font-size:12px;font-weight:500;text-transform:none;letter-spacing:0}
 .dje-line-del{width:26px;height:26px;flex-shrink:0;border:1px solid var(--color-border-default);border-radius:var(--radius-sm);background:var(--color-surface-raised);color:var(--color-text-tertiary);cursor:pointer;font-size:15px;line-height:1}
 .dje-line-del:hover:not(:disabled){color:#C4453A;border-color:#C4453A}
 .dje-line-del:disabled{opacity:.4;cursor:not-allowed}
@@ -776,4 +779,3 @@
 .je-tpl-btn svg{width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:2}
 
 /* Journal Entry: a posted entry waiting for its deletion to be approved */
-.je-del-badge{margin-left:4px}

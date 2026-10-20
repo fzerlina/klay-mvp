@@ -6,6 +6,8 @@ import { initials, termLabel } from "../lib/format";
 import "./invoice-create.css";
 import "./vendor-create.css";
 import { useModuleSettings } from "../state/ModuleSettingsContext";
+import { COA, COA_BY_CODE } from "../data/seed/coa";
+import { DEFAULT_ACCOUNTS } from "../data/seed/defaultAccounts";
 
 // ── New Vendor — manual creation (Vendor Master PRD, Flow B) ─────────────────
 // Capability-gated per the Role & Permission engine: creating a vendor requires
@@ -48,11 +50,13 @@ function rateFor(pph, hasNpwp) {
 
 const CURRENCY_OPTIONS = ["IDR", "USD", "SGD", "EUR"];
 
-const RECON_OPTIONS = [
-  { v: "2-1000", label: "2-1000 · Accounts Payable (default)" },
-  { v: "2-1100", label: "2-1100 · AP — Trade" },
-  { v: "2-1200", label: "2-1200 · AP — Accrued" },
-];
+// The payables a vendor may be reconciled on: the chart's Trade Payables. A new
+// vendor starts on the default AP account (Settings → Accounting → Default
+// accounts), which leads the list even if it sits elsewhere in the chart.
+const AP_ACCOUNTS = COA.filter((a) => a.parent === "g-trade-payable" && a.is_active).map((a) => a.code);
+const reconOptions = () => [...new Set([DEFAULT_ACCOUNTS.ap, ...AP_ACCOUNTS])].map((v) => ({
+  v, label: `${v} · ${COA_BY_CODE[v]?.name || v}${v === DEFAULT_ACCOUNTS.ap ? " (default)" : ""}`,
+}));
 
 function digitsOnly(s) {
   return (s || "").replace(/\D/g, "");
@@ -122,7 +126,7 @@ export default function VendorCreatePage() {
   const TERM_OPTIONS = paymentTerms.filter((t) => t.vendors).map((t) => t.code);
   const [term, setTerm] = useState(defaultTerm);
   const [currency, setCurrency] = useState("IDR");
-  const [recon, setRecon] = useState("2-1000");
+  const [recon, setRecon] = useState(DEFAULT_ACCOUNTS.ap);
 
   const [banks, setBanks] = useState([blankBank()]);
 
@@ -412,7 +416,7 @@ export default function VendorCreatePage() {
             <div className="form-fld" style={{ marginBottom: 0 }}>
               <label>Reconciliation Account <span className="vc-req">*</span></label>
               <select value={recon} onChange={(e) => setRecon(e.target.value)}>
-                {RECON_OPTIONS.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
+                {reconOptions().map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
               </select>
               {fmHint}
             </div>

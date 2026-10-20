@@ -8,6 +8,22 @@
 .cs-tab:hover{color:var(--color-text-primary)}
 .cs-tab.active{color:var(--color-text-primary);font-weight:600;border-bottom-color:var(--color-text-primary)}
 
+/* History button + audit trail drawer (every Settings page) */
+.cs-history-btn{display:inline-flex;align-items:center;gap:6px;font-family:var(--font-sans);font-size:12px;font-weight:600;color:var(--color-text-secondary);background:var(--color-surface-raised);border:1px solid var(--color-border-default);border-radius:var(--radius-sm);padding:7px 11px;cursor:pointer}
+.cs-history-btn:hover{border-color:var(--color-text-tertiary);color:var(--color-text-primary)}
+.cs-history-btn svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.cs-audit-sub{font-size:11.5px;color:var(--color-text-tertiary);margin-top:2px}
+.cs-audit-switch{display:flex;gap:4px;padding:10px 20px;border-bottom:1px solid var(--color-border-subtle)}
+.cs-audit-switch button{font-family:var(--font-sans);font-size:12px;font-weight:500;color:var(--color-text-secondary);background:none;border:1px solid transparent;border-radius:999px;padding:4px 10px;cursor:pointer}
+.cs-audit-switch button.on{background:var(--color-surface-sunken);border-color:var(--color-border-default);color:var(--color-text-primary);font-weight:600}
+.cs-audit-row{display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--color-border-subtle)}
+.cs-audit-row:last-child{border-bottom:none}
+.cs-audit-dot{flex:0 0 auto;width:8px;height:8px;border-radius:50%;background:var(--color-border-default);margin-top:5px}
+.cs-audit-what{font-size:12.5px;color:var(--color-text-primary);line-height:1.45}
+.cs-audit-meta{font-size:11px;color:var(--color-text-tertiary);margin-top:3px}
+.cs-audit-empty{font-size:12.5px;color:var(--color-text-tertiary)}
+@media (max-width:760px){ .drawer[aria-label="Audit trail"]{width:100%} }
+
 /* ── Company profile tab ──────────────────────────────────────────────── */
 
 .cp-body{padding:24px 32px 48px;max-width:820px}
@@ -24,6 +40,14 @@
 .cp-field input:disabled,.cp-field select:disabled,.cp-field textarea:disabled{background:var(--color-surface-sunken);color:var(--color-text-secondary);cursor:not-allowed}
 .cp-field em{font-style:normal;font-size:11.5px;color:var(--color-text-tertiary);line-height:1.45}
 .cp-logo{display:flex;align-items:center;gap:14px}
+.cp-logo-row{display:flex;align-items:center;gap:16px;padding:18px 20px}
+.cp-logo-img{width:64px;height:64px;object-fit:contain;border:1px solid var(--color-border-subtle);border-radius:10px;background:#fff;padding:4px;flex-shrink:0}
+.cp-logo-row .cp-logo-mark{width:64px;height:64px;font-size:22px}
+.cp-logo-actions{display:flex;align-items:center;gap:12px}
+.cp-logo-row{border-bottom:1px solid var(--color-border-subtle)}
+.cp-logo-hint{margin-left:auto;font-size:11.5px;color:var(--color-text-tertiary)}
+@media (max-width:760px){ .cp-logo-row{flex-wrap:wrap} .cp-logo-hint{margin-left:0;width:100%} }
+.cp-logo-remove{background:none;border:none;padding:0;cursor:pointer;font-family:var(--font-sans);font-size:12px}
 .cp-logo-mark{width:48px;height:48px;border-radius:10px;background:var(--color-brand);color:#fff;display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-weight:900;font-size:18px;flex-shrink:0}
 .cp-foot{display:flex;justify-content:flex-end;gap:8px;padding:12px 20px;border-top:1px solid var(--color-border-subtle);background:var(--color-surface-sunken)}
 .cp-ro{font-size:12px;color:var(--color-text-tertiary);padding:0 32px;margin-top:16px}
@@ -62,6 +86,7 @@ button.cs-tab{background:none;border-top:none;border-left:none;border-right:none
 .tx-note{font-size:11.5px;color:var(--color-text-tertiary);line-height:1.45;margin-top:3px}
 .tx-rate{font-family:var(--font-mono);font-size:12px;color:var(--color-text-primary)}
 .tx-code{font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--color-text-primary)}
+.tx-fixed{font-size:13px;font-weight:400;color:var(--color-text-primary);background:var(--color-surface-sunken);border:1px solid var(--color-border-default);border-radius:var(--radius-sm);padding:8px 10px}
 .tx-muted{color:var(--color-text-tertiary)}
 .tx-ro{font-size:12px;color:var(--color-text-tertiary)}
 @media (max-width:760px){

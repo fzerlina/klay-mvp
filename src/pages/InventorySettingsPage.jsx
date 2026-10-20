@@ -30,6 +30,7 @@ function ItemCategoriesList({ canEdit }) {
   return (
     <RecordList
       title="Item categories"
+      auditArea="Inventory"
       intro="Every item belongs to one category, and the category decides its accounts — where stock sits, where sales and cost of goods go. Moving an item to another category later needs a reclassification journal, so set these up before items are created."
       rows={itemCategories}
       rowKey="key"
@@ -60,6 +61,7 @@ function UnitsList({ canEdit }) {
   return (
     <RecordList
       title="Units of measure"
+      auditArea="Inventory"
       intro="The units items can be stocked in. A Count unit takes whole numbers only; a Measure unit allows decimals to its precision. The conversion is the default an item starts from — an item can still override it."
       rows={units}
       rowKey="code"
@@ -92,6 +94,7 @@ function SitesList({ canEdit }) {
   return (
     <RecordList
       title="Sites & locations"
+      auditArea="Inventory"
       intro="Where items and assets are kept. A site is the broader place — a city, an area or a project; a location is a specific spot inside it, such as a warehouse or a cluster."
       rows={sites}
       rowKey="id"
@@ -155,6 +158,7 @@ export function FixedAssetsSettingsPage() {
         />
         <RecordList
           title="Asset categories"
+          auditArea="Fixed Assets"
           intro="Useful lives start from the Indonesian tax asset groups (Kelompok 1–4, permanent and non-permanent buildings). Check them against your own policy."
           rows={assetCategories}
           rowKey="key"

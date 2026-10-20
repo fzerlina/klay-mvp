@@ -3,7 +3,7 @@ import { DIMENSIONS as SEED_DIMENSIONS } from "../data/seed/dimensions";
 
 // Configured dimensions (seed + anything added in Settings → Accounting →
 // Dimensions), shared so a value added there is offered everywhere that reads
-// it live — e.g. mapping a department to its Department value in Users.
+// it live.
 const DimensionsContext = createContext(null);
 
 export function DimensionsProvider({ children }) {

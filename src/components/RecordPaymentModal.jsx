@@ -11,7 +11,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  COMMON_DEDUCTION_ACCOUNTS, DEDUCTION_ACCOUNTS, PAYMENT_METHODS, PAYMENT_METHOD_BY_KEY,
+  commonDeductionAccounts, DEDUCTION_ACCOUNTS, PAYMENT_METHODS, PAYMENT_METHOD_BY_KEY,
   accountByCode, breakdownTotal, cashOut, defaultBreakdown, deductionsOf, newDeduction,
   validateBreakdown,
 } from "../lib/paymentBreakdown";
@@ -24,6 +24,7 @@ import { formatRupiah, formatRupiahExact } from "../lib/format";
 import "../pages/ap-aging.css";
 import "../pages/payments.css";
 import { useModuleSettings } from "../state/ModuleSettingsContext";
+import { DEFAULT_ACCOUNTS } from "../data/seed/defaultAccounts";
 
 export default function RecordPaymentModal({ bill, onConfirm, onClose }) {
   const { vendorById } = useVendors();
@@ -116,7 +117,7 @@ export default function RecordPaymentModal({ bill, onConfirm, onClose }) {
   // Odoo's single write-off line, the difference can be split across several
   // accounts. Difference rows are ordinary deductions flagged `diff`, so they
   // land in the journal entry like any other.
-  const DIFF_ACCOUNT = "6-3000"; // Bank Charges — the usual cause
+  const DIFF_ACCOUNT = DEFAULT_ACCOUNTS.paymentDifference; // Settings → Accounting → Default accounts
   const [diffMode, setDiffMode] = useState("open");
   const isDiff = (d) => !!d.diff;
   const gapOf = (b) => Math.max(0, (bill.remaining || 0) - cashOut(b) - deductionsOf(b).filter((d) => !isDiff(d)).reduce((s, d) => s + (Number(d.amount) || 0), 0));
@@ -575,7 +576,8 @@ function BillSnapshot({ bill }) {
 // "type" to pick and then silently map to a code.
 function DeductionRow({ row, onAmount, onAccount, onRemove }) {
   const picked = accountByCode(row.account);
-  const suggestion = COMMON_DEDUCTION_ACCOUNTS.find((s) => s.code === row.account);
+  const common = commonDeductionAccounts();
+  const suggestion = common.find((s) => s.code === row.account);
   return (
     <div className="pm-bd-row deduction">
       <div className="pm-bd-lbl">
@@ -586,7 +588,7 @@ function DeductionRow({ row, onAmount, onAccount, onRemove }) {
         >
           <option value="">Choose an account…</option>
           <optgroup label="Common on payments">
-            {COMMON_DEDUCTION_ACCOUNTS.map((s) => (
+            {common.map((s) => (
               <option key={s.code} value={s.code}>{s.code} · {accountByCode(s.code).name}</option>
             ))}
           </optgroup>

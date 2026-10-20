@@ -104,7 +104,7 @@ const ROUTE_MODULE = [
   ["/dimensions", "settings"],
   ["/company-settings", "settings"],
   ["/settings", "settings"],
-  ["/departments", "settings"],
+  ["/journal-templates", "settings"],
   ["/users", "settings"],
   ["/roles", "settings"],
 ];

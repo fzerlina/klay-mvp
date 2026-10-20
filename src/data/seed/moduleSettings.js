@@ -10,7 +10,6 @@
 import { UNIT_DEFAULTS, PRIMARY_UNITS, ITEM_UOM_LABELS } from "./items";
 import { PAYMENT_METHODS } from "../../lib/paymentBreakdown";
 import { DEFAULT_FEE_CEILING, FEE_CEILING_BY_BANK } from "./bankFees";
-import { ACCT_BANK_FEE, ACCT_INTEREST_INCOME, ACCT_INTEREST_TAX } from "../../lib/reconJournal";
 
 // ── Payables & Receivables ──────────────────────────────────────────────
 // One list, used by both vendors and customers. Codes match what vendor and
@@ -87,12 +86,5 @@ export const ASSET_CATEGORY_DEFAULTS = {
 export const TAX_GROUPS = ["Kelompok 1", "Kelompok 2", "Kelompok 3", "Kelompok 4", "Bangunan permanen", "Bangunan tidak permanen"];
 
 // ── Reconciliation ──────────────────────────────────────────────────────
-// Where bank reconciliation books what a statement line implies, read from
-// lib/reconJournal.js so the page shows what reconciliation actually posts to.
-export const RECON_ACCOUNTS = {
-  bankFee: ACCT_BANK_FEE,
-  interestIncome: ACCT_INTEREST_INCOME,
-  interestTax: ACCT_INTEREST_TAX,
-};
 // Largest gap To match treats as a bank fee rather than a mismatch.
 export const FEE_TOLERANCE = { default: DEFAULT_FEE_CEILING, byBank: { ...FEE_CEILING_BY_BANK } };

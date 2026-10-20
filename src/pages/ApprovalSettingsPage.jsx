@@ -4,6 +4,8 @@ import {
   policyGaps, requiredApprovals,
 } from "../lib/approvalPolicy";
 import { formatRupiahExact } from "../lib/format";
+import SettingsHeader from "../components/SettingsHeader";
+import { useSettingsAudit } from "../state/SettingsAuditContext";
 import "./modules.css";
 import "./invoices-ledger.css";
 import "./settings-pages.css";
@@ -51,8 +53,11 @@ export default function ApprovalSettingsPage() {
     if (toastTmr.current) clearTimeout(toastTmr.current);
     toastTmr.current = setTimeout(() => setToast(""), 2200);
   }
+  // The page's own policy log, and the Settings audit trail (History).
+  const { log: auditLog } = useSettingsAudit();
   function record(text) {
     setLog((prev) => [{ ts: new Date().toISOString(), by: "Andi Wijaya (Admin)", text }, ...prev]);
+    auditLog("Approval", "Approval", text);
   }
 
   const gaps = useMemo(() => policyGaps(policy, seats), [policy, seats]);
@@ -101,19 +106,10 @@ export default function ApprovalSettingsPage() {
   return (
     <div className="lg-page">
       <div className="lg-scroll-container">
-        <div className="lg-head">
-          <div className="cs-eyebrow">Settings</div>
-          <div className="lg-head-top">
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <h1 className="lg-title">Approval</h1>
-              <p className="settings-sub">
-                How many people must approve a payment before the money leaves, and who those people can
-                be. The requirement is worked out per payment rather than fixed as a ladder, so a small
-                recurring bill and a Rp 2 miliar transfer do not cost the same attention.
-              </p>
-            </div>
-          </div>
-        </div>
+        <SettingsHeader
+          title="Approval"
+          intro="How many people must approve a payment before the money leaves, and who those people can be. The requirement is worked out per payment rather than fixed as a ladder, so a small recurring bill and a Rp 2 miliar transfer do not cost the same attention."
+        />
 
         <div className="apv-principle">
           <span className="apv-principle-k">Rules only ever add approvals.</span>

@@ -29,7 +29,7 @@ import RecordPaymentModal from "../components/RecordPaymentModal";
 import { buildAgingLines } from "../lib/apAging";
 import { makeFlagger, releaseState, FLAG_TIERS } from "../lib/paymentFlags";
 import { REQ_META, gatesRelease, payModeFor, paymentActionFor, paymentStatusOf } from "../lib/paymentStage";
-import { PAYMENT_METHOD_BY_KEY, auditTextFor, breakdownTotal, describeBreakdown, remainingWithholding, withheldTax, WITHHOLDING_ACCOUNT } from "../lib/paymentBreakdown";
+import { PAYMENT_METHOD_BY_KEY, auditTextFor, breakdownTotal, describeBreakdown, remainingWithholding, withheldTax, withholdingAccount } from "../lib/paymentBreakdown";
 import { bankAccountById } from "../data/seed/bankAccounts";
 import { paymentJournalLines } from "../lib/paymentJournal";
 import { reconOf, billReconOf } from "../lib/bankRecon";
@@ -86,7 +86,7 @@ function PaymentTab({ bill, detail }) {
         at: h.at,
         amount: h.cleared,
         by: h.by,
-        detail: describeBreakdown(h.breakdown, { omit: [WITHHOLDING_ACCOUNT] }),
+        detail: describeBreakdown(h.breakdown, { omit: [withholdingAccount()] }),
         method: PAYMENT_METHOD_BY_KEY[h.breakdown?.method]?.label || null,
         source: bankAccountById(h.breakdown?.sourceAccountId)?.name || null,
         ref: h.breakdown?.giroNumber || null,

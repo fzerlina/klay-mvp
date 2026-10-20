@@ -60,30 +60,6 @@ export function ReturnDialog({ je, onClose, onConfirm }) {
   );
 }
 
-export function DeleteDialog({ je, onClose, onConfirm }) {
-  const [reason, setReason] = useState("");
-  return (
-    <Shell
-      title="Request deletion"
-      sub={`${je.je_number} · ${je.memo}`}
-      onClose={onClose}
-      onConfirm={() => onConfirm(reason.trim())}
-      confirmLabel="Request deletion"
-      disabled={reason.trim().length < 5}
-    >
-      <label className="dje-field">
-        <span className="dje-field-lbl">Why delete it</span>
-        <textarea className="dje-input jad-text" rows={3} value={reason} autoFocus
-          placeholder="e.g. Duplicate of JE-2025-0412, entered twice" onChange={(e) => setReason(e.target.value)} />
-      </label>
-      <p className="jad-note">
-        Someone else with posting rights has to approve. Once approved the entry leaves the ledger, but it stays
-        listed under Deleted with its full audit trail. To correct an entry rather than remove it, reverse it.
-      </p>
-    </Shell>
-  );
-}
-
 export function ReverseDialog({ je, closedThrough, onClose, onConfirm }) {
   const [date, setDate] = useState(() => {
     const first = firstOfNextMonth(je.je_date);

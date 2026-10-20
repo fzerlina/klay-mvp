@@ -532,20 +532,7 @@ function buildGeneratedUsers() {
   });
 }
 
-// Each person's home department — a value of the Department dimension
-// (Settings → Dimensions). It says where someone sits in the organisation and
-// grants nothing: access stays with roles, record scope with role assignments.
-// Seeded from the primary role; editable per user on the Users page.
-const DEPT_BY_ROLE = {
-  finance_manager: "Finance", accounting_manager: "Finance", ap_staff: "Finance", ar_staff: "Finance",
-  finance_staff: "Finance", purchasing_staff: "Procurement", warehouse_staff: "Operations",
-  admin: "Technology", view_only: "Executive",
-};
-
-export const USERS = [...ANCHOR_USERS, ...buildGeneratedUsers()].map((u) => ({
-  department: DEPT_BY_ROLE[u.roleKeys[0]] || null,
-  ...u,
-}));
+export const USERS = [...ANCHOR_USERS, ...buildGeneratedUsers()];
 
 // ── Live role registry (customisable roles) ────────────────────────────────
 // ROLES and ROLE_CAPS above are the roles every company is provisioned with,

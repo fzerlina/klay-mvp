@@ -7,10 +7,9 @@ import { scheduledEntries } from "../lib/scheduledJournals";
 import { nextPeriod } from "../lib/fixedAssets";
 import {
   canEdit, canSubmit, canApprove as canApproveEntry, canReturn, canVoid, canReverse,
-  canRequestDeletion, canApproveDeletion,
   isSystemEntry, reversibleHere, withEvent, buildReversal, isoOf,
 } from "../lib/journalLifecycle";
-import { ReturnDialog, ReverseDialog, RecurringDialog, TemplatesDrawer, DeleteDialog } from "./JeActionDialogs";
+import { ReturnDialog, ReverseDialog, RecurringDialog, TemplatesDrawer } from "./JeActionDialogs";
 import { TODAY } from "../lib/clock";
 import { formatDate } from "../lib/format";
 import AiChatDrawer from "./AiChatDrawer";
@@ -175,11 +174,6 @@ function JeRow({ r, isChecked, onCheck, onClick, onKebab, isSelected, isAlt }) {
           {isAnomaly && <svg viewBox="0 0 12 12"><path d="M6 1.5l5 8.5h-10z" fill="currentColor" stroke="none"/><line x1="6" y1="5" x2="6" y2="7.5" stroke="#fff" strokeWidth="1.4"/><circle cx="6" cy="8.8" r="0.6" fill="#fff" stroke="none"/></svg>}
           {STATUS_LABEL[r.status]}
         </span>
-        {r.deletion && r.status !== "deleted" && (
-          <span className="badge badge-review je-del-badge" title={`Requested by ${r.deletion.requested_by}: ${r.deletion.reason}`}>
-            Deletion requested
-          </span>
-        )}
       </div>
       <div className="lg-cell-kebab" onClick={(e) => e.stopPropagation()}>
         <button className="lg-kebab" onClick={() => onKebab(r.je_number)}>
@@ -1055,15 +1049,6 @@ export default function JournalEntryPage() {
     const src = sourceOf(je);
     if (src) out.push({ key: "open_source", label: "Open source", icon: "link", check: { ok: true } });
     if ((je.status === "draft" || je.status === "pending") && !sys) out.push({ key: "void", label: "Void", icon: "void", danger: true, check: canVoid(je) });
-    // Soft-delete, only for companies that turned it on (Settings → Accounting → Preferences).
-    if (je.status === "posted" && je.deletion) {
-      out.unshift(
-        { key: "approve_deletion", label: "Approve deletion", icon: "trash", primary: true, check: canApproveDeletion(je, ctx) },
-        { key: "keep_entry", label: "Keep entry", icon: "back", check: canApprove ? { ok: true } : { ok: false, reason: "Your role cannot review journal entries." } },
-      );
-    } else if (je.status === "posted" && journalDeletion && !sys) {
-      out.push({ key: "request_deletion", label: "Delete…", icon: "trash", danger: true, check: canRequestDeletion(je, { ...ctx, enabled: journalDeletion, canTransact }) });
-    }
     return out;
   }
 
@@ -1092,39 +1077,12 @@ export default function JournalEntryPage() {
     else if (action === "return") setDialog({ kind: "return", je });
     else if (action === "reverse") setDialog({ kind: "reverse", je });
     else if (action === "recurring") setDialog({ kind: "recurring", je });
-    else if (action === "request_deletion") setDialog({ kind: "delete", je });
-    else if (action === "approve_deletion") {
-      const check = canApproveDeletion(je, ctx);
-      if (!check.ok) { showToast(check.reason); return; }
-      updateJournalEntry(je.je_number, (cur) => withEvent(
-        { ...cur, status: "deleted", deletion: { ...cur.deletion, approved_by: actor, approved_at: todayIso } },
-        "deleted", actor, `Approved deletion requested by ${cur.deletion.requested_by}: ${cur.deletion.reason}`,
-      ));
-      showToast(`${je.je_number} deleted — it no longer counts in the ledger`);
-    } else if (action === "keep_entry") {
-      updateJournalEntry(je.je_number, (cur) => {
-        const { deletion, ...rest } = cur;
-        return withEvent(rest, "deletion declined", actor, `Request by ${deletion.requested_by}`);
-      });
-      showToast(`${je.je_number} kept — deletion declined`);
-    }
     else if (action === "void") {
       const check = canVoid(je);
       if (!check.ok) { showToast(check.reason); return; }
       updateJournalEntry(je.je_number, (cur) => withEvent({ ...cur, status: "void" }, "voided", actor));
       showToast(`${je.je_number} voided`);
     }
-  }
-
-  function confirmDeletionRequest(je, reason) {
-    const check = canRequestDeletion(je, { ...ctx, enabled: journalDeletion, canTransact });
-    if (!check.ok) { showToast(check.reason); return; }
-    updateJournalEntry(je.je_number, (cur) => withEvent(
-      { ...cur, deletion: { requested_by: actor, requested_at: todayIso, reason } },
-      "deletion requested", actor, reason,
-    ));
-    setDialog(null);
-    showToast(`Deletion of ${je.je_number} sent for approval`);
   }
 
   function confirmReturn(je, reason) {
@@ -1800,9 +1758,6 @@ export default function JournalEntryPage() {
 
       {dialog?.kind === "return" && (
         <ReturnDialog je={dialog.je} onClose={() => setDialog(null)} onConfirm={(reason) => confirmReturn(dialog.je, reason)} />
-      )}
-      {dialog?.kind === "delete" && (
-        <DeleteDialog je={dialog.je} onClose={() => setDialog(null)} onConfirm={(reason) => confirmDeletionRequest(dialog.je, reason)} />
       )}
       {dialog?.kind === "reverse" && (
         <ReverseDialog je={dialog.je} closedThrough={closedThrough} onClose={() => setDialog(null)} onConfirm={(date) => confirmReverse(dialog.je, date)} />

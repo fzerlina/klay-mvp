@@ -1,0 +1,28 @@
+/* Settings → General Ledger → Journal templates, and the template lines shown
+   on the Draft Journal Entry modal. */
+
+.jt-list{display:flex;flex-direction:column;gap:12px;max-width:880px}
+.jt-card{border:1px solid var(--color-border-default);border-radius:var(--radius-md);background:var(--color-surface-raised);padding:16px 20px}
+.jt-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}
+.jt-name{margin:0;font-size:14px;font-weight:600;color:var(--color-text-primary)}
+.jt-actions{display:flex;gap:8px;flex-shrink:0}
+.jt-danger{color:var(--danger-text,#A02020)}
+.jt-lines{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:7px;font-size:12.5px;color:var(--color-text-primary)}
+.jt-lines li{display:flex;align-items:center;gap:10px}
+.jt-side{flex:0 0 auto;width:52px;text-align:center;font-size:10.5px;font-weight:600;padding:2px 0;border-radius:var(--radius-sm)}
+.jt-side.debit{background:#EBF0FD;color:#1338A8}
+.jt-side.credit{background:var(--color-surface-sunken);color:var(--color-text-secondary)}
+.jt-pick{color:var(--warning-text,#8A5A00)}
+
+.jt-modal{max-width:580px}
+.jt-edit-lines{display:flex;flex-direction:column;gap:8px}
+.jt-edit-line{display:grid;grid-template-columns:100px minmax(0,1fr) 30px;gap:8px;align-items:center}
+.jt-remove{width:30px;height:30px;display:grid;place-items:center;background:none;border:1px solid var(--color-border-default);border-radius:var(--radius-sm);cursor:pointer;color:var(--color-text-tertiary)}
+.jt-remove:disabled{opacity:.35;cursor:not-allowed}
+.jt-remove svg{width:10px;height:10px;stroke:currentColor;stroke-width:1.6}
+.jt-add{align-self:flex-start;font-family:var(--font-sans);font-size:12px;font-weight:600;color:var(--color-action);background:none;border:none;padding:4px 0;cursor:pointer}
+
+@media (max-width:760px){
+  .jt-card-head{flex-direction:column}
+  .jt-edit-line{grid-template-columns:84px minmax(0,1fr) 30px}
+}

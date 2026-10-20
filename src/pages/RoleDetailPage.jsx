@@ -8,13 +8,13 @@ import "./roles.css";
 import { ROLE_EDITING, useRoles } from "../state/RolesContext";
 import { COMPANY } from "../data/seed/company";
 import { useCurrentUser } from "../state/CurrentUserContext";
+import { useSettingsAudit } from "../state/SettingsAuditContext";
 import CreateRoleModal from "../components/CreateRoleModal";
 import SodRiskAcceptance, { riskAccepted } from "../components/SodRiskAcceptance";
 import { useAccountingSettings } from "../state/AccountingSettingsContext";
 import { ROLES, USERS, capabilitySet, evaluateSod, evaluateSodSet, sodDecision } from "../data/seed/roles";
-import { bandCeiling, defaultPolicy } from "../lib/approvalPolicy";
 import {
-  CAP_SECTIONS, VERB_COPY, approverScopes, canonicalId, capLabel, diffCaps, fmtRp, fmtRpShort,
+  CAP_SECTIONS, VERB_COPY, canonicalId, capLabel, diffCaps,
   hasCap, sodInvolvement, toggleCap,
 } from "../lib/roleCapabilities";
 
@@ -24,10 +24,9 @@ import {
 // writes a new version of the role and applies to every holder at once, so the
 // right-hand panel answers "what will this change do?" before it happens:
 // conflicts inside the role, conflicts it would create for a holder in
-// combination with their other roles, and how far the approval limit reaches
-// against the payment approval bands.
+// combination with their other roles.
 
-const META_FIELDS = ["name", "description", "approval_limit"];
+const META_FIELDS = ["name", "description"];
 
 function initials(name) {
   return name.trim().split(/\s+/).map((w) => w[0] || "").join("").slice(0, 2).toUpperCase();
@@ -92,6 +91,7 @@ export default function RoleDetailPage() {
 
 function RoleEditor({ role, showToast }) {
   const { capsOf, holdersOf, history, saveRole, deleteRole, acceptRisks } = useRoles();
+  const { log } = useSettingsAudit();
   const { user, hasCapability } = useCurrentUser();
   const { sodMode } = useAccountingSettings();
   const navigate = useNavigate();
@@ -108,16 +108,10 @@ function RoleEditor({ role, showToast }) {
   const latest = versions[versions.length - 1];
   const holders = holdersOf(role.key);
 
-  // ── Derived: changes, approval, SoD ───────────────────────────────────────
-  const scopes = approverScopes(caps);
-  const isApprover = scopes.length > 0;
-  // A limit means nothing without an approve capability — drop it on save.
-  const effectiveLimit = isApprover ? meta.approval_limit : null;
+  // ── Derived: changes, SoD ────────────────────────────────────────────────
 
   const capChanges = diffCaps(saved.caps, caps);
-  const metaChanges = META_FIELDS.filter((f) =>
-    f === "approval_limit" ? effectiveLimit !== saved.meta.approval_limit : (meta[f] ?? "") !== (saved.meta[f] ?? ""),
-  );
+  const metaChanges = META_FIELDS.filter((f) => (meta[f] ?? "") !== (saved.meta[f] ?? ""));
   const changeCount = capChanges.length + metaChanges.length;
   const dirty = changeCount > 0;
 
@@ -164,8 +158,7 @@ function RoleEditor({ role, showToast }) {
   const riskExclude = [user.id, ...(roleDecision.risk.length ? holders : holderImpact.map((h) => h.user)).map((u) => u.id)];
   const nameOk = meta.name.trim().length >= 2 &&
     !ROLES.some((r) => r.key !== role.key && r.name.trim().toLowerCase() === meta.name.trim().toLowerCase());
-  const limitOk = !isApprover || meta.approval_limit == null || meta.approval_limit > 0;
-  const canSave = canManage && dirty && !blocked && nameOk && limitOk;
+  const canSave = canManage && dirty && !blocked && nameOk;
 
   // ── Actions ────────────────────────────────────────────────────────────────
   const setField = (f, v) => setMeta((m) => ({ ...m, [f]: v }));
@@ -178,16 +171,15 @@ function RoleEditor({ role, showToast }) {
     const removed = capChanges.filter((c) => c.change === "removed").map((c) => capLabel(c.module, c.cap));
     if (added.length) parts.push(`Added ${added.join(", ")}`);
     if (removed.length) parts.push(`Removed ${removed.join(", ")}`);
-    if (metaChanges.includes("approval_limit")) parts.push(`Approval limit ${fmtRp(saved.meta.approval_limit)} → ${fmtRp(effectiveLimit)}`);
-    const other = metaChanges.filter((f) => f !== "approval_limit");
-    if (other.length) parts.push(`Edited ${other.map((f) => ({ name: "name", description: "description" }[f])).join(", ")}`);
+    if (metaChanges.length) parts.push(`Edited ${metaChanges.map((f) => ({ name: "name", description: "description" }[f])).join(", ")}`);
     return parts.join("; ") || "Updated";
   }
 
   function commit() {
     const owner = needsRisk ? USERS.find((u) => u.id === riskOwner) : null;
     const note = changeNote() + (owner ? ` — risk accepted by ${owner.name}: “${justification.trim()}”` : "");
-    saveRole({ ...meta, name: meta.name.trim(), approval_limit: effectiveLimit }, caps, { by: user.name, note });
+    saveRole({ ...meta, name: meta.name.trim() }, caps, { by: user.name, note });
+    log("Users & Roles", "Roles", `${meta.name.trim()}: ${note}`);
     if (owner) {
       for (const subject of new Set(riskRules.map((r) => r.subject))) {
         const entries = riskRules.filter((r) => r.subject === subject);
@@ -202,7 +194,10 @@ function RoleEditor({ role, showToast }) {
   }
 
   function doDelete() {
-    if (deleteRole(role.key)) navigate("/roles");
+    if (deleteRole(role.key)) {
+      log("Users & Roles", "Roles", `Deleted role ${role.name}`);
+      navigate("/roles");
+    }
   }
 
   // ── Render helpers ─────────────────────────────────────────────────────────
@@ -229,9 +224,6 @@ function RoleEditor({ role, showToast }) {
       </label>
     );
   }
-
-  const policy = defaultPolicy();
-  const paysOut = hasCap(caps, "ap", "payment.approve");
 
   return (
     <div className="lg-page roles-page rl-detail">
@@ -343,59 +335,6 @@ function RoleEditor({ role, showToast }) {
               );
             })}
 
-            {/* ── Approval limit ──────────────────────────────────────── */}
-            <section className="rl-card-sec">
-              <h2 className="rl-sec-title">Approval limit</h2>
-              <p className="rl-sec-p">
-                The <Link to="/approval" className="ru-inline-link">approval workflow</Link> decides who is asked to
-                approve a record and at which amounts. The approval limit is a ceiling on top of that: a holder can't
-                approve anything above it, even when the workflow routes it to them.
-              </p>
-              {isApprover ? (
-                <div className="rl-limit">
-                  <label className={`rl-limit-opt${meta.approval_limit != null ? " on" : ""}`}>
-                    <input
-                      type="radio"
-                      name="limit"
-                      disabled={!canManage}
-                      checked={meta.approval_limit != null}
-                      onChange={() => setField("approval_limit", saved.meta.approval_limit ?? 50000000)}
-                    />
-                    <span>Up to</span>
-                    <span className="rl-rp">
-                      Rp
-                      <input
-                        inputMode="numeric"
-                        disabled={!canManage || meta.approval_limit == null}
-                        value={meta.approval_limit != null ? meta.approval_limit.toLocaleString("id-ID") : ""}
-                        onChange={(e) => {
-                          const n = Number(e.target.value.replace(/\D/g, ""));
-                          setField("approval_limit", Number.isFinite(n) ? n : 0);
-                        }}
-                      />
-                    </span>
-                    <span className="rl-limit-hint">per record</span>
-                  </label>
-                  <label className={`rl-limit-opt${meta.approval_limit == null ? " on" : ""}`}>
-                    <input
-                      type="radio"
-                      name="limit"
-                      disabled={!canManage}
-                      checked={meta.approval_limit == null}
-                      onChange={() => setField("approval_limit", null)}
-                    />
-                    <span>No ceiling</span>
-                    <span className="rl-limit-hint">only the workflow's ranges apply</span>
-                  </label>
-                  {!limitOk && <em className="rl-field-err">Enter an amount above 0, or choose No ceiling.</em>}
-                </div>
-              ) : (
-                <div className="rl-muted-box">
-                  This role has no approve capability, so it has no approval limit. Grant <em>Approve</em> on a module
-                  or <em>Approve payment</em> to set one.
-                </div>
-              )}
-            </section>
           </div>
 
           {/* ── Side panel ─────────────────────────────────────────────── */}
@@ -409,10 +348,7 @@ function RoleEditor({ role, showToast }) {
                       <span>{c.change === "added" ? "+" : "−"}</span>{capLabel(c.module, c.cap)}
                     </li>
                   ))}
-                  {metaChanges.includes("approval_limit") && (
-                    <li className="edited"><span>~</span>Limit {fmtRp(saved.meta.approval_limit)} → {fmtRp(effectiveLimit)}</li>
-                  )}
-                  {metaChanges.filter((f) => f !== "approval_limit").map((f) => (
+                  {metaChanges.map((f) => (
                     <li key={f} className="edited"><span>~</span>{{ name: "Name", description: "Description" }[f]}</li>
                   ))}
                 </ul>
@@ -421,44 +357,6 @@ function RoleEditor({ role, showToast }) {
                 </p>
               </div>
             )}
-
-            <div className="rl-panel">
-              <h3>Approvals</h3>
-              {isApprover ? (
-                <>
-                  <p className="rl-panel-p">Holders can be picked as approvers for:</p>
-                  <div className="rl-scope-chips">
-                    {scopes.map((s) => <span key={s.key} className="rl-scope">{s.label}</span>)}
-                  </div>
-                  <div className="rl-kv"><span>Approval limit</span><b>{fmtRp(effectiveLimit)}</b></div>
-                  {paysOut && (
-                    <div className="rl-bands">
-                      <div className="rl-bands-h">Against the payment approval bands</div>
-                      {policy.bands.map((b, i) => {
-                        const ceil = bandCeiling(policy.bands, i);
-                        const range = ceil == null
-                          ? `≥ ${fmtRpShort(b.from)}`
-                          : b.from === 0 ? `< ${fmtRpShort(ceil)}` : `${fmtRpShort(b.from)} – < ${fmtRpShort(ceil).replace("Rp ", "")}`;
-                        let st, cls;
-                        if (b.approvals === 0) { st = "No approval needed"; cls = "muted"; }
-                        else if (effectiveLimit == null || (ceil != null && effectiveLimit >= ceil - 1)) { st = "Covered"; cls = "ok"; }
-                        else if (effectiveLimit >= b.from) { st = `Up to ${fmtRpShort(effectiveLimit)}`; cls = "part"; }
-                        else { st = "Above this limit"; cls = "no"; }
-                        return (
-                          <div key={b.id} className="rl-band">
-                            <span className="rl-band-r">{range}<em>{b.approvals} approval{b.approvals === 1 ? "" : "s"}</em></span>
-                            <span className={`rl-band-s ${cls}`}>{st}</span>
-                          </div>
-                        );
-                      })}
-                      <Link to="/approval" className="ru-inline-link rl-bands-link">Payment approval settings →</Link>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <p className="rl-panel-p">Holders can't approve anything — they won't appear in approver pickers.</p>
-              )}
-            </div>
 
             <div className="rl-panel">
               <h3>People with this role <span className="rl-count">{holders.length}</span></h3>
@@ -471,7 +369,6 @@ function RoleEditor({ role, showToast }) {
                       <b>{u.name}</b>
                       <span>
                         {u.status === "Invited" ? "Invited · " : ""}
-                        {u.department ? `${u.department} · ` : ""}
                         {u.roleKeys.length > 1
                           ? `Also ${u.roleKeys.filter((k) => k !== role.key).map((k) => ROLES.find((r) => r.key === k)?.name || k).join(", ")}`
                           : "Only this role"}
@@ -517,9 +414,6 @@ function RoleEditor({ role, showToast }) {
             {capChanges.map((c) => (
               <li key={`${c.module}-${c.cap}`} className={c.change}><span>{c.change === "added" ? "+" : "−"}</span>{capLabel(c.module, c.cap)}</li>
             ))}
-            {metaChanges.includes("approval_limit") && (
-              <li className="edited"><span>~</span>Limit {fmtRp(saved.meta.approval_limit)} → {fmtRp(effectiveLimit)}</li>
-            )}
           </ul>
           {needsRisk && (
             <SodRiskAcceptance

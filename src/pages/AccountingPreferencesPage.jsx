@@ -3,11 +3,17 @@ import { useLocation } from "react-router-dom";
 import { COA } from "../data/seed/coa";
 import { useAccountingSettings } from "../state/AccountingSettingsContext";
 import { useClosePeriod } from "../state/ClosePeriodContext";
+import { useJournalEntries } from "../state/JournalEntriesContext";
+import { useCurrentUser } from "../state/CurrentUserContext";
+import { useSettingsAudit } from "../state/SettingsAuditContext";
+import { canDelete, withEvent, isoOf } from "../lib/journalLifecycle";
+import { TODAY } from "../lib/clock";
 import SettingsHeader, { ACCOUNTING_TABS } from "../components/SettingsHeader";
 import { COMPANY, MONTHS } from "../data/seed/company";
 import "./modules.css";
 import "./invoices-ledger.css";
 import "./settings-pages.css";
+import "./roles.css";
 
 // Settings → Accounting → General Ledger → Preferences. The small, company-wide accounting
 // choices, one section each — as DualEntry gathers its posting and record
@@ -15,7 +21,8 @@ import "./settings-pages.css";
 // rather than getting their own page.
 //   • Basics — base currency, fiscal year, time zone (set at company creation)
 //   • Posting — auto-assign late bills to the open period
-//   • Journals — soft-delete of posted manual journals (off unless asked for)
+//   • Closing — the day of the next month each month's books close by
+//   • Delete journals — by JE number; only when Klay has turned it on
 // Costing method and reconciliation difference accounts moved to their module
 // settings (Settings → Inventory → Costing, Settings → Reconciliation); their
 // sections are exported from here and rendered there.
@@ -56,6 +63,7 @@ function Section({ id, title, children }) {
 
 function BasicsSection() {
   const { baseCurrency, fiscalYearStart, setFiscalYearStart, timezone, setTimezone } = useAccountingSettings();
+  const { log } = useSettingsAudit();
   const created = new Date(COMPANY.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
   return (
     <Section id="basics" title="Basics">
@@ -74,14 +82,20 @@ function BasicsSection() {
             </label>
             <label className="cp-field">
               <span>Fiscal year starts</span>
-              <select value={fiscalYearStart} onChange={(e) => setFiscalYearStart(Number(e.target.value))}>
+              <select value={fiscalYearStart} onChange={(e) => {
+                log("General Ledger", "Preferences", `Fiscal year start: ${MONTHS[fiscalYearStart - 1]} → ${MONTHS[Number(e.target.value) - 1]}`);
+                setFiscalYearStart(Number(e.target.value));
+              }}>
                 {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
               </select>
               <em>Fiscal year {MONTHS[fiscalYearStart - 1]} – {MONTHS[(fiscalYearStart + 10) % 12]}.</em>
             </label>
             <label className="cp-field">
               <span>Time zone</span>
-              <select value={timezone} onChange={(e) => setTimezone(e.target.value)}>
+              <select value={timezone} onChange={(e) => {
+                log("General Ledger", "Preferences", `Time zone: ${timezone} → ${e.target.value}`);
+                setTimezone(e.target.value);
+              }}>
                 <option value="Asia/Jakarta">WIB — Asia/Jakarta (UTC+7)</option>
                 <option value="Asia/Makassar">WITA — Asia/Makassar (UTC+8)</option>
                 <option value="Asia/Jayapura">WIT — Asia/Jayapura (UTC+9)</option>
@@ -95,48 +109,164 @@ function BasicsSection() {
   );
 }
 
-function JournalsSection() {
-  const { journalDeletion, setJournalDeletion } = useAccountingSettings();
+// Day N of the next month: when a month's books are due to close.
+const ordinal = (n) => `${n}${n % 10 === 1 && n !== 11 ? "st" : n % 10 === 2 && n !== 12 ? "nd" : n % 10 === 3 && n !== 13 ? "rd" : "th"}`;
+function cutoffDate(period, day) {
+  const [y, m] = period.split("-").map(Number);
+  const next = new Date(m === 12 ? y + 1 : y, m === 12 ? 0 : m, day);
+  return next.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+}
+
+function ClosingSection() {
+  const { closeCutoffDay, setCloseCutoffDay } = useAccountingSettings();
+  const { nextOpenPeriod } = useClosePeriod();
+  const { log } = useSettingsAudit();
+  const pick = (day) => {
+    log("General Ledger", "Preferences", `Closing cut-off: day ${closeCutoffDay} → day ${day} of the following month`);
+    setCloseCutoffDay(day);
+  };
   return (
-    <Section id="journals" title="Journals">
+    <Section id="closing" title="Closing">
       <div className="pp-setting-card">
-        <div className="pp-setting-main">
-          <div className="pp-setting-text">
-            <div className="pp-setting-title">Allow deleting posted journals</div>
-            <p className="pp-setting-desc">
-              Lets people delete a posted manual journal instead of reversing it. A deletion is never silent: someone
-              requests it with a reason, and someone else who can post journals approves it. The entry then leaves
-              the ledger but stays listed under <strong>Deleted</strong>, and the request, the approval and the entry
-              itself remain in the audit trail.
-            </p>
-            <p className="pp-setting-note">
-              Journals from bills, payments, invoices and bank reconciliation are deleted at their source, and nothing
-              in a closed period can be deleted. Reversing is the standard correction — turn this on only if your
-              auditor accepts deletions.
-            </p>
+        <div className="pp-setting-pad">
+          <div className="pp-setting-title">Monthly cut-off</div>
+          <p className="pp-setting-desc">
+            The day of the following month by which each month's books should be closed.
+          </p>
+          <div className="cp-grid ap-basics">
+            <label className="cp-field">
+              <span>Close by</span>
+              <select value={closeCutoffDay} onChange={(e) => pick(Number(e.target.value))}>
+                {Array.from({ length: 28 }, (_, k) => k + 1).map((d) => (
+                  <option key={d} value={d}>{ordinal(d)} of the following month</option>
+                ))}
+              </select>
+              <em>{periodLabel(nextOpenPeriod)} closes by {cutoffDate(nextOpenPeriod, closeCutoffDay)}.</em>
+            </label>
           </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={journalDeletion}
-            className={`pp-switch${journalDeletion ? " on" : ""}`}
-            onClick={() => setJournalDeletion(!journalDeletion)}
-          >
-            <span className="pp-switch-knob" />
-          </button>
-        </div>
-        <div className={`pp-setting-status${journalDeletion ? " on" : ""}`}>
-          {journalDeletion
-            ? "On — posted manual journals can be deleted with approval."
-            : "Off — posted journals are corrected by reversing them."}
         </div>
       </div>
     </Section>
   );
 }
 
+// Shown only when Klay has turned deletion on in the backend — it is not a
+// switch in the app. Someone enters the JE numbers, Klay checks each one, and
+// on confirm with a reason each becomes "deleted": out of the ledger, listed
+// under Deleted, the deletion in the entry's own audit trail.
+const parseNumbers = (text) => [...new Set(text.toUpperCase().split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean))];
+
+function DeleteJournalsSection() {
+  const { entries, updateJournalEntry } = useJournalEntries();
+  const { closedThrough } = useClosePeriod();
+  const { user, hasCapability } = useCurrentUser();
+  const { log } = useSettingsAudit();
+  const canDeleteHere = hasCapability("coa.manage");
+  const [text, setText] = useState("");
+  const [checked, setChecked] = useState(null); // [{ number, je, check }]
+  const [reason, setReason] = useState("");
+  const [confirming, setConfirming] = useState(false);
+  const [done, setDone] = useState("");
+
+  const ready = (checked || []).filter((r) => r.check.ok);
+
+  function runCheck() {
+    setDone("");
+    setChecked(parseNumbers(text).map((number) => {
+      const je = entries.find((e) => e.je_number.toUpperCase() === number);
+      return { number, je, check: je ? canDelete(je, { closedThrough }) : { ok: false, reason: "No journal with this number." } };
+    }));
+  }
+
+  function confirm() {
+    const by = user.name;
+    const why = reason.trim();
+    for (const r of ready) {
+      updateJournalEntry(r.je.je_number, (cur) => withEvent(
+        { ...cur, status: "deleted", deletion: { deleted_by: by, deleted_at: isoOf(TODAY), reason: why } },
+        "deleted", by, `Deleted from Settings → Preferences: ${why}`,
+      ));
+    }
+    log("General Ledger", "Preferences", `Deleted ${ready.map((r) => r.je.je_number).join(", ")} — ${why}`);
+    setDone(`${ready.length} journal${ready.length === 1 ? "" : "s"} deleted. ${ready.length === 1 ? "It's" : "They're"} listed under Deleted on Journal Entry.`);
+    setConfirming(false);
+    setChecked(null);
+    setText("");
+    setReason("");
+  }
+
+  return (
+    <Section id="delete-journals" title="Delete journals">
+      <div className="pp-setting-card">
+        <div className="pp-setting-pad">
+          <p className="pp-setting-desc" style={{ marginTop: 0 }}>
+            Turned on for this company by Klay. Enter the numbers of posted manual journals to delete. A deleted
+            journal leaves the ledger but stays listed under <strong>Deleted</strong>, and the deletion — who, when
+            and why — is recorded in its audit trail. Reversing stays the standard correction.
+          </p>
+          <p className="pp-setting-note">
+            Journals from bills, payments, invoices and bank reconciliation are deleted at their source, and nothing in
+            a closed period can be deleted.
+          </p>
+          {canDeleteHere ? (
+            <>
+              <div className="dj-input-row">
+                <textarea className="dj-input" rows={2} value={text} placeholder="e.g. JE-2025-0412, JE-2025-0413"
+                  onChange={(e) => { setText(e.target.value); setChecked(null); }} aria-label="Journal numbers" />
+                <button type="button" className="rl-btn" disabled={!parseNumbers(text).length} onClick={runCheck}>Check</button>
+              </div>
+              {checked && (
+                <ul className="dj-results">
+                  {checked.map((r) => (
+                    <li key={r.number} className={r.check.ok ? "ok" : "no"}>
+                      <span className="mr-code">{r.number}</span>
+                      <span className="dj-memo">{r.je ? `${r.je.memo} · ${r.je.je_date}` : ""}</span>
+                      <span className="dj-verdict">{r.check.ok ? "Will be deleted" : r.check.reason}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {ready.length > 0 && (
+                <div className="dj-confirm">
+                  <label className="cp-field">
+                    <span>Reason</span>
+                    <input value={reason} placeholder="e.g. Duplicates of entries posted from the bank import" onChange={(e) => setReason(e.target.value)} />
+                    <em>Saved in each journal's audit trail.</em>
+                  </label>
+                  <button type="button" className="drawer-btn rl-danger-btn dj-go" disabled={reason.trim().length < 5} onClick={() => setConfirming(true)}>
+                    Delete {ready.length} journal{ready.length === 1 ? "" : "s"}
+                  </button>
+                </div>
+              )}
+              {done && <p className="dj-done">{done}</p>}
+            </>
+          ) : (
+            <p className="pp-setting-note">Deleting journals needs the <em>Manage Chart of Accounts</em> capability.</p>
+          )}
+        </div>
+      </div>
+      {confirming && (
+        <div className="rl-modal-overlay" onClick={() => setConfirming(false)}>
+          <div className="rl-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            <div className="rl-modal-title">Delete {ready.length} journal{ready.length === 1 ? "" : "s"}?</div>
+            <p className="rl-modal-body">
+              {ready.map((r) => r.je.je_number).join(", ")} will leave the ledger and every report. This can't be undone
+              here. Reason: “{reason.trim()}”.
+            </p>
+            <div className="rl-modal-actions">
+              <button type="button" className="drawer-btn ghost" onClick={() => setConfirming(false)}>Cancel</button>
+              <button type="button" className="drawer-btn rl-danger-btn" onClick={confirm}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </Section>
+  );
+}
+
 function PostingSection() {
   const { closedThrough, nextOpenPeriod, autoAssignLateBills, setAutoAssignLateBills } = useClosePeriod();
+  const { log } = useSettingsAudit();
   return (
     <Section id="posting" title="Posting">
       <div className="pp-setting-card">
@@ -158,7 +288,10 @@ function PostingSection() {
             role="switch"
             aria-checked={autoAssignLateBills}
             className={`pp-switch${autoAssignLateBills ? " on" : ""}`}
-            onClick={() => setAutoAssignLateBills(!autoAssignLateBills)}
+            onClick={() => {
+              log("General Ledger", "Preferences", `Auto-assign late bills to the open period: ${autoAssignLateBills ? "off" : "on"}`);
+              setAutoAssignLateBills(!autoAssignLateBills);
+            }}
           >
             <span className="pp-switch-knob" />
           </button>
@@ -176,6 +309,7 @@ function PostingSection() {
 // Shown on Settings → Inventory → Costing.
 export function InventorySection() {
   const { inventoryCostingMethod, setInventoryCostingMethod } = useAccountingSettings();
+  const { log } = useSettingsAudit();
   return (
     <Section id="inventory" title="Inventory">
       <div className="pp-setting-card">
@@ -193,7 +327,11 @@ export function InventorySection() {
                 key={o.k}
                 type="button"
                 className={`is-option${selected ? " selected" : ""}`}
-                onClick={() => setInventoryCostingMethod(o.k)}
+                onClick={() => {
+                  if (o.k === inventoryCostingMethod) return;
+                  log("Inventory", "Costing", `Costing method: ${COSTING_OPTIONS.find((x) => x.k === inventoryCostingMethod)?.title} → ${o.title}`);
+                  setInventoryCostingMethod(o.k);
+                }}
               >
                 <span className="is-option-radio" aria-hidden />
                 <span className="is-option-body">
@@ -220,14 +358,19 @@ export function InventorySection() {
 // Shown on Settings → Reconciliation.
 export function ReconciliationSection() {
   const { reconDifferenceAccounts: codes, setReconDifferenceAccounts: setCodes } = useAccountingSettings();
+  const { log } = useSettingsAudit();
   const [adding, setAdding] = useState("");
   const available = RECON_ELIGIBLE.filter((a) => !codes.includes(a.code));
   const add = (code) => {
     if (!code) return;
+    log("Reconciliation", "Reconciliation", `Added difference account ${code} ${accountOf(code)?.name || ""}`);
     setCodes([...codes, code]);
     setAdding("");
   };
-  const remove = (code) => setCodes(codes.filter((c) => c !== code));
+  const remove = (code) => {
+    log("Reconciliation", "Reconciliation", `Removed difference account ${code} ${accountOf(code)?.name || ""}`);
+    setCodes(codes.filter((c) => c !== code));
+  };
 
   return (
     <Section id="reconciliation" title="Bank reconciliation">
@@ -275,6 +418,7 @@ export function ReconciliationSection() {
 export default function AccountingPreferencesPage() {
   // Old links (/posting-periods, …) land on #posting / #inventory / #reconciliation.
   const { hash } = useLocation();
+  const { journalDeletion } = useAccountingSettings();
   useEffect(() => {
     if (hash) document.getElementById(hash.slice(1))?.scrollIntoView({ block: "start" });
   }, [hash]);
@@ -285,11 +429,12 @@ export default function AccountingPreferencesPage() {
         <SettingsHeader
           title="General Ledger"
           tabs={ACCOUNTING_TABS}
-          intro="Company-wide accounting choices: the basics set at company creation, how late bills post, and whether posted journals can be deleted."
+          intro="Company-wide accounting choices: the basics set at company creation, how late bills post, and when each month's books close."
         />
         <BasicsSection />
         <PostingSection />
-        <JournalsSection />
+        <ClosingSection />
+        {journalDeletion && <DeleteJournalsSection />}
         <div style={{ height: 40 }} />
       </div>
     </div>

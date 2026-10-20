@@ -4,6 +4,8 @@ import { CUSTOMERS } from "../data/seed/customers";
 import { useInvoices } from "../state/InvoicesContext";
 import { shipToAddress, shipsToBilling } from "../state/CustomersContext";
 import { formatDateEn, formatRupiah, initials } from "../lib/format";
+import { COA_BY_CODE } from "../data/seed/coa";
+import { DEFAULT_ACCOUNTS } from "../data/seed/defaultAccounts";
 import "./invoice-create.css";
 
 function CustomerCombobox({ value, onChange, customers }) {
@@ -562,14 +564,14 @@ export default function InvoiceCreatePage() {
                   </thead>
                   <tbody>
                     <tr>
-                      <td className="mono">1-1200</td>
-                      <td>Pipayables Usaha</td>
+                      <td className="mono">{DEFAULT_ACCOUNTS.ar}</td>
+                      <td>{COA_BY_CODE[DEFAULT_ACCOUNTS.ar]?.name}</td>
                       <td className="r">{fmtNum(total)}</td>
                       <td className="dim r">—</td>
                     </tr>
                     <tr>
-                      <td className="mono">4-1010</td>
-                      <td>Product Sales</td>
+                      <td className="mono">{DEFAULT_ACCOUNTS.revenue}</td>
+                      <td>{COA_BY_CODE[DEFAULT_ACCOUNTS.revenue]?.name}</td>
                       <td className="dim r">—</td>
                       <td className="r">{fmtNum(dpp)}</td>
                     </tr>

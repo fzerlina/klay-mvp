@@ -3,6 +3,8 @@ import { CUSTOMERS as SEED_CUSTOMERS } from "../data/seed/customers";
 import { seedTierFor, seedTierNoteFor } from "../data/seed/customerTiers";
 import { seedStatusFor, seedApprovalFor, seedHoldFor } from "../data/seed/customerHealth";
 import { TODAY } from "../lib/clock";
+import { COA, COA_BY_CODE } from "../data/seed/coa";
+import { DEFAULT_ACCOUNTS } from "../data/seed/defaultAccounts";
 
 const CustomersContext = createContext(null);
 
@@ -13,12 +15,11 @@ export const DEFAULT_COMPANY_BANK = {
   name: "BCA", branch: "KCU Sudirman", acc: "008-2233-4455", holder: "PT Klay Indonesia",
 };
 
-// AR control-account shortlist (mirrors the AP account list in labels.js).
-export const AR_ACCT_LABELS = {
-  "1-1200": "1-1200 · Accounts Receivable (default)",
-  "1-1210": "1-1210 · AR — Trade",
-  "1-1220": "1-1220 · AR — Retail",
-};
+// The receivable accounts a customer may post to — the chart's Trade
+// Receivables, less the doubtful-debt allowance. A new customer starts on the
+// default AR account (Settings → Accounting → Default accounts).
+export const AR_ACCOUNTS = COA.filter((a) => a.parent === "g-ar" && a.type === "asset" && a.is_active);
+export const arAcctLabel = (code) => (COA_BY_CODE[code] ? `${code} · ${COA_BY_CODE[code].name}` : code);
 
 // Ship-to resolution. An empty shippingAddress means "ships to the billing
 // address" — the fallback lives here so no surface re-implements it.
@@ -31,8 +32,8 @@ export function shipToAddress(c) {
 // not usable on invoices until submitted → Active. Kept as their own seed so the
 // Draft tab is populated without faking history on transacted customers.
 const SEED_DRAFTS = [
-  { id: "C081", code: "C-081", type: "perusahaan", name: "PT Sinar Niaga Sejahtera", legalName: "PT Sinar Niaga Sejahtera", npwp: "92.345.678.9-021.000", pph: "none", top: "NET 30", creditLimit: 75000000, currency: "IDR", contacts: [{ name: "Dwi Lestari", title: "Finance", phone: "+62-21-5550-7788", email: "finance@sinarniaga.id", emailFin: "", primary: true }], address: "Jl. Gatot Subroto No. 45, Jakarta 12930", invMode: "manual", invCh: ["Email"], invSch: "", reminder: "", notes: "New onboarding — awaiting submit for approval.", ar: 0, arOverdue: false, lastInv: null, totalInv: 0, status: "draft", approval: "pending_approval", current_version: 0, on_hold: false, hold_reason: "", acct: "1-1200", source: "MANUAL", relationship_tier: "standard" },
-  { id: "C082", code: "C-082", type: "individu", name: "Bella Anjani", legalName: "", npwp: "", pph: "pph21", top: "COD", creditLimit: 0, currency: "IDR", contacts: [{ name: "Bella Anjani", title: "—", phone: "+62-812-5550-2211", email: "bella.anjani@gmail.com", emailFin: "", primary: true }], address: "Jl. Kemang Raya No. 21, Jakarta Selatan 12730", invMode: "manual", invCh: [], invSch: "", reminder: "", notes: "", ar: 0, arOverdue: false, lastInv: null, totalInv: 0, status: "draft", approval: "pending_approval", current_version: 0, on_hold: false, hold_reason: "", acct: "1-1200", source: "MANUAL", relationship_tier: "standard" },
+  { id: "C081", code: "C-081", type: "perusahaan", name: "PT Sinar Niaga Sejahtera", legalName: "PT Sinar Niaga Sejahtera", npwp: "92.345.678.9-021.000", pph: "none", top: "NET 30", creditLimit: 75000000, currency: "IDR", contacts: [{ name: "Dwi Lestari", title: "Finance", phone: "+62-21-5550-7788", email: "finance@sinarniaga.id", emailFin: "", primary: true }], address: "Jl. Gatot Subroto No. 45, Jakarta 12930", invMode: "manual", invCh: ["Email"], invSch: "", reminder: "", notes: "New onboarding — awaiting submit for approval.", ar: 0, arOverdue: false, lastInv: null, totalInv: 0, status: "draft", approval: "pending_approval", current_version: 0, on_hold: false, hold_reason: "", acct: "1-2100", source: "MANUAL", relationship_tier: "standard" },
+  { id: "C082", code: "C-082", type: "individu", name: "Bella Anjani", legalName: "", npwp: "", pph: "pph21", top: "COD", creditLimit: 0, currency: "IDR", contacts: [{ name: "Bella Anjani", title: "—", phone: "+62-812-5550-2211", email: "bella.anjani@gmail.com", emailFin: "", primary: true }], address: "Jl. Kemang Raya No. 21, Jakarta Selatan 12730", invMode: "manual", invCh: [], invSch: "", reminder: "", notes: "", ar: 0, arOverdue: false, lastInv: null, totalInv: 0, status: "draft", approval: "pending_approval", current_version: 0, on_hold: false, hold_reason: "", acct: "1-2100", source: "MANUAL", relationship_tier: "standard" },
 ];
 
 // Layer customer-master attributes that live outside the auto-generated seed
@@ -64,8 +65,8 @@ function withDerived(c) {
     hold_reason: c.hold_reason || holdSeed || "",
     // AR accounts: a permitted set plus the default an invoice starts on.
     // Legacy records carry a single `acct` — migrate it into the set.
-    accts: c.accts || [c.acct || "1-1200"],
-    defaultAcct: c.defaultAcct || c.acct || "1-1200",
+    accts: c.accts || [c.acct || DEFAULT_ACCOUNTS.ar],
+    defaultAcct: c.defaultAcct || c.acct || DEFAULT_ACCOUNTS.ar,
     company_bank: c.company_bank || DEFAULT_COMPANY_BANK,
     relationship_tier: c.relationship_tier || seedTierFor(c.id),
     relationship_tier_note: c.relationship_tier_note || seedTierNoteFor(c.id),
@@ -187,8 +188,8 @@ export function CustomersProvider({ children }) {
       lastInv: null,
       totalInv: 0,
       pph21Rate: draft.pph21Rate ?? null,
-      accts: draft.accts?.length ? draft.accts : [draft.defaultAcct || "1-1200"],
-      defaultAcct: draft.defaultAcct || draft.accts?.[0] || "1-1200",
+      accts: draft.accts?.length ? draft.accts : [draft.defaultAcct || DEFAULT_ACCOUNTS.ar],
+      defaultAcct: draft.defaultAcct || draft.accts?.[0] || DEFAULT_ACCOUNTS.ar,
       company_bank: draft.company_bank || DEFAULT_COMPANY_BANK,
       // A new customer is created as a Draft — not usable on invoices. The
       // onboarder Submits it (→ Active), then a manager approves it (SoD:

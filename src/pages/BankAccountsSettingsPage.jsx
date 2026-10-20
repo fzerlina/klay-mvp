@@ -6,6 +6,12 @@ import "./bank-accounts-settings.css";
 import { COMPANY_BANK_ACCOUNTS } from "../data/seed/bankAccounts";
 import { COA } from "../data/seed/coa";
 import SettingsHeader, { ACCOUNTING_TABS } from "../components/SettingsHeader";
+import { useSettingsAudit } from "../state/SettingsAuditContext";
+
+// Settings → Accounting → General Ledger → Bank accounts. Saves write through
+// to COMPANY_BANK_ACCOUNTS, which payments and reconciliation read. An account
+// held overseas (luar negeri) names its bank freely and needs a SWIFT/BIC code;
+// a foreign-currency account at an Indonesian bank may carry one too.
 
 const BANK_OPTIONS = [
   { v: "BCA",     lbl: "Bank Central Asia (BCA)", color: "#0050A8" },
@@ -40,6 +46,11 @@ function fmtRp(n) {
   return n.toLocaleString("id-ID", { maximumFractionDigits: 0 });
 }
 
+// SWIFT/BIC: 4-letter bank, 2-letter country, 2-char location, optional 3-char branch.
+const SWIFT_RE = /^[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}([A-Z0-9]{3})?$/;
+const isOverseas = (a) => a.location === "overseas";
+const bankLabel = (a) => (isOverseas(a) ? a.bankName || "Overseas bank" : a.bank);
+
 function groupLabel(k) {
   return GROUP_OPTIONS.find((g) => g.v === k)?.lbl || k;
 }
@@ -53,17 +64,26 @@ function BankAccountDrawer({ open, account, onClose, onSave, onArchive }) {
   const lastIdRef = useRef(null);
   if (open && lastIdRef.current !== (account?.id ?? "new")) {
     lastIdRef.current = account?.id ?? "new";
-    setDraft(account ? { ...account } : { bank: "BCA", currency: "IDR", group: "operating", active: true });
+    setDraft(account ? { location: "domestic", ...account } : { location: "domestic", bank: "BCA", currency: "IDR", group: "operating", active: true });
   }
 
   if (!open) return null;
 
   const update = (patch) => setDraft((d) => ({ ...d, ...patch }));
-  const valid = (draft.bank && draft.name && draft.number);
+  const overseas = isOverseas(draft);
+  const swift = (draft.swift || "").trim().toUpperCase();
+  const swiftOk = swift ? SWIFT_RE.test(swift) : !overseas;
+  const valid = (overseas ? (draft.bankName || "").trim() && (draft.country || "").trim() : draft.bank) && draft.name && draft.number && swiftOk;
+  const showSwift = overseas || (draft.currency && draft.currency !== "IDR");
 
   function pickBank(v) {
     const bank = BANK_OPTIONS.find((b) => b.v === v);
     update({ bank: v, bankColor: bank?.color || "#777" });
+  }
+  function pickLocation(v) {
+    update(v === "overseas"
+      ? { location: v, bank: "OTHER", bankColor: "#777777", currency: draft.currency === "IDR" ? "USD" : draft.currency }
+      : { location: v, bankName: null, country: null, bank: "BCA", bankColor: "#0050A8" });
   }
   function pickGl(code) {
     if (!code) { update({ glAccount: null, glAccountName: null }); return; }
@@ -94,11 +114,31 @@ function BankAccountDrawer({ open, account, onClose, onSave, onArchive }) {
           <div className="ba-section">
             <div className="ba-section-title">Bank</div>
             <div className="ba-field">
-              <label>Bank</label>
-              <select value={draft.bank || ""} onChange={(e) => pickBank(e.target.value)}>
-                {BANK_OPTIONS.map((b) => <option key={b.v} value={b.v}>{b.lbl}</option>)}
+              <label>Held at</label>
+              <select value={draft.location || "domestic"} onChange={(e) => pickLocation(e.target.value)}>
+                <option value="domestic">A bank in Indonesia</option>
+                <option value="overseas">A bank overseas (luar negeri)</option>
               </select>
             </div>
+            {overseas ? (
+              <div className="ba-field-row">
+                <div className="ba-field">
+                  <label>Bank name <span className="ba-req">*</span></label>
+                  <input type="text" value={draft.bankName || ""} placeholder="e.g. DBS Bank" onChange={(e) => update({ bankName: e.target.value })} />
+                </div>
+                <div className="ba-field">
+                  <label>Country <span className="ba-req">*</span></label>
+                  <input type="text" value={draft.country || ""} placeholder="e.g. Singapore" onChange={(e) => update({ country: e.target.value })} />
+                </div>
+              </div>
+            ) : (
+              <div className="ba-field">
+                <label>Bank</label>
+                <select value={draft.bank || ""} onChange={(e) => pickBank(e.target.value)}>
+                  {BANK_OPTIONS.map((b) => <option key={b.v} value={b.v}>{b.lbl}</option>)}
+                </select>
+              </div>
+            )}
             <div className="ba-field">
               <label>Account name <span className="ba-req">*</span></label>
               <input type="text" value={draft.name || ""} placeholder="e.g. BCA Operating" onChange={(e) => update({ name: e.target.value })} />
@@ -116,6 +156,16 @@ function BankAccountDrawer({ open, account, onClose, onSave, onArchive }) {
                 </select>
               </div>
             </div>
+            {showSwift && (
+              <div className="ba-field">
+                <label>SWIFT / BIC code {overseas && <span className="ba-req">*</span>}</label>
+                <input type="text" className="ba-mono-input" value={draft.swift || ""} placeholder="e.g. DBSSSGSG" maxLength={11}
+                  onChange={(e) => update({ swift: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })} />
+                {swift && !SWIFT_RE.test(swift)
+                  ? <div className="ba-err">A SWIFT code is 8 or 11 characters: bank (4 letters), country (2 letters), location (2), optional branch (3).</div>
+                  : <div className="ba-help">{overseas ? "Needed to send and receive international transfers." : "Optional — for receiving international transfers into this account."}</div>}
+              </div>
+            )}
             <div className="ba-field">
               <label>Account group</label>
               <select value={draft.group || "operating"} onChange={(e) => update({ group: e.target.value })}>
@@ -194,7 +244,14 @@ function BankAccountDrawer({ open, account, onClose, onSave, onArchive }) {
 
 // ── Page ─────────────────────────────────────────────────────────────────
 export default function BankAccountsSettingsPage() {
-  const [accounts, setAccounts] = useState(COMPANY_BANK_ACCOUNTS);
+  const [accounts, setAccountsState] = useState(() => [...COMPANY_BANK_ACCOUNTS]);
+  const { log } = useSettingsAudit();
+  // Write-through, so payments and reconciliation see the change.
+  const setAccounts = (fn) => setAccountsState((prev) => {
+    const next = fn(prev);
+    COMPANY_BANK_ACCOUNTS.splice(0, COMPANY_BANK_ACCOUNTS.length, ...next);
+    return next;
+  });
   const [groupFilter, setGroupFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [drawer, setDrawer] = useState(null); // null | { account } | { account: null }  for new
@@ -214,7 +271,8 @@ export default function BankAccountsSettingsPage() {
     if (q) list = list.filter((a) =>
       (a.name || "").toLowerCase().includes(q) ||
       (a.number || "").includes(q) ||
-      (a.bank || "").toLowerCase().includes(q) ||
+      bankLabel(a).toLowerCase().includes(q) ||
+      (a.swift || "").toLowerCase().includes(q) ||
       (a.glAccount || "").toLowerCase().includes(q),
     );
     return list;
@@ -228,19 +286,28 @@ export default function BankAccountsSettingsPage() {
   }, [accounts]);
 
   function handleSave(draft) {
+    draft = { ...draft, swift: (draft.swift || "").trim().toUpperCase() || null };
     if (draft.id) {
+      const before = accounts.find((a) => a.id === draft.id) || {};
+      const changes = [
+        ["name", "name"], ["number", "number"], ["currency", "currency"], ["glAccount", "GL account"], ["swift", "SWIFT"],
+        ["bankName", "bank"], ["country", "country"],
+      ].filter(([k]) => (before[k] || "") !== (draft[k] || "")).map(([k, l]) => `${l} ${before[k] || "—"} → ${draft[k] || "—"}`);
+      if (changes.length) log("General Ledger", "Bank accounts", `${draft.name}: ${changes.join("; ")}`);
       setAccounts((prev) => prev.map((a) => (a.id === draft.id ? { ...a, ...draft } : a)));
       showToast(`${draft.name} updated`);
     } else {
       const id = `bank-${Date.now()}`;
       const newAcct = { id, ...draft, active: draft.active !== false };
       setAccounts((prev) => [...prev, newAcct]);
+      log("General Ledger", "Bank accounts", `Added bank account ${draft.name}${draft.glAccount ? ` → ${draft.glAccount}` : ""}${draft.swift ? ` (SWIFT ${draft.swift})` : ""}`);
       showToast(`${draft.name} added`);
     }
     setDrawer(null);
   }
   function handleArchive(draft) {
     setAccounts((prev) => prev.map((a) => (a.id === draft.id ? { ...a, active: false } : a)));
+    log("General Ledger", "Bank accounts", `Archived bank account ${draft.name}`);
     showToast(`${draft.name} archived`);
     setDrawer(null);
   }
@@ -344,12 +411,18 @@ export default function BankAccountsSettingsPage() {
               >
                 <div className="ba-bank-cell">
                   <span className="ba-bank-logo" style={{ background: a.bankColor || "#777" }}>
-                    {a.bank.slice(0, 1)}
+                    {bankLabel(a).slice(0, 1)}
                   </span>
-                  <span className="ba-bank-code">{a.bank}</span>
+                  <span className="ba-bank-code">
+                    {bankLabel(a)}
+                    {isOverseas(a) && <span className="ba-bank-country">{a.country}</span>}
+                  </span>
                 </div>
                 <div className="ba-name">{a.name}</div>
-                <div className="ba-mono">{a.number}</div>
+                <div className="ba-mono">
+                  {a.number}
+                  {a.swift && <span className="ba-swift">SWIFT {a.swift}</span>}
+                </div>
                 <div>{groupLabel(a.group)}</div>
                 <div className="ba-mono">{a.currency}</div>
                 <div>

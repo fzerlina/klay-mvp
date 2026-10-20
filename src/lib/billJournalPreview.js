@@ -5,8 +5,8 @@
 //
 // Derivation rules (Indonesian AP standard):
 //   DR  per line item     →  item.acct, item.subtotal           (cost / asset)
-//   DR  VAT Input         →  bill.ppn  (1-5100)                  (creditable PPN)
-//   CR  AP Trade          →  bill.total  (2-1100)                (gross payable)
+//   DR  VAT Input         →  bill.ppn  (PPN Masukan tax code)    (creditable PPN)
+//   CR  AP Trade          →  bill.total  (default AP account)    (gross payable)
 //
 // PPh is NOT booked here. It is recognised when the bill is paid: Record
 // payment splits the gross payable into cash to the vendor and a withholding
@@ -21,12 +21,15 @@
 // above and the preview updates.
 
 import { TODAY } from "./clock";
+import { COA_BY_CODE } from "../data/seed/coa";
+import { DEFAULT_ACCOUNTS } from "../data/seed/defaultAccounts";
+import { taxAccount } from "../data/seed/taxCodes";
 
-// Canonical AP account codes — kept here as constants so the preview wires
-// up to the same chart the existing journal-entry seeds use. In production
-// these would come from a CoA mapping table per entity.
-const ACCT_AP_TRADE    = { code: "2-1100", name: "Accounts Payable — Trade" };
-const ACCT_VAT_INPUT   = { code: "1-5100", name: "VAT Input (PPN Masukan)" };
+// The payable is the company's default AP account and the input VAT is the
+// PPN Masukan tax code's account (Settings → Accounting → Default accounts,
+// and → Tax), both read at call time so a settings change reaches the next
+// bill.
+const acct = (code) => ({ code, name: COA_BY_CODE[code]?.name || code });
 
 export function previewJournalLines(bill, vendor) {
   const lines = [];
@@ -50,10 +53,11 @@ export function previewJournalLines(bill, vendor) {
   //    lines above. Without it the entry cannot balance: the line items sum to
   //    DPP while the vendor is owed DPP + PPN.
   if (bill.ppn > 0) {
+    const vatInput = acct(taxAccount("ppn_masukan") || "1-5100");
     lines.push({
       side:         "DR",
-      account_code: ACCT_VAT_INPUT.code,
-      account_name: ACCT_VAT_INPUT.name,
+      account_code: vatInput.code,
+      account_name: vatInput.name,
       amount:       bill.ppn,
       description:  "Creditable input VAT",
       rule:         "Tax rule: PPN on a PKP vendor's faktur pajak is creditable",
@@ -63,10 +67,11 @@ export function previewJournalLines(bill, vendor) {
 
   // 3) AP Trade CR — the gross the vendor invoiced. Any PPh is withheld out
   //    of this at payment, not here (see the header).
+  const ap = acct(DEFAULT_ACCOUNTS.ap);
   lines.push({
     side:         "CR",
-    account_code: ACCT_AP_TRADE.code,
-    account_name: ACCT_AP_TRADE.name,
+    account_code: ap.code,
+    account_name: ap.name,
     amount:       bill.total,
     description:  `Trade payable to ${vendor?.name || bill.vendorName}`,
     rule:         bill.pph23 > 0

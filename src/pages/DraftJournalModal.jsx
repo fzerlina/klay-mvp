@@ -27,6 +27,13 @@ function blankLine() {
   return { id: ++LINE_SEQ, account_code: "", debit: "", credit: "", description: "", dims: {}, payee: "" };
 }
 
+// A journal template's lines (Settings → Journal templates): its accounts and
+// the side each sits on; amounts stay blank. An account the template leaves
+// open is picked here.
+function templateLines(template) {
+  return template.lines.map((l) => ({ ...blankLine(), account_code: l.account || "", side: l.side }));
+}
+
 // Map pre-filled lines (from a stock adjustment or other flow) into the modal's
 // internal line shape. Amounts come in as numbers; the inputs want strings.
 function seedLines(initialLines) {
@@ -77,7 +84,19 @@ export default function DraftJournalModal({ open, intentQuery, initialLines, ini
   // vendors until there is an Expense module. Payees come from the vendor
   // master only (Payment discussion, 2026-10-07): that is where the bank
   // details and the payment history live.
-  const { reconcilableAccounts } = useAccountingSettings();
+  const { reconcilableAccounts, journalTemplates } = useAccountingSettings();
+  const [templateId, setTemplateId] = useState("");
+
+  // Replaces the lines with the template's. Asks first if amounts were entered.
+  function applyTemplate(id) {
+    const t = journalTemplates.find((x) => x.id === id);
+    if (!t) { setTemplateId(""); return; }
+    const typed = lines.some((l) => l.debit || l.credit);
+    if (typed && !window.confirm(`Replace the lines with “${t.name}”? Amounts you entered will be cleared.`)) return;
+    setTemplateId(id);
+    setLines(templateLines(t));
+    if (!memo.trim()) setMemo(t.name);
+  }
   const { vendors } = useVendors();
   const isReconcilable = (code) => !!code && reconcilableAccounts.includes(code);
   const payeeOf = (key) => {
@@ -245,6 +264,12 @@ export default function DraftJournalModal({ open, intentQuery, initialLines, ini
           <div className="dje-lines-hdr">
             <span>Lines</span>
             <span className="dje-hint">Pick an account — the dimensions it requires appear automatically.</span>
+            {!editing && journalTemplates.length > 0 && (
+              <select className="dje-input dje-template" value={templateId} onChange={(e) => applyTemplate(e.target.value)} aria-label="Journal template">
+                <option value="">Start from a template…</option>
+                {journalTemplates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            )}
           </div>
 
           {lines.map((l) => {
@@ -254,24 +279,24 @@ export default function DraftJournalModal({ open, intentQuery, initialLines, ini
               <div className={`dje-line${errs ? " has-err" : ""}`} key={l.id}>
                 <div className="dje-line-main">
                   <select
-                    className="dje-input dje-acct"
+                    className={`dje-input dje-acct${l.side && !l.account_code ? " dje-acct-pick" : ""}`}
                     value={l.account_code}
                     onChange={(e) => onAccountChange(l.id, e.target.value)}
                   >
-                    <option value="">Select account…</option>
+                    <option value="">{l.side && !l.account_code ? `Select ${l.side} account…` : "Select account…"}</option>
                     {accounts.map((a) => (
                       <option key={a.code} value={a.code}>{a.code} · {a.name}</option>
                     ))}
                   </select>
                   <input
-                    className="dje-input dje-amt"
+                    className={`dje-input dje-amt${l.side === "debit" ? " expected" : ""}`}
                     inputMode="numeric"
                     placeholder="Debit"
                     value={l.debit ? Number(l.debit).toLocaleString("id-ID") : ""}
                     onChange={(e) => onAmountChange(l.id, "debit", e.target.value)}
                   />
                   <input
-                    className="dje-input dje-amt"
+                    className={`dje-input dje-amt${l.side === "credit" ? " expected" : ""}`}
                     inputMode="numeric"
                     placeholder="Credit"
                     value={l.credit ? Number(l.credit).toLocaleString("id-ID") : ""}

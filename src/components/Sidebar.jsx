@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   ACCOUNTING_TABS, COMPANY_TABS, USERS_TABS, PAYABLES_TABS, RECEIVABLES_TABS,
-  INVENTORY_TABS, FIXED_ASSETS_TABS, RECONCILIATION_TABS, inTabs,
+  INVENTORY_TABS, FIXED_ASSETS_TABS, RECONCILIATION_TABS, DEFAULT_ACCOUNTS_TABS, inTabs,
 } from "./SettingsHeader";
 import { useCurrentUser, PERSONAS } from "../state/CurrentUserContext";
 import { ROLES } from "../data/seed/roles";
@@ -259,13 +259,14 @@ const navSections = [
 
 // Settings. Company, Users & Roles and Approval are company-wide links. The
 // rest is one foldable Accounting group: the General Ledger setup (chart of
-// accounts, dimensions, tax, bank accounts, preferences) and one page per
-// module, in the order of the main menu. Each entry is a tabbed page, lit on
+// accounts, dimensions, tax, bank accounts, preferences), one page per
+// module in the order of the main menu, and Default accounts — the accounts
+// every module pre-fills, across all of them. Each entry is a tabbed page, lit on
 // any of its tabs; the group opens by itself on any of its pages.
 const SECTION_TABS = {
   company: COMPANY_TABS, users: USERS_TABS, ledger: ACCOUNTING_TABS,
   payables: PAYABLES_TABS, receivables: RECEIVABLES_TABS, fixedAssets: FIXED_ASSETS_TABS,
-  inventory: INVENTORY_TABS, reconciliation: RECONCILIATION_TABS,
+  inventory: INVENTORY_TABS, reconciliation: RECONCILIATION_TABS, defaultAccounts: DEFAULT_ACCOUNTS_TABS,
 };
 const settingsSections = [
   {
@@ -301,6 +302,7 @@ const settingsSections = [
       { key: "fixedAssets", label: "Fixed Assets", to: "/settings/fixed-assets" },
       { key: "inventory", label: "Inventory", to: "/settings/inventory" },
       { key: "reconciliation", label: "Reconciliation", to: "/settings/reconciliation" },
+      { key: "defaultAccounts", label: "Default accounts", to: "/settings/default-accounts" },
     ],
   },
 ];

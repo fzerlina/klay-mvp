@@ -15,6 +15,7 @@ import { buildCashPosition } from "../lib/cashPosition";
 import { accountBalanceAsOf } from "../lib/trialBalance";
 import { reconciledThrough } from "../lib/bankRecon";
 import { COA_BY_CODE } from "../data/seed/coa";
+import { DEFAULT_ACCOUNTS } from "../data/seed/defaultAccounts";
 import ApAgingTable from "../components/ApAgingTable";
 import ArAgingTable from "../components/ArAgingTable";
 import "./modules.css";
@@ -22,8 +23,9 @@ import "./cashflow-report.css";
 
 const AGE_COLOR = { current: "#2E7D44", b1_30: "#C99A2E", b31_60: "#B8770F", b61_90: "#A8620C", b91_120: "#A32D2D", b_gt120: "#8C2420" };
 
-// The general-ledger control account each aging must agree with.
-const CONTROL = { ar: "1-2100", ap: "2-1100" };
+// The general-ledger control account each aging must agree with: the default
+// AR and AP accounts (Settings → Accounting → Default accounts).
+const CONTROL = DEFAULT_ACCOUNTS;
 
 const TABS = [
   { k: "insights", lbl: "Overview",  report: "Cash position" },

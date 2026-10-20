@@ -45,3 +45,7 @@ export const TAX_CODES = [
 
 export const TAX_KIND_LABELS = { vat: "VAT (PPN)", withholding: "Withholding (PPh)" };
 export const APPLIES_LABELS = { sales: "Sales", purchases: "Purchases", both: "Sales & purchases" };
+
+// The account a tax code books to, read at call time so an edit on the Tax tab
+// reaches bill posting and payments. Settings → Tax writes into TAX_CODES.
+export const taxAccount = (code) => TAX_CODES.find((t) => t.code === code)?.account || null;

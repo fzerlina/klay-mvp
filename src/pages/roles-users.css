@@ -69,7 +69,7 @@
 
 /* ── Users table ─────────────────────────────────────────────────────── */
 .users-page .lg-card.lg-table-users .lg-col-header.ru-users-cols,
-.users-page .lg-row.ru-users-cols{grid-template-columns:minmax(200px,1.3fr) 130px minmax(220px,1fr) 100px}
+.users-page .lg-row.ru-users-cols{grid-template-columns:minmax(200px,1.3fr) minmax(220px,1fr) 100px}
 
 .ru-user-cell{display:flex;align-items:center;gap:10px;min-width:0}
 .ru-user-av{width:32px;height:32px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;background:var(--color-action)}
@@ -156,9 +156,6 @@
 .sod-risk-note{margin:0;font-size:11px;color:var(--color-text-tertiary)}
 
 /* Users: department column + drawer select */
-.ru-user-dept{font-size:12.5px;color:var(--color-text-secondary)}
-.ru-dept-select{width:100%;font-family:var(--font-sans);font-size:13px;color:var(--color-text-primary);background:var(--color-surface-raised);border:1px solid var(--color-border-default);border-radius:var(--radius-sm);padding:8px 10px;outline:none;cursor:pointer}
-.ru-dept-select:focus{border-color:var(--color-action)}
 .users-page .lg-head{padding-bottom:24px}
 .ru-limit-src{display:block;font-size:11px;font-weight:400;color:var(--color-text-tertiary);margin-top:2px;text-align:right}
 
@@ -175,12 +172,3 @@
 .ru-temp-form-btns{display:flex;justify-content:flex-end;gap:8px;margin:4px 0 8px}
 .ru-temp-chip{font-size:10.5px;font-weight:600;color:var(--warning-text,#8A5A00);background:var(--warning-surface,#FFF6E0);border:1px dashed var(--warning-border,#E8C77A);border-radius:var(--radius-full);padding:2px 8px;white-space:nowrap}
 
-/* Departments tab (Users) */
-.users-page .lg-card.ru-dept-card .lg-col-header.ru-dept-cols,
-.users-page .lg-row.ru-dept-cols{grid-template-columns:1fr 220px 140px 80px}
-.ru-dept-name{font-size:13px;font-weight:600;color:var(--color-text-primary)}
-.ru-dept-unmapped{font-size:12px;color:var(--warning-text)}
-.ru-dept-count{background:none;border:none;padding:0;font-family:var(--font-sans);font-size:12px;cursor:pointer}
-.ru-dept-actions{text-align:right}
-.ru-dept-actions .ru-temp-end[disabled]{opacity:.4;cursor:not-allowed;text-decoration:none}
-.ru-dept-foot{display:flex;gap:16px;justify-content:space-between;padding:12px 32px;font-size:12px;color:var(--color-text-tertiary)}

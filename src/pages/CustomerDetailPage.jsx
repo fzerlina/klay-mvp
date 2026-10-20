@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { INVOICES } from "../data/seed/invoices";
-import { useCustomers, AR_ACCT_LABELS, shipsToBilling } from "../state/CustomersContext";
+import { useCustomers, arAcctLabel, shipsToBilling } from "../state/CustomersContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
 import { withholdingLabel } from "../data/labels";
 import { formatRupiah, formatDate, termLabel } from "../lib/format";
@@ -348,7 +348,7 @@ export default function CustomerDetailPage() {
                 <div className="vd-card-title">AR Accounts</div>
                 {(customer.accts || []).map((a) => (
                   <div className="vd-acct-row" key={a}>
-                    <span className="vd-acct-code">{AR_ACCT_LABELS[a] || a}</span>
+                    <span className="vd-acct-code">{arAcctLabel(a)}</span>
                     {a === customer.defaultAcct && <span className="vd-acct-default">Default</span>}
                   </div>
                 ))}
@@ -596,8 +596,8 @@ function VersionSnapshot({ data, reason }) {
       <div className="vd-ver-grp">Credit &amp; Terms</div>
       <Row l="Payment terms" v={termLabel(data.top)} />
       <Row l="Credit limit" v={data.creditLimit > 0 ? formatRupiah(data.creditLimit) : "—"} />
-      <Row l="AR accounts" v={(data.accts || []).map((a) => AR_ACCT_LABELS[a] || a).join(" · ") || "—"} />
-      <Row l="Default AR account" v={AR_ACCT_LABELS[data.defaultAcct] || data.defaultAcct || "—"} />
+      <Row l="AR accounts" v={(data.accts || []).map((a) => arAcctLabel(a)).join(" · ") || "—"} />
+      <Row l="Default AR account" v={(data.defaultAcct ? arAcctLabel(data.defaultAcct) : "—")} />
       <Row l="Currency" v={data.currency || "IDR"} />
       <div className="vd-ver-grp">Receiving Account</div>
       <Row l="Company receiving account (paid into)" v={c ? `${c.name}${c.branch ? ` — ${c.branch}` : ""} · ${bankAcc(c.acc)} · a/n ${c.holder || "—"}` : "—"} />

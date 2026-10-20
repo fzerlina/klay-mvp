@@ -21,14 +21,12 @@
 
 import { useMemo, useState } from "react";
 import { COA } from "../data/seed/coa";
+import { DEFAULT_ACCOUNTS } from "../data/seed/defaultAccounts";
 import { bankLineFor, draftProblem } from "../lib/reconJournal";
 import { paymentJournalLines } from "../lib/paymentJournal";
-import { emptyBreakdown, newDeduction, remainingWithholding, breakdownTotal, WITHHOLDING_ACCOUNT } from "../lib/paymentBreakdown";
+import { emptyBreakdown, newDeduction, remainingWithholding, breakdownTotal, withholdingAccount } from "../lib/paymentBreakdown";
 import { nameAgrees } from "../lib/bankMatching";
 import { formatRupiahExact } from "../lib/format";
-
-export const ACCT_AP = "2-1100";
-export const ACCT_AR = "1-2100";
 
 const LEAVES = COA.filter((a) => a.type !== "group" && a.is_active !== false);
 const nameOf = (code) => LEAVES.find((a) => a.code === code)?.name || code;
@@ -95,7 +93,7 @@ export default function QuickDraftModal({ line, account, vendors, customers, bil
         const bd = { ...emptyBreakdown(), sourceAccountId: account.id, to_vendor: cash };
         let note;
         if (pph > 0 && cash + pph === open) {
-          bd.deductions = [newDeduction({ amount: pph, account: WITHHOLDING_ACCOUNT })];
+          bd.deductions = [newDeduction({ amount: pph, account: withholdingAccount() })];
           note = `Pays ${bill.id} in full: ${rp(cash)} sent + ${rp(pph)} PPh 23 withheld.`;
         } else if (cash <= open) {
           note = cash === open ? `Pays ${bill.id} in full.` : `Part-pays ${bill.id}: ${rp(open - cash)} stays open.`;
@@ -109,8 +107,8 @@ export default function QuickDraftModal({ line, account, vendors, customers, bil
         };
       }
       return {
-        kind: "journal", contra: ACCT_AP, note: `No bill — ${rp(cash)} to ${vendor.name}'s payable.`,
-        lines: [bankSide, { account_code: ACCT_AP, account_name: nameOf(ACCT_AP), debit: cash, credit: 0, description: `Paid to ${vendor.name}` }],
+        kind: "journal", contra: DEFAULT_ACCOUNTS.ap, note: `No bill — ${rp(cash)} to ${vendor.name}'s payable.`,
+        lines: [bankSide, { account_code: DEFAULT_ACCOUNTS.ap, account_name: nameOf(DEFAULT_ACCOUNTS.ap), debit: cash, credit: 0, description: `Paid to ${vendor.name}` }],
       };
     }
     if (type === "ar") {
@@ -118,9 +116,9 @@ export default function QuickDraftModal({ line, account, vendors, customers, bil
       const open = invoice ? invoiceOpen(invoice) : 0;
       if (invoice && cash > open) return { problem: `${rp(cash)} is more than ${invoice.id}'s open ${rp(open)}. Record it without an invoice, or as an Other journal.` };
       return {
-        kind: "journal", contra: ACCT_AR, invoice, paysInFull: invoice ? cash >= open : false,
+        kind: "journal", contra: DEFAULT_ACCOUNTS.ar, invoice, paysInFull: invoice ? cash >= open : false,
         note: invoice ? (cash >= open ? `Settles ${invoice.id}.` : `Part-pays ${invoice.id}: ${rp(open - cash)} stays open.`) : `No invoice — ${rp(cash)} from ${customer.name}.`,
-        lines: [bankSide, { account_code: ACCT_AR, account_name: nameOf(ACCT_AR), debit: 0, credit: cash, description: `Received from ${customer.name}${invoice ? ` · ${invoice.id}` : ""}` }],
+        lines: [bankSide, { account_code: DEFAULT_ACCOUNTS.ar, account_name: nameOf(DEFAULT_ACCOUNTS.ar), debit: 0, credit: cash, description: `Received from ${customer.name}${invoice ? ` · ${invoice.id}` : ""}` }],
       };
     }
     if (!otherAcct) return { problem: "Choose the account on the other side." };

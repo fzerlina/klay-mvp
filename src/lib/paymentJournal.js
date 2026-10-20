@@ -5,7 +5,7 @@
 // Line shape is deliberately identical so both render through the same table.
 //
 // Derivation:
-//   DR  Accounts Payable — Trade   total cleared    (the liability goes away)
+//   DR  Accounts payable (default) total cleared    (the liability goes away)
 //   CR  the source cash account    to_vendor        (money out of our bank)
 //   CR  each deduction account     its amount       (the rest of the relief)
 //
@@ -16,14 +16,8 @@
 
 import { COA } from "../data/seed/coa";
 import { bankAccountById } from "../data/seed/bankAccounts";
-import { WITHHOLDING_ACCOUNT, accountByCode, activeDeductions, breakdownTotal, cashOut } from "./paymentBreakdown";
-
-const ACCT_AP_TRADE = { code: "2-1100", name: "Accounts Payable — Trade" };
-
-// Fallbacks for a cash account with no GL mapping configured. Petty cash and a
-// bank account land in different places, so the default follows the group
-// rather than being one catch-all.
-const FALLBACK_CASH = { petty: "1-1200", default: "1-1100" };
+import { DEFAULT_ACCOUNTS } from "../data/seed/defaultAccounts";
+import { withholdingAccount, accountByCode, activeDeductions, breakdownTotal, cashOut } from "./paymentBreakdown";
 
 const inCoa = (code) => COA.some((a) => a.type !== "group" && a.code === code);
 
@@ -32,13 +26,17 @@ const inCoa = (code) => COA.some((a) => a.type !== "group" && a.code === code);
 // The bank-account master names the chart-of-accounts code each account posts
 // to. If someone configures a code the chart does not contain, it is still
 // used — nobody chose a substitute — but the line is flagged, so the mismatch
-// shows up on screen instead of in a reconciliation three weeks later.
+// shows up on screen instead of in a reconciliation three weeks later. An
+// account with no code at all falls back to Default accounts → Petty cash or
+// Cash on hand, by its group, and is flagged too.
 function creditAccountFor(account) {
   if (!account) {
-    return { code: FALLBACK_CASH.default, name: "Cash on Hand", flag: "No source account recorded on this payment — defaulted to Cash on Hand." };
+    const code = DEFAULT_ACCOUNTS.cash;
+    const name = accountByCode(code)?.name || code;
+    return { code, name, flag: `No source account recorded on this payment — defaulted to ${name}.` };
   }
   if (!account.glAccount) {
-    const code = account.group === "petty" ? FALLBACK_CASH.petty : FALLBACK_CASH.default;
+    const code = account.group === "petty" ? DEFAULT_ACCOUNTS.pettyCash : DEFAULT_ACCOUNTS.cash;
     return {
       code,
       name: accountByCode(code)?.name || code,
@@ -64,12 +62,13 @@ export function paymentJournalLines(breakdown, { vendorName, payableAccount = nu
   const cleared = breakdownTotal(breakdown);
   const cash = cashOut(breakdown);
   const source = bankAccountById(breakdown.sourceAccountId);
+  const payable = payableAccount || { code: DEFAULT_ACCOUNTS.ap, name: accountByCode(DEFAULT_ACCOUNTS.ap)?.name || DEFAULT_ACCOUNTS.ap };
   const lines = [];
 
   lines.push({
     side: "DR",
-    account_code: (payableAccount || ACCT_AP_TRADE).code,
-    account_name: (payableAccount || ACCT_AP_TRADE).name,
+    account_code: payable.code,
+    account_name: payable.name,
     amount: cleared,
     description: `Payable cleared${vendorName ? ` — ${vendorName}` : ""}`,
     rule: payableAccount
@@ -111,7 +110,7 @@ export function paymentJournalLines(breakdown, { vendorName, payableAccount = nu
       // earns its place where it adds something: withholding is the one
       // deduction that creates an obligation to a third party rather than just
       // reducing what the vendor gets.
-      description: d.account === WITHHOLDING_ACCOUNT
+      description: d.account === withholdingAccount()
         ? "Withheld — owed to the tax office"
         : d.diff ? "Payment difference — booked so the bill closes" : "Deducted from the vendor's share",
       rule: a

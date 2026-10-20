@@ -30,6 +30,8 @@
 // one row per deduction, as many rows as the payment needs.
 
 import { COA } from "../data/seed/coa";
+import { DEFAULT_ACCOUNTS } from "../data/seed/defaultAccounts";
+import { taxAccount } from "../data/seed/taxCodes";
 
 export const PAYMENT_METHODS = [
   {
@@ -49,8 +51,9 @@ export const PAYMENT_METHOD_BY_KEY = Object.fromEntries(PAYMENT_METHODS.map((m) 
 
 // Where withheld tax lands. Named here because two things key off it: the
 // bukti potong callout in the modal, and the default deduction a bill's PPh
-// pre-fills into.
-export const WITHHOLDING_ACCOUNT = "2-2300";
+// pre-fills into. It is the PPh 23 tax code's account (Settings → Tax), read
+// at call time.
+export const withholdingAccount = () => taxAccount("pph23") || "2-2300";
 
 // Every leaf account, for the deduction account picker. A deduction can in
 // principle hit any account, so the picker searches all of them rather than a
@@ -64,15 +67,16 @@ export const accountLabel = (code) => {
 
 // The handful of treatments that come up on nearly every payment, offered
 // first in the picker so the common case is one click rather than a search.
-// This is a shortcut into the full list, NOT a restriction on it.
-export const COMMON_DEDUCTION_ACCOUNTS = [
-  { code: WITHHOLDING_ACCOUNT, hint: "Kept back from the vendor and owed to the tax office — creates a bukti potong obligation." },
+// This is a shortcut into the full list, NOT a restriction on it. Withholding
+// and the payment difference follow Settings, so this is built per call.
+export const commonDeductionAccounts = () => [
+  { code: withholdingAccount(), hint: "Kept back from the vendor and owed to the tax office — creates a bukti potong obligation." },
   { code: "1-5200", hint: "An advance already paid to this vendor, applied against this bill." },
   { code: "4-2300", hint: "A discount the vendor agreed to, or a small rounding difference so the bill closes cleanly." },
   { code: "1-2300", hint: "Netted against an invoice this counterparty owes us." },
   { code: "6-4000", hint: "A balance we have decided not to pay and not to chase." },
-  { code: "6-3000", hint: "A transfer fee the bank took out of what the vendor received — the usual payment difference." },
-].filter((s) => accountByCode(s.code));
+  { code: DEFAULT_ACCOUNTS.paymentDifference, hint: "A transfer fee the bank took out of what the vendor received — the usual payment difference." },
+].filter((s, i, all) => accountByCode(s.code) && all.findIndex((x) => x.code === s.code) === i);
 
 let seq = 0;
 export const newDeduction = (patch = {}) => ({ id: `d${++seq}`, amount: 0, account: "", ...patch });
@@ -87,7 +91,7 @@ export function emptyBreakdown() {
 export function defaultBreakdown({ remaining = 0, pph23 = 0 } = {}, patch = {}) {
   const b = emptyBreakdown();
   const withheld = Math.min(pph23 || 0, remaining);
-  if (withheld > 0) b.deductions = [newDeduction({ amount: withheld, account: WITHHOLDING_ACCOUNT })];
+  if (withheld > 0) b.deductions = [newDeduction({ amount: withheld, account: withholdingAccount() })];
   b.to_vendor = Math.max(0, remaining - withheld);
   return { ...b, ...patch };
 }
@@ -109,7 +113,7 @@ export const activeDeductions = (b) => deductionsOf(b).filter((d) => num(d.amoun
 // Tax withheld, read off the accounts rather than off a label: a deduction is
 // withholding because of where it is booked, not because of what it is called.
 export const withheldTax = (b) =>
-  deductionsOf(b).filter((d) => d.account === WITHHOLDING_ACCOUNT).reduce((s, d) => s + num(d.amount), 0);
+  deductionsOf(b).filter((d) => d.account === withholdingAccount()).reduce((s, d) => s + num(d.amount), 0);
 
 // The PPh still to withhold on a bill: what it carries less what earlier
 // payments actually withheld (Payment discussion, 2026-10-07). Not a

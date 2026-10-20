@@ -28,6 +28,8 @@
 .ba-bank-cell{display:flex;align-items:center;gap:8px;min-width:0}
 .ba-bank-logo{width:26px;height:26px;border-radius:6px;color:#fff;font-family:var(--font-display);font-weight:900;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0;letter-spacing:-.02em}
 .ba-bank-code{font-family:var(--font-mono);font-size:11.5px;font-weight:700;color:var(--color-text-secondary)}
+.ba-bank-country{display:block;font-family:var(--font-sans);font-size:10.5px;font-weight:500;color:var(--color-text-tertiary)}
+.ba-swift{display:block;font-size:10.5px;color:var(--color-text-tertiary);margin-top:1px}
 
 .ba-name{font-weight:600;color:var(--color-text-primary);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ba-mono{font-family:var(--font-mono);font-size:11.5px;color:var(--color-text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -63,6 +65,8 @@
 .ba-field input:focus,
 .ba-field select:focus{border-color:var(--color-action);box-shadow:0 0 0 3px rgba(26,70,200,.08)}
 .ba-help{font-size:11px;color:var(--color-text-tertiary);line-height:1.45}
+.ba-err{font-size:11px;color:var(--color-danger-text,#A02020);line-height:1.45}
+.ba-mono-input{font-family:var(--font-mono)!important;letter-spacing:.04em}
 .ba-help strong{color:var(--color-text-secondary);font-weight:600;font-family:var(--font-mono);font-size:10.5px}
 .ba-req{color:var(--color-danger-text)}
 

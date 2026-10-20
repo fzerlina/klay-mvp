@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { useCustomers } from "../state/CustomersContext";
+import { useCustomers, AR_ACCOUNTS, arAcctLabel } from "../state/CustomersContext";
+import { DEFAULT_ACCOUNTS } from "../data/seed/defaultAccounts";
 import { useCurrentUser } from "../state/CurrentUserContext";
 import { initials, termLabel } from "../lib/format";
 import "./invoice-create.css";
@@ -37,12 +38,6 @@ function rateFor(pph, hasNpwp) {
   return null;
 }
 
-// AR control-account shortlist (mirrors the AP reconciliation-account picker).
-const AR_ACCT_OPTIONS = [
-  { v: "1-1200", label: "1-1200 · Accounts Receivable (default)" },
-  { v: "1-1210", label: "1-1210 · AR — Trade" },
-  { v: "1-1220", label: "1-1220 · AR — Retail" },
-];
 const ENTITY_FORMS = [
   { v: "PT", label: "PT (Limited company)" },
   { v: "CV", label: "CV" },
@@ -105,8 +100,11 @@ export default function CustomerCreatePage() {
   const [top, setTop] = useState(defaultTerm);
   const [creditLimit, setCreditLimit] = useState("");
   const [currency, setCurrency] = useState("IDR");
-  const [accts, setAccts] = useState(["1-1200"]);   // permitted AR accounts
-  const [defaultAcct, setDefaultAcct] = useState("1-1200");
+  const [accts, setAccts] = useState([DEFAULT_ACCOUNTS.ar]);   // permitted AR accounts
+  const [defaultAcct, setDefaultAcct] = useState(DEFAULT_ACCOUNTS.ar);
+  // The default AR account leads, even if Settings points it outside Trade Receivables.
+  const arOptions = [...new Set([DEFAULT_ACCOUNTS.ar, ...AR_ACCOUNTS.map((a) => a.code)])]
+    .map((v) => ({ v, label: `${arAcctLabel(v)}${v === DEFAULT_ACCOUNTS.ar ? " (default)" : ""}` }));
   const [pph21Rate, setPph21Rate] = useState("5");   // free percentage
 
   // Contacts
@@ -149,7 +147,7 @@ export default function CustomerCreatePage() {
     setShipSame(true); setShippingAddress("");
     setPph("none");
     setTop(defaultTerm); setCreditLimit(""); setCurrency("IDR");
-    setAccts(["1-1200"]); setDefaultAcct("1-1200"); setPph21Rate("5");
+    setAccts([DEFAULT_ACCOUNTS.ar]); setDefaultAcct(DEFAULT_ACCOUNTS.ar); setPph21Rate("5");
     setContacts([blankContact(true)]);
     setNotes(""); setTier("standard"); setTierNote("");
   }
@@ -456,7 +454,7 @@ export default function CustomerCreatePage() {
             </div>
             <div className="form-fld" style={{ marginBottom: 0 }}>
               <label>AR Accounts <span className="vc-req">*</span></label>
-              {AR_ACCT_OPTIONS.map((o) => {
+              {arOptions.map((o) => {
                 const on = accts.includes(o.v);
                 return (
                   <label className="vc-acct-opt" key={o.v}>

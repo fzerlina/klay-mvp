@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { COA } from "../data/seed/coa";
+import { useSettingsAudit } from "../state/SettingsAuditContext";
 import "../pages/roles.css";
 
 // A settings list: a table of records with an add / edit modal, shared by the
@@ -10,6 +11,9 @@ import "../pages/roles.css";
 //   columns: [{ key, label, width, render?(row) }]
 //   fields:  [{ key, label, type: text|number|select|account|checkbox|textarea|list,
 //               options?, required?, hint?, placeholder?, span2?, lockOnEdit? }]
+//   auditArea: the Settings section ("Payables"…) — when given, every add,
+//              edit and delete goes to the Settings audit trail, an edit with
+//              its changed fields (old → new).
 
 export const LEAF_ACCOUNTS = COA.filter((a) => a.code && a.is_active).sort((a, b) => a.code.localeCompare(b.code));
 export const accountName = (code) => COA.find((a) => a.code === code)?.name;
@@ -25,6 +29,15 @@ function setAt(obj, path, value) {
   if (!rest.length) return { ...obj, [head]: value };
   return { ...obj, [head]: setAt(obj[head] || {}, rest.join("."), value) };
 }
+
+const show = (f, v) => {
+  if (v == null || v === "") return "—";
+  if (f.type === "checkbox") return v ? "yes" : "no";
+  if (f.type === "list") return (v || []).join(", ") || "—";
+  if (f.type === "select") return f.options?.find((o) => o.value === v)?.label || String(v);
+  return String(v);
+};
+const rowName = (r, rowKey) => r.label || r.name || r.code || r[rowKey];
 
 function FieldInput({ f, value, onChange, locked }) {
   if (f.type === "select") {
@@ -115,8 +128,17 @@ function EditModal({ title, fields, row, isNew, onSave, onClose, validate }) {
 
 export default function RecordList({
   title, intro, rows, rowKey, columns, fields, newRow = {}, noun = "item",
-  canEdit, onSave, onDelete, deleteBlocked, validate, footer,
+  canEdit, onSave, onDelete, deleteBlocked, validate, footer, auditArea,
 }) {
+  const { log } = useSettingsAudit();
+  const audit = (summary) => auditArea && log(auditArea, title, summary);
+  function saved(row, isNew, old) {
+    if (isNew) { audit(`Added ${noun} ${rowName(row, rowKey)}`); return; }
+    const changes = fields
+      .filter((f) => JSON.stringify(getAt(old, f.key) ?? null) !== JSON.stringify(getAt(row, f.key) ?? null))
+      .map((f) => `${f.label} ${show(f, getAt(old, f.key))} → ${show(f, getAt(row, f.key))}`);
+    if (changes.length) audit(`${rowName(row, rowKey)}: ${changes.join("; ")}`);
+  }
   const [editing, setEditing] = useState(null); // null | { row, isNew }
   const grid = columns.map((c) => c.width || "minmax(0,1fr)").join(" ") + (canEdit && onDelete ? " 70px" : "");
   return (
@@ -153,7 +175,7 @@ export default function RecordList({
                     className="ru-temp-end"
                     disabled={!!blocked}
                     title={blocked || ""}
-                    onClick={(e) => { e.stopPropagation(); onDelete(r); }}
+                    onClick={(e) => { e.stopPropagation(); onDelete(r); audit(`Deleted ${noun} ${rowName(r, rowKey)}`); }}
                   >
                     Delete
                   </button>
@@ -172,7 +194,7 @@ export default function RecordList({
           isNew={editing.isNew}
           validate={validate}
           onClose={() => setEditing(null)}
-          onSave={(row) => { onSave(row, editing.isNew ? null : editing.row[rowKey]); setEditing(null); }}
+          onSave={(row) => { onSave(row, editing.isNew ? null : editing.row[rowKey]); saved(row, editing.isNew, editing.row); setEditing(null); }}
         />
       )}
     </section>

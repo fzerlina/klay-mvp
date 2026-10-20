@@ -40,6 +40,9 @@ import CompanyProfilePage from "./pages/CompanyProfilePage";
 import RoleDetailPage from "./pages/RoleDetailPage";
 import ApprovalSettingsPage from "./pages/ApprovalSettingsPage";
 import AccountingPreferencesPage from "./pages/AccountingPreferencesPage";
+import DefaultAccountsPage from "./pages/DefaultAccountsPage";
+import JournalTemplatesPage from "./pages/JournalTemplatesPage";
+import { SettingsAuditProvider } from "./state/SettingsAuditContext";
 import TaxSettingsPage from "./pages/TaxSettingsPage";
 import { InvoicesProvider } from "./state/InvoicesContext";
 import { BillsProvider } from "./state/BillsContext";
@@ -57,7 +60,6 @@ import { ModuleSettingsProvider } from "./state/ModuleSettingsContext";
 import PayablesSettingsPage, { ReceivablesSettingsPage } from "./pages/PayablesSettingsPage";
 import InventorySettingsPage, { FixedAssetsSettingsPage } from "./pages/InventorySettingsPage";
 import ReconciliationSettingsPage from "./pages/ReconciliationSettingsPage";
-import DepartmentsPage from "./pages/DepartmentsPage";
 import { JournalEntriesProvider } from "./state/JournalEntriesContext";
 import { ClosePeriodProvider } from "./state/ClosePeriodContext";
 
@@ -116,6 +118,7 @@ export default function App() {
   return (
     <RolesProvider>
     <CurrentUserProvider>
+    <SettingsAuditProvider>
     <InvoicesProvider>
       <BillsProvider>
         <VendorsProvider>
@@ -184,13 +187,15 @@ export default function App() {
                 <Route path="/bank-reconciliation" element={<BankReconciliationPage />} />
                 <Route path="/bank-accounts" element={<BankAccountsSettingsPage />} />
                 <Route path="/company-settings" element={<CompanyProfilePage />} />
-                <Route path="/departments" element={<DepartmentsPage />} />
+                <Route path="/departments" element={<Navigate to="/company-settings" replace />} />
                 <Route path="/users" element={<UsersPage />} />
                 <Route path="/roles" element={<RolesPage />} />
                 <Route path="/roles/:key" element={<RoleDetailPage />} />
                 <Route path="/access-policy" element={<Navigate to="/roles" replace />} />
                 <Route path="/approval" element={<ApprovalSettingsPage />} />
                 <Route path="/tax" element={<TaxSettingsPage />} />
+                <Route path="/default-accounts" element={<Navigate to="/settings/default-accounts" replace />} />
+                <Route path="/journal-templates" element={<JournalTemplatesPage />} />
                 <Route path="/accounting-preferences" element={<AccountingPreferencesPage />} />
                 {/* Old one-setting pages now live as sections of Preferences. */}
                 <Route path="/posting-periods" element={<Navigate to="/accounting-preferences#posting" replace />} />
@@ -205,6 +210,7 @@ export default function App() {
                 <Route path="/settings/inventory/:tab" element={<InventorySettingsPage />} />
                 <Route path="/settings/fixed-assets" element={<FixedAssetsSettingsPage />} />
                 <Route path="/settings/reconciliation" element={<ReconciliationSettingsPage />} />
+                <Route path="/settings/default-accounts" element={<DefaultAccountsPage />} />
                 <Route path="*" element={<RoleLanding />} />
               </Route>
             </Routes>
@@ -223,6 +229,7 @@ export default function App() {
         </VendorsProvider>
       </BillsProvider>
     </InvoicesProvider>
+    </SettingsAuditProvider>
     </CurrentUserProvider>
     </RolesProvider>
   );

@@ -45,6 +45,7 @@
 import { INVENTORY_OPENING, OPENING_POSTED } from "../data/seed/inventoryOpening";
 import { isStocked, ITEM_CATEGORY_ACCOUNTS } from "../data/seed/items";
 import { COA_BY_CODE } from "../data/seed/coa";
+import { DEFAULT_ACCOUNTS } from "../data/seed/defaultAccounts";
 
 // ── Reachability ─────────────────────────────────────────────────────────────
 // The sub-ledger is a separate module, so "it did not answer" is a state Item
@@ -443,17 +444,18 @@ export function costAsOf(item, sessionMovements, date, method = "average_cost") 
 //   Increase   Dr Inventory              Cr Inventory Adjustments
 //   Decrease   Dr Inventory Adjustments  Cr Inventory
 //   Opening    Dr Inventory              Cr Retained Earnings
-const ADJUSTMENT_ACCOUNT = "5-1500";
-const OPENING_EQUITY_ACCOUNT = "3-1300";
+//
+// The offsets, and the stock account for an item whose category names none,
+// are Settings → Accounting → Default accounts.
 
 export function inventoryAccount(item) {
-  return (ITEM_CATEGORY_ACCOUNTS[item?.category] || {}).inventory || "1-3100";
+  return (ITEM_CATEGORY_ACCOUNTS[item?.category] || {}).inventory || DEFAULT_ACCOUNTS.inventory;
 }
 
 export function movementJournalLines(item, { unit, value, action, loc }) {
   const amt = Math.abs(Math.round(value || 0));
   const inv = inventoryAccount(item);
-  const other = action === "opening" ? OPENING_EQUITY_ACCOUNT : ADJUSTMENT_ACCOUNT;
+  const other = action === "opening" ? DEFAULT_ACCOUNTS.openingStock : DEFAULT_ACCOUNTS.inventoryAdjustment;
   const [dr, cr] = unit > 0 ? [inv, other] : [other, inv];
   const name = (c) => COA_BY_CODE[c]?.name || c;
   const desc = `${item.name} — ${loc}`;

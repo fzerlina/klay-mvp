@@ -20,6 +20,7 @@ import SettingsHeader, { USERS_TABS } from "../components/SettingsHeader";
 import { CAP_SECTIONS, canonicalId, capLabel } from "../lib/roleCapabilities";
 import SodInfo from "../components/SodInfo";
 import { usePeople } from "../state/PeopleContext";
+import { useSettingsAudit } from "../state/SettingsAuditContext";
 
 function initials(name) {
   if (!name) return "?";
@@ -86,11 +87,10 @@ function StatusBadge({ status }) {
 }
 
 // ── Invite / Change-role drawer with live SoD + account actions ──────────
-function UserDrawer({ open, mode, user, departments, onClose, onSave, onAction }) {
+function UserDrawer({ open, mode, user, onClose, onSave, onAction }) {
   const isInvite = mode === "invite";
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [department, setDepartment] = useState("");
   const [roleKeys, setRoleKeys] = useState([]);
   const [justification, setJustification] = useState("");
   const [riskOwner, setRiskOwner] = useState("");
@@ -109,7 +109,6 @@ function UserDrawer({ open, mode, user, departments, onClose, onSave, onAction }
       lastKeyRef.current = key;
       setName(isInvite ? "" : user?.name || "");
       setEmail(isInvite ? "" : user?.email || "");
-      setDepartment(isInvite ? "" : user?.department || "");
       setRoleKeys(isInvite ? [] : [...(user?.roleKeys || [])]);
       setJustification("");
       setRiskOwner("");
@@ -188,7 +187,6 @@ function UserDrawer({ open, mode, user, departments, onClose, onSave, onAction }
       id: user?.id,
       name: name.trim(),
       email: email.trim(),
-      department: department || null,
       roleKeys,
       tempAccess: temp,
       extraCaps: isInvite ? [] : [...permanentExtras(user), ...temp.map((t) => t.cap)],
@@ -226,17 +224,6 @@ function UserDrawer({ open, mode, user, departments, onClose, onSave, onAction }
               </div>
             </div>
           )}
-
-          <div className="ba-section">
-            <div className="ba-section-title">Department</div>
-            <div className="ba-field" style={{ marginBottom: 0 }}>
-              <select className="ru-dept-select" value={department} onChange={(e) => setDepartment(e.target.value)} aria-label="Department">
-                <option value="">Not set</option>
-                {departments.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
-              </select>
-              <span className="ba-help">Where this person sits in the organisation. It doesn't grant any access — roles do.</span>
-            </div>
-          </div>
 
           <div className="ba-section">
             <div className="ba-section-title">Roles <span className="ba-req">*</span></div>
@@ -424,22 +411,20 @@ function UserDrawer({ open, mode, user, departments, onClose, onSave, onAction }
 }
 
 export default function UsersPage() {
-  // Users and departments are shared (PeopleContext): departments are managed
-  // in Company → Departments.
-  const { users, setUsers, departments } = usePeople();
+  // Users are shared (PeopleContext) with the Roles tab.
+  const { users, setUsers } = usePeople();
+  const { log } = useSettingsAudit();
   const { acceptRisks } = useRoles();
   const { sodMode } = useAccountingSettings();
   const { user: me } = useCurrentUser();
   const [statusFilter, setStatusFilter] = useState("all");
-  // A role page's "Manage in Users" link lands here pre-filtered (?role=key);
-  // a department's people count lands pre-filtered by ?dept=<name|none>.
+  // A role page's "Manage in Users" link lands here pre-filtered (?role=key).
   const [searchParams] = useSearchParams();
   const [roleFilter, setRoleFilter] = useState(() => {
     const k = searchParams.get("role");
     return k && ROLES.some((r) => r.key === k) ? k : "all";
   });
   const navigate = useNavigate();
-  const [deptFilter, setDeptFilter] = useState(() => searchParams.get("dept") || "all"); // all | none | <department>
   const [search, setSearch] = useState("");
   const [drawer, setDrawer] = useState(null); // { mode, user }
   const [toast, setToast] = useState("");
@@ -464,26 +449,25 @@ export default function UsersPage() {
     return users.filter((u) => {
       if (statusFilter !== "all" && u.status !== statusFilter) return false;
       if (roleFilter !== "all" && !u.roleKeys.includes(roleFilter)) return false;
-      if (deptFilter === "none" && u.department) return false;
-      if (deptFilter !== "all" && deptFilter !== "none" && u.department !== deptFilter) return false;
       if (!q) return true;
       return (
         u.name.toLowerCase().includes(q) ||
-        (u.department || "").toLowerCase().includes(q) ||
         u.email.toLowerCase().includes(q) ||
         u.roleKeys.some((k) => roleName(k).toLowerCase().includes(q))
       );
     });
-  }, [users, statusFilter, roleFilter, deptFilter, search]);
+  }, [users, statusFilter, roleFilter, search]);
 
   function handleRowAction(action, user) {
     if (action === "deactivate") {
       setUsers((cur) => cur.map((u) => (u.id === user.id ? { ...u, status: "Inactive" } : u)));
+      log("Users & Roles", "Users", `Deactivated ${user.name}`);
       showToast(`${user.name} deactivated.`);
       return;
     }
     if (action === "reactivate") {
       setUsers((cur) => cur.map((u) => (u.id === user.id ? { ...u, status: "Active" } : u)));
+      log("Users & Roles", "Users", `Reactivated ${user.name}`);
       showToast(`${user.name} reactivated.`);
       return;
     }
@@ -503,12 +487,17 @@ export default function UsersPage() {
     }
     if (data.mode === "invite") {
       setUsers((cur) => [
-        { id, name: data.name, email: data.email, department: data.department, roleKeys: data.roleKeys, status: "Invited", approval_limit: data.approval_limit, lastActive: null, invitedOn: "2026-06-07", ...riskFields },
+        { id, name: data.name, email: data.email, roleKeys: data.roleKeys, status: "Invited", approval_limit: data.approval_limit, lastActive: null, invitedOn: "2026-06-07", ...riskFields },
         ...cur,
       ]);
+      log("Users & Roles", "Users", `Invited ${data.name} as ${data.roleKeys.map(roleName).join(", ")}`);
       showToast(`Invitation sent to ${data.email}.`);
     } else {
-      setUsers((cur) => cur.map((u) => (u.id === id ? { ...u, department: data.department, roleKeys: data.roleKeys, tempAccess: data.tempAccess, extraCaps: data.extraCaps, approval_limit: data.approval_limit, ...riskFields } : u)));
+      setUsers((cur) => cur.map((u) => (u.id === id ? { ...u, roleKeys: data.roleKeys, tempAccess: data.tempAccess, extraCaps: data.extraCaps, approval_limit: data.approval_limit, ...riskFields } : u)));
+      const before = users.find((u) => u.id === id);
+      const roles = (keys) => keys.map(roleName).join(", ") || "none";
+      if (before && roles(before.roleKeys) !== roles(data.roleKeys)) log("Users & Roles", "Users", `${data.name}: roles ${roles(before.roleKeys)} → ${roles(data.roleKeys)}`);
+      if (JSON.stringify(before?.tempAccess || []) !== JSON.stringify(data.tempAccess || [])) log("Users & Roles", "Users", `${data.name}: temporary access changed`);
       showToast(owner ? `User updated — risk accepted by ${owner.name}.` : "User updated.");
     }
     setDrawer(null);
@@ -523,8 +512,7 @@ export default function UsersPage() {
           intro={<>
             Who has access and which roles they hold. Role assignments are checked against the
             segregation-of-duties rules — click any role chip to see what it can do. To give one person
-            extra access for a while, add <b>temporary access</b> on their user. Each person belongs to one{" "}
-            <Link to="/departments" className="ru-inline-link">department</Link>.
+            extra access for a while, add <b>temporary access</b> on their user.
           </>}
           actions={
             <button type="button" className="lg-btn-brand" onClick={() => setDrawer({ mode: "invite" })}>
@@ -555,7 +543,7 @@ export default function UsersPage() {
                 <svg viewBox="0 0 14 14"><circle cx="6" cy="6" r="3.5"/><path d="M9 9l3 3" strokeLinecap="round"/></svg>
                 <input
                   type="text"
-                  placeholder="Search name, email, department, or role…"
+                  placeholder="Search name, email, or role…"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                 />
@@ -569,21 +557,11 @@ export default function UsersPage() {
                 <option value="all">Any role</option>
                 {ROLES.map((r) => <option key={r.key} value={r.key}>{r.name}</option>)}
               </select>
-              <select
-                className="ru-filter-select"
-                value={deptFilter}
-                onChange={(e) => setDeptFilter(e.target.value)}
-                aria-label="Filter by department"
-              >
-                <option value="all">Any department</option>
-                {departments.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
-                <option value="none">No department</option>
-              </select>
-              {(roleFilter !== "all" || deptFilter !== "all") && (
+              {roleFilter !== "all" && (
                 <button
                   type="button"
                   className="ru-filter-clear"
-                  onClick={() => { setRoleFilter("all"); setDeptFilter("all"); }}
+                  onClick={() => setRoleFilter("all")}
                 >
                   Clear
                 </button>
@@ -592,7 +570,6 @@ export default function UsersPage() {
 
             <div className="lg-col-header ru-users-cols">
               <div>User</div>
-              <div>Department</div>
               <div>Roles</div>
               <div>Status</div>
             </div>
@@ -614,7 +591,6 @@ export default function UsersPage() {
                       <span className="ru-user-email">{u.email}</span>
                     </span>
                   </div>
-                  <div className={u.department ? "ru-user-dept" : "lg-cell-em-dash"}>{u.department || "—"}</div>
                   <div className="ru-user-roles">
                     {u.roleKeys.map((k) => (
                       <button
@@ -657,7 +633,6 @@ export default function UsersPage() {
         open={!!drawer}
         mode={drawer?.mode || "invite"}
         user={drawer?.user || null}
-        departments={departments}
         onClose={() => setDrawer(null)}
         onSave={handleSave}
         onAction={handleRowAction}

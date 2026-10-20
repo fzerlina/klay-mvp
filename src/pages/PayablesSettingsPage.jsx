@@ -9,6 +9,7 @@ import { useModuleSettings, slugKey } from "../state/ModuleSettingsContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
 import { useVendors } from "../state/VendorsContext";
 import { useCustomers } from "../state/CustomersContext";
+import { useSettingsAudit, useFieldAudit } from "../state/SettingsAuditContext";
 
 // Settings → Payables (payment terms, vendor categories, payment methods) and
 // Settings → Receivables (payment terms, invoices). Payment terms are one list
@@ -20,6 +21,11 @@ const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
 
 export function PaymentTermsList({ side }) {
   const { paymentTerms, defaultTerm, setDefaultTerm, saveTerm, removeTerm } = useModuleSettings();
+  const { log } = useSettingsAudit();
+  const pickDefault = (code) => {
+    log(side === "vendors" ? "Payables" : "Receivables", "Payment terms", `Default term ${defaultTerm} → ${code}`);
+    setDefaultTerm(code);
+  };
   const { hasCapability } = useCurrentUser();
   const { vendors } = useVendors();
   const { customers } = useCustomers();
@@ -30,6 +36,7 @@ export function PaymentTermsList({ side }) {
   return (
     <RecordList
       title="Payment terms"
+      auditArea={side === "vendors" ? "Payables" : "Receivables"}
       intro={`When a ${side === "vendors" ? "bill" : "invoice"} falls due. One list for vendors and customers; untick a side to hide a term from its form. New ${side} start on the default term.`}
       rows={paymentTerms}
       rowKey="code"
@@ -62,7 +69,7 @@ export function PaymentTermsList({ side }) {
       footer={canEdit && (
         <div className="mr-default">
           <span>Default term for new records</span>
-          <select value={defaultTerm} onChange={(e) => setDefaultTerm(e.target.value)}>
+          <select value={defaultTerm} onChange={(e) => pickDefault(e.target.value)}>
             {paymentTerms.map((t) => <option key={t.code} value={t.code}>{t.code}</option>)}
           </select>
         </div>
@@ -80,6 +87,7 @@ function VendorCategoriesList() {
   return (
     <RecordList
       title="Vendor categories"
+      auditArea="Payables"
       intro="The Category on every vendor. The default account is where bills from vendors in the category usually post."
       rows={vendorCategories}
       rowKey="key"
@@ -111,6 +119,7 @@ function PaymentMethodsList() {
   return (
     <RecordList
       title="Payment methods"
+      auditArea="Payables"
       intro="How a payment leaves the company, chosen when recording a payment. Switch off a method your team doesn't use to hide it from the payment form."
       rows={paymentMethods}
       rowKey="key"
@@ -159,6 +168,8 @@ function InvoiceSettingsForm() {
   const { hasCapability } = useCurrentUser();
   const canEdit = hasCapability("coa.manage");
   const set = (f) => (e) => setInvoiceSettings({ ...s, [f]: f === "nextNumber" ? Number(e.target.value.replace(/\D/g, "")) || 1 : e.target.value });
+  const track = useFieldAudit("Receivables", "Invoices");
+  const { log } = useSettingsAudit();
   const year = new Date().getFullYear();
   const preview = s.numberFormat
     .replace("{YYYY}", String(year))
@@ -171,24 +182,24 @@ function InvoiceSettingsForm() {
         <div className="cp-grid">
           <label className="cp-field">
             <span>Number format</span>
-            <input value={s.numberFormat} disabled={!canEdit} onChange={set("numberFormat")} />
+            <input value={s.numberFormat} disabled={!canEdit} onChange={set("numberFormat")} {...track("Number format", s.numberFormat)} />
             <em>{"{YYYY}"} is the year, {"{####}"} the running number. Next invoice: <b>{preview}</b></em>
           </label>
           <label className="cp-field">
             <span>Next number</span>
-            <input inputMode="numeric" value={s.nextNumber} disabled={!canEdit} onChange={set("nextNumber")} />
+            <input inputMode="numeric" value={s.nextNumber} disabled={!canEdit} onChange={set("nextNumber")} {...track("Next number", s.nextNumber)} />
             <em>Restarts at 1 each year when the format includes {"{YYYY}"}.</em>
           </label>
           <label className="cp-field">
             <span>Default payment term</span>
-            <select value={s.defaultTerm} disabled={!canEdit} onChange={set("defaultTerm")}>
+            <select value={s.defaultTerm} disabled={!canEdit} onChange={(e) => { log("Receivables", "Invoices", `Default payment term: ${s.defaultTerm} → ${e.target.value}`); set("defaultTerm")(e); }}>
               {paymentTerms.filter((t) => t.customers).map((t) => <option key={t.code} value={t.code}>{t.code}</option>)}
             </select>
             <em>Used when the customer has none of its own.</em>
           </label>
           <label className="cp-field span2">
             <span>Footer note</span>
-            <textarea rows={2} value={s.footerNote} disabled={!canEdit} onChange={set("footerNote")} />
+            <textarea rows={2} value={s.footerNote} disabled={!canEdit} onChange={set("footerNote")} {...track("Footer note", s.footerNote)} />
             <em>Printed at the bottom of every invoice PDF.</em>
           </label>
         </div>

@@ -7,7 +7,8 @@
 export const COMPANY = {
   id: "ENT-001",
   legalName: "PT Sejahtera Makmur",
-  tradingName: "Sejahtera Makmur",
+  aktaNo: "AHU-0012345.AH.01.01.Tahun 2025",
+  logo: null, // data URL of the uploaded logo (Settings → Company)
   npwp: "01.234.567.8-901.000",
   industry: "Wholesale trade",
   email: "finance@sejahteramakmur.co.id",
@@ -26,6 +27,12 @@ export const COMPANY = {
   // changeable in the app. Shown as a value with an ⓘ on Settings → Users →
   // Roles (components/SodInfo).
   sodMode: "ENFORCED",
+  // Books for a month close by this day of the following month (Settings →
+  // General Ledger → Preferences → Closing).
+  closeCutoffDay: 5,
+  // Deleting posted journals — a backend switch Klay sets on request, never in
+  // the app. On for this demo company so Preferences shows Delete journals.
+  journalDeletionEnabled: true,
 };
 
 export const MONTHS = [

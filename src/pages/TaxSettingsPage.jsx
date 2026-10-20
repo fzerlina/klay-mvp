@@ -5,6 +5,7 @@ import "./settings-pages.css";
 import "./roles.css";
 import SettingsHeader, { ACCOUNTING_TABS } from "../components/SettingsHeader";
 import { useCurrentUser } from "../state/CurrentUserContext";
+import { useSettingsAudit } from "../state/SettingsAuditContext";
 import { TAX_CODES, TAX_KIND_LABELS, APPLIES_LABELS } from "../data/seed/taxCodes";
 import { COA } from "../data/seed/coa";
 
@@ -13,6 +14,9 @@ import { COA } from "../data/seed/coa";
 // books to, and the dates it is valid for (as DualEntry's Tax Setup). A rate
 // change is a new dated code, not an edit, so past documents keep their rate.
 // Editing needs coa.manage (the Finance Manager), like the chart of accounts.
+// The account a code books to is chosen when the code is added and can't be
+// changed afterwards — entries already posted sit on it. Rate and what the
+// code applies to stay editable.
 
 const ACCOUNTS = COA.filter((a) => a.code && a.is_active).sort((a, b) => a.code.localeCompare(b.code));
 const accountName = (code) => COA.find((a) => a.code === code)?.name;
@@ -57,18 +61,35 @@ function TaxModal({ tax, onSave, onClose }) {
             <span>Rate (%)</span>
             <input inputMode="decimal" value={d.rate ?? ""} onChange={set("rate")} placeholder="Blank = set per bill" />
           </label>
+          {d.kind === "withholding" && (
+            <label className="rl-field">
+              <span>Rate without NPWP (%)</span>
+              <input inputMode="decimal" value={d.nonNpwpRate ?? ""} onChange={set("nonNpwpRate")} placeholder="Same as rate" />
+            </label>
+          )}
           <label className="rl-field">
             <span>Valid from</span>
             <input type="date" value={d.validFrom} onChange={set("validFrom")} />
           </label>
         </div>
-        <label className="rl-field">
-          <span>Books to</span>
-          <select value={d.account || ""} onChange={set("account")}>
-            <option value="">No account</option>
-            {ACCOUNTS.map((a) => <option key={a.code} value={a.code}>{a.code} · {a.name}</option>)}
-          </select>
-        </label>
+        {isNew ? (
+          <label className="rl-field">
+            <span>Books to</span>
+            <select value={d.account || ""} onChange={set("account")}>
+              <option value="">No account</option>
+              {ACCOUNTS.map((a) => <option key={a.code} value={a.code}>{a.code} · {a.name}</option>)}
+            </select>
+            <em className="rl-field-hint" style={{ marginLeft: 0 }}>Can't be changed once the tax code is added.</em>
+          </label>
+        ) : (
+          <div className="rl-field">
+            <span>Books to</span>
+            <div className="tx-fixed">
+              {d.account ? <><span className="tx-code">{d.account}</span> {accountName(d.account)}</> : "No account"}
+            </div>
+            <em className="rl-field-hint" style={{ marginLeft: 0 }}>Fixed — entries already posted with this code sit on this account.</em>
+          </div>
+        )}
         <div className="rl-modal-actions">
           <button type="button" className="drawer-btn ghost" onClick={onClose}>Cancel</button>
           <button
@@ -80,7 +101,8 @@ function TaxModal({ tax, onSave, onClose }) {
               name: d.name.trim(),
               code: d.code || d.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_"),
               rate: d.rate === "" || d.rate == null ? null : Number(d.rate),
-              account: d.account || null,
+              ...(d.kind === "withholding" ? { nonNpwpRate: d.nonNpwpRate === "" || d.nonNpwpRate == null ? null : Number(d.nonNpwpRate) } : {}),
+              account: isNew ? d.account || null : tax.account,
             })}
           >
             {isNew ? "Add tax code" : "Save"}
@@ -94,11 +116,27 @@ function TaxModal({ tax, onSave, onClose }) {
 export default function TaxSettingsPage() {
   const { hasCapability } = useCurrentUser();
   const canEdit = hasCapability("coa.manage");
-  const [codes, setCodes] = useState(TAX_CODES);
+  const { log } = useSettingsAudit();
+  const [codes, setCodes] = useState(() => [...TAX_CODES]);
   const [editing, setEditing] = useState(null); // null | "new" | tax code
 
+  // Writes through to TAX_CODES, which bill posting, payments and the tax
+  // register read at call time.
   function save(t) {
-    setCodes((cur) => (editing === "new" ? [...cur, t] : cur.map((x) => (x.code === editing.code ? t : x))));
+    const i = editing === "new" ? -1 : TAX_CODES.findIndex((x) => x.code === editing.code);
+    if (i < 0) log("General Ledger", "Tax", `Added tax code ${t.name} — ${rateText(t)}${t.account ? `, books to ${t.account}` : ""}`);
+    else {
+      const old = TAX_CODES[i];
+      const changes = [];
+      if (old.name !== t.name) changes.push(`name ${old.name} → ${t.name}`);
+      if (rateText(old) !== rateText(t)) changes.push(`rate ${rateText(old)} → ${rateText(t)}`);
+      if (old.appliesTo !== t.appliesTo) changes.push(`applies to ${APPLIES_LABELS[old.appliesTo]} → ${APPLIES_LABELS[t.appliesTo]}`);
+      if (old.validFrom !== t.validFrom) changes.push(`valid from ${fmtDate(old.validFrom)} → ${fmtDate(t.validFrom)}`);
+      if (changes.length) log("General Ledger", "Tax", `${t.name}: ${changes.join("; ")}`);
+    }
+    if (i < 0) TAX_CODES.push(t);
+    else TAX_CODES[i] = t;
+    setCodes([...TAX_CODES]);
     setEditing(null);
   }
 

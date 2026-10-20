@@ -9,8 +9,6 @@ import { ROLE_EDITING, useRoles } from "../state/RolesContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
 import CreateRoleModal from "../components/CreateRoleModal";
 import SettingsHeader, { USERS_TABS } from "../components/SettingsHeader";
-import SodInfo from "../components/SodInfo";
-import { useAccountingSettings } from "../state/AccountingSettingsContext";
 import { COMPANY } from "../data/seed/company";
 import { CAP_SECTIONS, VERB_COPY, hasCap, holdsApproval, powerSummary, fmtRp } from "../lib/roleCapabilities";
 
@@ -118,7 +116,6 @@ function CompareMatrix({ roles, capsOf }) {
 export default function RolesPage() {
   const { roles, capsOf, holdersOf, rev } = useRoles();
   const { hasCapability } = useCurrentUser();
-  const { sodMode } = useAccountingSettings();
   const canManage = ROLE_EDITING && hasCapability("roles.manage");
   const [searchParams, setSearchParams] = useSearchParams();
   const view = searchParams.get("view") === "compare" ? "compare" : "roles";
@@ -175,9 +172,6 @@ export default function RolesPage() {
           ) : !canManage && (
             <span className="rl-viewbar-note">Read only — editing roles needs the <em>Manage roles</em> capability.</span>
           )}
-        </div>
-        <div className="rl-sod-line">
-          <SodInfo mode={sodMode} />
         </div>
 
         {view === "roles" ? (

@@ -8,6 +8,9 @@ import { formatDate, initials } from "../lib/format";
 import { previewJournalLines } from "../lib/billJournalPreview";
 import { computeBillFlags } from "../lib/reviewWorkflow";
 import { TODAY } from "../lib/clock";
+import { COA_BY_CODE } from "../data/seed/coa";
+import { DEFAULT_ACCOUNTS } from "../data/seed/defaultAccounts";
+import { useModuleSettings } from "../state/ModuleSettingsContext";
 import "./modules.css";
 import "./invoice-create.css";
 import "./bill-detail.css";
@@ -20,7 +23,7 @@ const EXPENSE_ACCOUNTS = [
   { code: "1-3100", name: "Raw Materials" },
   { code: "1-3300", name: "Finished Goods" },
   { code: "1-6300", name: "Office Equipment" },
-  { code: "6-1000", name: "Expenses Pembelian" },
+  { code: "6-4000", name: "Miscellaneous Office Expense" },
   { code: "6-1200", name: "Marketing & Advertising" },
   { code: "6-2300", name: "Office Rent" },
   { code: "6-2400", name: "Office Utilities" },
@@ -473,6 +476,17 @@ export default function BillCreatePage() {
   const [entryMode, setEntryMode] = useState("simple");
 
   const vendor = useMemo(() => vendors.find((v) => v.id === vendorId), [vendors, vendorId]);
+  const { vendorCategories } = useModuleSettings();
+  // Where a line starts when the vendor has no history: its category's default
+  // account (Settings → Payables → Vendor categories), else the company's
+  // (Settings → Accounting → Default accounts).
+  const fallbackAcct = vendorCategories.find((c) => c.key === vendor?.category)?.defaultAccount || DEFAULT_ACCOUNTS.billExpense;
+  // The picker offers the curated list plus the fallback, wherever Settings put it.
+  const pickerAccounts = useMemo(() => (
+    EXPENSE_ACCOUNTS.some((a) => a.code === fallbackAcct) || !COA_BY_CODE[fallbackAcct]
+      ? EXPENSE_ACCOUNTS
+      : [...EXPENSE_ACCOUNTS, { code: fallbackAcct, name: COA_BY_CODE[fallbackAcct].name }]
+  ), [fallbackAcct]);
 
   function handleRequestCreateVendor(name) {
     setCreateVendorSeedName(name || "");
@@ -514,12 +528,12 @@ export default function BillCreatePage() {
   );
 
   // Default account for new rows: Tier 1 if vendor has history, otherwise
-  // a generic expense bucket. Description-driven Tier 2 fires once the user
+  // the fallback above. Description-driven Tier 2 fires once the user
   // types into the new row.
   const defaultNewRowAcct = useMemo(() => {
     const s = suggestAccount("", vendor, bills);
-    return s?.acct || "6-1000";
-  }, [vendor, bills]);
+    return s?.acct || fallbackAcct;
+  }, [vendor, bills, fallbackAcct]);
 
   function showToast(msg) {
     setToast(msg);
@@ -638,7 +652,7 @@ export default function BillCreatePage() {
     if (!p) { updateRow(i, { desc: value }); return; }
     const invAcct = ITEM_CATEGORY_ACCOUNTS[p.category]?.inventory;
     const patch = { desc: p.name, price: p.purchase_price || 0 };
-    if (invAcct && EXPENSE_ACCOUNTS.some((a) => a.code === invAcct)) patch.acct = invAcct;
+    if (invAcct && pickerAccounts.some((a) => a.code === invAcct)) patch.acct = invAcct;
     updateRow(i, patch);
   }
   function addAttach() {
@@ -678,7 +692,7 @@ export default function BillCreatePage() {
       pph23: pph,
       vendorName: vendor?.name || "",
       items: items.map((it) => {
-        const acct = EXPENSE_ACCOUNTS.find((a) => a.code === it.acct);
+        const acct = pickerAccounts.find((a) => a.code === it.acct);
         const sub  = (Number(it.qty) || 0) * (Number(it.price) || 0);
         return {
           desc:     it.desc,
@@ -690,7 +704,7 @@ export default function BillCreatePage() {
         };
       }),
     };
-  }, [total, dpp, pph, vendor, items]);
+  }, [total, dpp, pph, vendor, items, pickerAccounts]);
 
   const { lines: jeLines, totalDr, totalCr, balanced, anyFlag } = useMemo(
     () => previewJournalLines(previewBill, vendor),
@@ -720,7 +734,7 @@ export default function BillCreatePage() {
     items: items.map((it) => ({
       desc: it.desc,
       acct: it.acct,
-      acctName: (EXPENSE_ACCOUNTS.find((a) => a.code === it.acct) || {}).name,
+      acctName: (pickerAccounts.find((a) => a.code === it.acct) || {}).name,
     })),
   }), [vendor, poNo, invNo, date, due, dpp, pph, total, items]);
 
@@ -812,7 +826,7 @@ export default function BillCreatePage() {
       no_document_flag:          attachments.length === 0,
       no_document_justification: attachments.length === 0 ? noDocJustification.trim() : "",
       items: items.map((it) => {
-        const acct = EXPENSE_ACCOUNTS.find((a) => a.code === it.acct);
+        const acct = pickerAccounts.find((a) => a.code === it.acct);
         const sub  = (Number(it.qty) || 0) * (Number(it.price) || 0);
         return {
           ...it,
@@ -1049,7 +1063,7 @@ export default function BillCreatePage() {
                   <div className="form-fld">
                     <label>Expense Account</label>
                     <select value={simpleItem.acct} onChange={(e) => setSimpleAcct(e.target.value)}>
-                      {EXPENSE_ACCOUNTS.map((a) => <option key={a.code} value={a.code}>{a.code} · {a.name}</option>)}
+                      {pickerAccounts.map((a) => <option key={a.code} value={a.code}>{a.code} · {a.name}</option>)}
                     </select>
                     {simpleSuggestion && simpleSuggestion.tier !== 3 && (
                       <button
@@ -1104,7 +1118,7 @@ export default function BillCreatePage() {
                         <td><input type="text" value={fmtNum(sub)} readOnly style={{ textAlign: "right", fontWeight: 700, fontFamily: "var(--font-mono)" }} /></td>
                         <td>
                           <select value={it.acct} onChange={(e) => updateRow(i, { acct: e.target.value })} style={{ fontSize: 11 }}>
-                            {EXPENSE_ACCOUNTS.map((a) => (
+                            {pickerAccounts.map((a) => (
                               <option key={a.code} value={a.code}>{a.code} · {a.name}</option>
                             ))}
                           </select>

@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useMemo, useState } from "react";
 import {
   PAYMENT_TERMS, DEFAULT_TERM, VENDOR_CATEGORIES, PAYMENT_METHOD_SETTINGS, INVOICE_SETTINGS,
-  UNITS, SITES, ASSET_CATEGORY_DEFAULTS, RECON_ACCOUNTS, FEE_TOLERANCE,
+  UNITS, SITES, ASSET_CATEGORY_DEFAULTS, FEE_TOLERANCE,
 } from "../data/seed/moduleSettings";
 import { ITEM_CAT_LABELS, ITEM_CATEGORY_ACCOUNTS, UNIT_DEFAULTS, PRIMARY_UNITS, ITEM_UOM_LABELS } from "../data/seed/items";
 import { ASSET_CATEGORIES } from "../data/seed/fixedAssets";
@@ -43,7 +43,6 @@ export function ModuleSettingsProvider({ children }) {
   const [units, setUnits] = useState(UNITS);
   const [sites, setSites] = useState(SITES);
   const [assetDefaults, setAssetDefaults] = useState(ASSET_CATEGORY_DEFAULTS);
-  const [reconAccounts, setReconAccounts] = useState(RECON_ACCOUNTS);
   const [feeTolerance, setFeeTolerance] = useState(FEE_TOLERANCE);
   const [rev, setRev] = useState(0);
   const bump = () => setRev((n) => n + 1);
@@ -108,10 +107,9 @@ export function ModuleSettingsProvider({ children }) {
     units, saveUnit, removeUnit,
     sites, saveSite, removeSite,
     assetCategories: assetCategoriesNow(assetDefaults), assetDefaults, saveAssetCategory, removeAssetCategory,
-    reconAccounts, setReconAccounts,
     feeTolerance, setFeeTolerance,
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [rev, paymentTerms, defaultTerm, vendorCategories, paymentMethods, invoiceSettings, units, sites, assetDefaults, reconAccounts, feeTolerance]);
+  }), [rev, paymentTerms, defaultTerm, vendorCategories, paymentMethods, invoiceSettings, units, sites, assetDefaults, feeTolerance]);
 
   return <ModuleSettingsContext.Provider value={value}>{children}</ModuleSettingsContext.Provider>;
 }

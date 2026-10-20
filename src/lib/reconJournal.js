@@ -12,7 +12,8 @@
 //
 // Nothing here posts on its own.
 //
-// The account mapping:
+// The account mapping (Settings → Accounting → Default accounts; codes below
+// are the seeded defaults):
 //
 //   Bank fee        Dr 72050 Other Non-Operating Expenses
 //                     Cr 11110 Bank IDR — [bank]   /  11120 Bank Foreign Currency — [currency]
@@ -23,25 +24,20 @@
 // transaction id, so the GL can always say which statement line produced them.
 
 import { COA } from "../data/seed/coa";
-
-export const ACCT_BANK_FEE = "72050";
-export const ACCT_INTEREST_INCOME = "71010";
-export const ACCT_BANK_IDR = "11110";
-export const ACCT_BANK_FX = "11120";
-export const ACCT_INTEREST_TAX = "8-1300";
+import { DEFAULT_ACCOUNTS as A } from "../data/seed/defaultAccounts";
 
 const nameOf = (code) => COA.find((a) => a.code === code)?.name || code;
 
 // The master stores Mandiri as "MDR" for the card logo; the ledger line spells it out.
 const BANK_NAME = { MDR: "Mandiri" };
 
-// The bank side of an entry: IDR accounts post to 11110, foreign-currency
-// accounts to 11120, each named for its bank or currency.
+// The bank side of an entry: IDR accounts post to Bank IDR, foreign-currency
+// accounts to Bank Foreign Currency, each named for its bank or currency.
 export function bankLineFor(account) {
   if (account.currency && account.currency !== "IDR") {
-    return { account_code: ACCT_BANK_FX, account_name: `${nameOf(ACCT_BANK_FX)} — ${account.currency}` };
+    return { account_code: A.bankFx, account_name: `${nameOf(A.bankFx)} — ${account.currency}` };
   }
-  return { account_code: ACCT_BANK_IDR, account_name: `${nameOf(ACCT_BANK_IDR)} — ${BANK_NAME[account.bank] || account.bank}` };
+  return { account_code: A.bankIdr, account_name: `${nameOf(A.bankIdr)} — ${BANK_NAME[account.bank] || account.bank}` };
 }
 
 export const isInterest = (exception) => exception.type === "KNOWN_SYSTEMATIC";
@@ -55,10 +51,10 @@ export function draftEntry({ exception, account }) {
   const interest = isInterest(exception);
   const tax = isInterestTax(exception);
   const other = interest
-    ? { account_code: ACCT_INTEREST_INCOME, account_name: nameOf(ACCT_INTEREST_INCOME) }
+    ? { account_code: A.interestIncome, account_name: nameOf(A.interestIncome) }
     : tax
-      ? { account_code: ACCT_INTEREST_TAX, account_name: nameOf(ACCT_INTEREST_TAX) }
-      : { account_code: ACCT_BANK_FEE, account_name: nameOf(ACCT_BANK_FEE) };
+      ? { account_code: A.interestTax, account_name: nameOf(A.interestTax) }
+      : { account_code: A.bankFee, account_name: nameOf(A.bankFee) };
   const kind = interest ? "Bank interest" : tax ? "Tax on interest" : "Bank fee";
 
   // Interest arrives, so the bank is debited and income credited. A fee leaves,

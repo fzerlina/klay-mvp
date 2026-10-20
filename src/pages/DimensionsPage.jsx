@@ -1,13 +1,29 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { paletteFor } from "../data/seed/dimensions";
 import { useDimensions } from "../state/DimensionsContext";
+import { useJournalEntries } from "../state/JournalEntriesContext";
+import { useSettingsAudit } from "../state/SettingsAuditContext";
+import { dimensionUsage } from "../lib/dimensionUsage";
 import SettingsHeader, { ACCOUNTING_TABS } from "../components/SettingsHeader";
 import "./invoices-ledger.css";
 import "./settings-pages.css";
 
+// Settings → Accounting → General Ledger → Dimensions. A dimension (or value)
+// that posted journals already carry can't be renamed or deleted — the posted
+// lines keep the tag they were booked with. New values can always be added.
+
+const plural = (n, w) => `${n.toLocaleString("id-ID")} ${w}${n === 1 ? "" : "s"}`;
+
 export default function DimensionsPage() {
   // Configured dimensions (seed + any added manually), shared app-wide.
   const { dimensions, setDimensions } = useDimensions();
+  const { entries } = useJournalEntries();
+  const { log } = useSettingsAudit();
+  const usage = useMemo(() => dimensionUsage(entries), [entries]);
+  const usedLines = (key) => usage[key]?.lines || 0;
+  const valueLines = (key, v) => usage[key]?.values[v] || 0;
+  const lockedTitle = (key) => `Used on ${plural(usedLines(key), "posted journal line")} — can't be renamed or deleted`;
+  const audit = (summary) => log("General Ledger", "Dimensions", summary);
 
   // Editing state — only one row in edit mode at a time.
   // editingId: dim.id when renaming, or "__addval__:<dim.id>" when adding a value,
@@ -23,7 +39,9 @@ export default function DimensionsPage() {
   }
   function saveRename(id) {
     const name = renameValue.trim();
-    if (!name) return;
+    if (!name || usedLines(id)) return;
+    const old = dimensions.find((d) => d.key === id);
+    if (old && old.label !== name) audit(`Renamed dimension ${old.label} → ${name}`);
     setDimensions((prev) => prev.map((d) => (d.key === id ? { ...d, label: name } : d)));
     setEditingId(null);
   }
@@ -40,6 +58,7 @@ export default function DimensionsPage() {
   function saveValue(id) {
     const v = newValueText.trim();
     if (!v) return;
+    audit(`${dimensions.find((d) => d.key === id)?.label}: added value ${v}`);
     setDimensions((prev) =>
       prev.map((d) => (d.key === id ? { ...d, values: [...d.values.filter((x) => x !== "—"), v, ...(d.values.includes("—") ? ["—"] : [])] } : d)),
     );
@@ -47,13 +66,19 @@ export default function DimensionsPage() {
     setNewValueText("");
   }
   function removeValue(id, idx) {
+    const dim = dimensions.find((d) => d.key === id);
+    if (!dim || valueLines(id, dim.values[idx])) return;
+    audit(`${dim.label}: removed value ${dim.values[idx]}`);
     setDimensions((prev) =>
       prev.map((d) => (d.key === id ? { ...d, values: d.values.filter((_, i) => i !== idx) } : d)),
     );
   }
 
   function deleteDimension(id) {
-    if (!window.confirm("Delete this dimension? Tags using it will be removed from any account references.")) return;
+    if (usedLines(id)) return;
+    const dim = dimensions.find((d) => d.key === id);
+    if (!window.confirm(`Delete the ${dim?.label} dimension? No posted journal uses it.`)) return;
+    audit(`Deleted dimension ${dim?.label}`);
     setDimensions((prev) => prev.filter((d) => d.key !== id));
   }
 
@@ -65,6 +90,7 @@ export default function DimensionsPage() {
     const name = newDimName.trim();
     if (!name) return;
     const key = "custom-" + Date.now();
+    audit(`Added dimension ${name}`);
     setDimensions((prev) => [...prev, { key, label: name, cls: "_new", values: [] }]);
     setEditingId(null);
     setNewDimName("");
@@ -76,7 +102,7 @@ export default function DimensionsPage() {
       <SettingsHeader
         title="General Ledger"
         tabs={ACCOUNTING_TABS}
-        intro="Define the analytical tags you'll attach to accounts and transactions — like Department, Location, or Project. Each dimension has its own list of values. All optional."
+        intro="Define the analytical tags you'll attach to accounts and transactions — like Department, Location, or Project. Each dimension has its own list of values. Once a posted journal uses a dimension or value, it can't be renamed or deleted."
       />
       <div className="acc-body">
 
@@ -129,6 +155,11 @@ export default function DimensionsPage() {
                           {dim.label}
                         </div>
                       )}
+                      {!isRenaming && (
+                        <div className="s2-dim-usage">
+                          {usedLines(dim.key) ? `In use · ${plural(usedLines(dim.key), "posted line")}` : "Not used yet"}
+                        </div>
+                      )}
                     </td>
                     <td>
                       <div className="s2-dim-card-values">
@@ -139,13 +170,15 @@ export default function DimensionsPage() {
                             style={{ background: pal.bg, color: pal.fg }}
                           >
                             {v}
-                            <span
-                              className="s2-dim-val-chip-x"
-                              title="Remove value"
-                              onClick={() => removeValue(dim.key, vi)}
-                            >
-                              ×
-                            </span>
+                            {!valueLines(dim.key, v) && (
+                              <span
+                                className="s2-dim-val-chip-x"
+                                title="Remove value"
+                                onClick={() => removeValue(dim.key, vi)}
+                              >
+                                ×
+                              </span>
+                            )}
                           </span>
                         ))}
                         {isAddingValue ? (
@@ -180,8 +213,8 @@ export default function DimensionsPage() {
                         </>
                       ) : (
                         <>
-                          <button className="s2-dim-card-act" onClick={() => startRename(dim)}>Rename</button>{" "}
-                          <button className="s2-dim-card-act s2-dim-card-act-danger" onClick={() => deleteDimension(dim.key)}>Delete</button>
+                          <button className="s2-dim-card-act" disabled={!!usedLines(dim.key)} title={usedLines(dim.key) ? lockedTitle(dim.key) : undefined} onClick={() => startRename(dim)}>Rename</button>{" "}
+                          <button className="s2-dim-card-act s2-dim-card-act-danger" disabled={!!usedLines(dim.key)} title={usedLines(dim.key) ? lockedTitle(dim.key) : undefined} onClick={() => deleteDimension(dim.key)}>Delete</button>
                         </>
                       )}
                     </td>
