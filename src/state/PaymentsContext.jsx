@@ -41,7 +41,7 @@ const TODAY_ISO = `${TODAY.getFullYear()}-${String(TODAY.getMonth() + 1).padStar
 
 // ISO date N days before the demo clock — used to stagger request/approval
 // timestamps so the role-scoped urgency sorts (FM "oldest waiting first",
-// Finance Staff "time since approved") have something real to order on.
+// CFO "time since approved") have something real to order on.
 const isoDaysAgo = (n) => new Date(TODAY.getTime() - n * 86400000).toISOString().slice(0, 10);
 
 const BLANK = { request: "notyet" };
@@ -106,7 +106,7 @@ function seedPayments() {
   m.BILL207 = { request: "requested", requestedBy: "Budi Santoso", requestedAt: isoDaysAgo(1) };
 
   // Journal payables (lib/journalPayables.js) go round the same cycle. One is
-  // approved and one requested so the Finance Staff and Finance Manager queues
+  // approved and one requested so the CFO and Finance Manager queues
   // each show a non-bill payment; the rest wait for AP Staff to request them.
   m["JE-2025-0310"] = {
     request: "approved",

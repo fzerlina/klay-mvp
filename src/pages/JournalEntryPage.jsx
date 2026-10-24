@@ -426,7 +426,7 @@ export default function JournalEntryPage() {
     entries: JOURNAL_ENTRIES, addJournalEntry, updateJournalEntry, peekNextJeNumber, pendingDraft, clearPendingDraft,
     templates, addTemplate, updateTemplate, removeTemplate,
   } = useJournalEntries();
-  const { hasLevel, user } = useCurrentUser();
+  const { hasLevel, hasCapability, user } = useCurrentUser();
   const canApprove = hasLevel("gl", "approve+post");
   const canTransact = hasLevel("gl", "transact");
   const insightsRole = canApprove ? "operator" : canTransact ? "preparer" : "viewer";
@@ -1042,7 +1042,7 @@ export default function JournalEntryPage() {
       out.push({ key: "approve", label: "Approve & post", icon: "check", primary: true, check: canApproveEntry(je, ctx) });
       out.push({ key: "return", label: "Send back", icon: "back", check: canReturn(je, ctx) });
     }
-    if (je.status === "posted" && reversibleHere(je)) out.push({ key: "reverse", label: "Reverse", icon: "reverse", check: canReverse(je, ctx) });
+    if (je.status === "posted" && reversibleHere(je)) out.push({ key: "reverse", label: "Reverse", icon: "reverse", check: canReverse(je, { canReverse: hasCapability("gl.je.reverse") }) });
     if (!sys && !je.reversal_of && ["draft", "posted"].includes(je.status) && canTransact) {
       out.push({ key: "recurring", label: "Make recurring", icon: "repeat", check: { ok: true } });
     }
@@ -1092,7 +1092,7 @@ export default function JournalEntryPage() {
   }
 
   function confirmReverse(je, date) {
-    const check = canReverse(je, ctx);
+    const check = canReverse(je, { canReverse: hasCapability("gl.je.reverse") });
     if (!check.ok) { showToast(check.reason); return; }
     const jeNumber = peekNextJeNumber();
     addJournalEntry(buildReversal(je, { jeNumber, date, by: actor, today: todayIso }));

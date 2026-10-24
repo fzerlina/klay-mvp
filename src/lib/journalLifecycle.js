@@ -81,9 +81,9 @@ export function canVoid(je) {
   return OK;
 }
 
-export function canReverse(je, { canPost } = {}) {
+export function canReverse(je, { canReverse: allowed } = {}) {
   if (je.status !== "posted") return no("Only a posted entry can be reversed.");
-  if (!canPost) return no("Your role cannot post journal entries.");
+  if (!allowed) return no("Your role cannot reverse journal entries.");
   if (je.reversed_by) return no(`Already reversed by ${je.reversed_by}.`);
   if (je.reversal_of) return no("This is itself a reversal.");
   if (!reversibleHere(je)) return no("Written by another screen — reverse it at its source.");

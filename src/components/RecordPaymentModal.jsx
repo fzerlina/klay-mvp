@@ -117,7 +117,7 @@ export default function RecordPaymentModal({ bill, onConfirm, onClose }) {
   // Odoo's single write-off line, the difference can be split across several
   // accounts. Difference rows are ordinary deductions flagged `diff`, so they
   // land in the journal entry like any other.
-  const DIFF_ACCOUNT = DEFAULT_ACCOUNTS.paymentDifference; // Settings → Accounting → Default accounts
+  const DIFF_ACCOUNT = DEFAULT_ACCOUNTS.paymentDifference; // seed/defaultAccounts.js
   const [diffMode, setDiffMode] = useState("open");
   const isDiff = (d) => !!d.diff;
   const gapOf = (b) => Math.max(0, (bill.remaining || 0) - cashOut(b) - deductionsOf(b).filter((d) => !isDiff(d)).reduce((s, d) => s + (Number(d.amount) || 0), 0));

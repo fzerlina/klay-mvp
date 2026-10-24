@@ -6,7 +6,7 @@
 // movement the ledger attributes to that account (lib/bankLedger.js — posted
 // journals, recorded payments, the operating accounts' everyday volume). It is
 // deliberately not the GL report's balance: the demo chart carries two codes
-// for some banks (1-1300 and 11110 "Bank IDR"), and journals posted from Bank
+// for some banks (1-1500 and 11110 "Bank IDR"), and journals posted from Bank
 // Reconciliation (fees, interest) land on 11110, which names no one account —
 // so those are not in these figures until the two codes are one.
 //

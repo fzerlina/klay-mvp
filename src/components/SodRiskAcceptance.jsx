@@ -10,7 +10,7 @@ import { ROLES, USERS, effectiveCapabilities } from "../data/seed/roles";
 
 const hasControlAuthority = (u) => {
   for (const c of effectiveCapabilities(u.roleKeys, u.extraCaps || [])) {
-    if (/\.(approve|post)$/.test(c) || ["payment.approve", "users.manage", "roles.manage"].includes(c)) return true;
+    if (/\.(approve|post)$/.test(c) || ["ap.payment.authorize", "settings.users.manage", "settings.roles.manage"].includes(c)) return true;
   }
   return false;
 };

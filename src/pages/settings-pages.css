@@ -165,3 +165,14 @@
   .dj-confirm{flex-direction:column;align-items:stretch}
   .dj-go{margin-bottom:0}
 }
+
+/* Read-only states when the role can't change a preference */
+.pp-switch:disabled,.is-option:disabled,.brs-remove:disabled,.brs-select:disabled{opacity:.5;cursor:not-allowed}
+.is-option:disabled:hover{border-color:var(--color-border-default)}
+
+/* Settings → Fixed Assets: the line above the three type lists. */
+.fa-set-intro{margin:18px 32px 0}
+@media (max-width:760px){ .fa-set-intro{margin-left:16px;margin-right:16px} }
+
+/* Settings → Fixed Assets → Preferences: the preference card, outside Accounting. */
+.fa-prefs .ap-section{margin-top:18px}

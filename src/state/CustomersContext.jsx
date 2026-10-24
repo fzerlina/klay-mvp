@@ -17,7 +17,7 @@ export const DEFAULT_COMPANY_BANK = {
 
 // The receivable accounts a customer may post to — the chart's Trade
 // Receivables, less the doubtful-debt allowance. A new customer starts on the
-// default AR account (Settings → Accounting → Default accounts).
+// default AR account (seed/defaultAccounts.js).
 export const AR_ACCOUNTS = COA.filter((a) => a.parent === "g-ar" && a.type === "asset" && a.is_active);
 export const arAcctLabel = (code) => (COA_BY_CODE[code] ? `${code} · ${COA_BY_CODE[code].name}` : code);
 

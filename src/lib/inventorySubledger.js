@@ -43,7 +43,7 @@
 // No consumer may write, cache as authoritative, or recompute any of it.
 
 import { INVENTORY_OPENING, OPENING_POSTED } from "../data/seed/inventoryOpening";
-import { isStocked, ITEM_CATEGORY_ACCOUNTS } from "../data/seed/items";
+import { isStocked, ITEM_CATEGORY_ACCOUNTS, ITEM_ACCOUNT_ROWS, ITEM_CAT_LABELS } from "../data/seed/items";
 import { COA_BY_CODE } from "../data/seed/coa";
 import { DEFAULT_ACCOUNTS } from "../data/seed/defaultAccounts";
 
@@ -408,9 +408,39 @@ export const ACTION_LABELS = { buy: "Receipt", sell: "Issue", adjust: "Adjustmen
 // The reasons a person gives for moving stock by hand. Receipts and issues from
 // bills and invoices will write their own movements once those documents carry
 // item lines; until then they are recorded here, with the reason saying so.
+//
+// Each reason names the account on the other side of Inventory, as a role in
+// the item category's account set (items.js) — the Mapping Account spec. `null`
+// means the person picks the account when recording. A transfer is two
+// movements, out of one location and into another, that meet in Goods In
+// Transit.
+//
+// This is the LIVE registry, like DEFAULT_ACCOUNTS: Settings → Inventory →
+// Stock movement rewrites a reason's `other` through
+// AccountingSettingsContext.setMovementAccount, and movementAccounts reads it at
+// call time — so a change reaches the next movement, and nothing already drafted.
+export const MOVEMENT_ACCOUNTS = {
+  in: [
+    { reason: "Goods received", other: "grni" },
+    { reason: "Stock count — found more", other: "inventory_adjustment" },
+    { reason: "Returned to stock — from customer", other: "cogs" },
+    { reason: "Returned to stock — from production / internal", other: "expense" },
+    { reason: "Transfer in", other: "goods_in_transit" },
+    { reason: "Other", other: null },
+  ],
+  out: [
+    { reason: "Goods issued", other: "grni" },
+    { reason: "Stock count — found less", other: "inventory_adjustment" },
+    { reason: "Damaged / expired", other: "inventory_damage" },
+    { reason: "Lost / shrinkage", other: "inventory_loss" },
+    { reason: "Internal use", other: "expense" },
+    { reason: "Transfer out", other: "goods_in_transit" },
+    { reason: "Other", other: null },
+  ],
+};
 export const MOVEMENT_REASONS = {
-  in: ["Goods received", "Stock count — found more", "Returned to stock", "Transfer in", "Other"],
-  out: ["Goods issued", "Stock count — found less", "Damaged / expired", "Lost / shrinkage", "Internal use", "Transfer out", "Other"],
+  in: MOVEMENT_ACCOUNTS.in.map((m) => m.reason),
+  out: MOVEMENT_ACCOUNTS.out.map((m) => m.reason),
 };
 
 // Would this movement take its location below zero at any point in its
@@ -441,24 +471,51 @@ export function costAsOf(item, sessionMovements, date, method = "average_cost") 
 // posted on the Journal Entry page like any other. The movement and the entry
 // carry each other's reference, so either one leads to the other.
 //
-//   Increase   Dr Inventory              Cr Inventory Adjustments
-//   Decrease   Dr Inventory Adjustments  Cr Inventory
-//   Opening    Dr Inventory              Cr Retained Earnings
+//   Increase   Dr Inventory              Cr the reason's account
+//   Decrease   Dr the reason's account   Cr Inventory
+//   Opening    Dr Inventory              Cr Opening stock (Settings → Inventory → Stock movement)
 //
-// The offsets, and the stock account for an item whose category names none,
-// are Settings → Accounting → Default accounts.
+// Inventory and the reason's account both come from the item's category, with
+// no company-wide fallback: a category that leaves one blank can't move stock
+// for that reason until it's set (movementAccounts reports what's missing).
 
 export function inventoryAccount(item) {
-  return (ITEM_CATEGORY_ACCOUNTS[item?.category] || {}).inventory || DEFAULT_ACCOUNTS.inventory;
+  return (ITEM_CATEGORY_ACCOUNTS[item?.category] || {}).inventory || null;
 }
 
-export function movementJournalLines(item, { unit, value, action, loc }) {
-  const amt = Math.abs(Math.round(value || 0));
-  const inv = inventoryAccount(item);
-  const other = action === "opening" ? DEFAULT_ACCOUNTS.openingStock : DEFAULT_ACCOUNTS.inventoryAdjustment;
+const ROLE_LABELS = Object.fromEntries(ITEM_ACCOUNT_ROWS);
+
+// The two accounts a movement posts to, and what stops it posting: an account
+// the category doesn't name, or an Other with no account picked.
+export function movementAccounts(item, { unit, action, reason, account }) {
+  const cat = ITEM_CATEGORY_ACCOUNTS[item?.category] || {};
+  const catName = ITEM_CAT_LABELS[item?.category] || "This item's category";
+  const missing = [];
+  const inv = cat.inventory || null;
+  if (!inv) missing.push(`${catName} has no Inventory account.`);
+  let other;
+  if (action === "opening") other = DEFAULT_ACCOUNTS.openingStock;
+  else {
+    const map = MOVEMENT_ACCOUNTS[unit > 0 ? "in" : "out"].find((m) => m.reason === reason);
+    if (map && map.other === null) {
+      other = account || null;
+      if (!other) missing.push("Pick the account for Other.");
+    } else {
+      const role = map?.other || "inventory_adjustment";
+      other = cat[role] || null;
+      if (!other) missing.push(`${catName} has no ${ROLE_LABELS[role]} account.`);
+    }
+  }
   const [dr, cr] = unit > 0 ? [inv, other] : [other, inv];
+  return { dr, cr, missing };
+}
+
+export function movementJournalLines(item, row) {
+  const { dr, cr, missing } = movementAccounts(item, row);
+  if (missing.length) return [];
+  const amt = Math.abs(Math.round(row.value || 0));
   const name = (c) => COA_BY_CODE[c]?.name || c;
-  const desc = `${item.name} — ${loc}`;
+  const desc = `${item.name} — ${row.loc}`;
   return [
     { account_code: dr, account_name: name(dr), debit: amt, credit: 0, description: desc },
     { account_code: cr, account_name: name(cr), debit: 0, credit: amt, description: desc },

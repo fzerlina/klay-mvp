@@ -10,7 +10,7 @@
 export const JOURNAL_TEMPLATES = [
   {
     id: "JT-01", name: "Vendor Invoice — Goods (non-PKP Vendor)",
-    lines: [{ side: "debit", account: "1-3100" }, { side: "credit", account: "2-1100" }],
+    lines: [{ side: "debit", account: "1-1300" }, { side: "credit", account: "2-1100" }],
   },
   {
     id: "JT-02", name: "Vendor Invoice (domestic)",
@@ -42,6 +42,6 @@ export const JOURNAL_TEMPLATES = [
   },
   {
     id: "JT-09", name: "GRN Accrual",
-    lines: [{ side: "debit", account: "1-3100" }, { side: "credit", account: "2-1200" }],
+    lines: [{ side: "debit", account: "1-1300" }, { side: "credit", account: "2-1200" }],
   },
 ];

@@ -1,28 +1,29 @@
 import { createContext, useCallback, useContext, useMemo, useState } from "react";
 import {
-  PAYMENT_TERMS, DEFAULT_TERM, VENDOR_CATEGORIES, PAYMENT_METHOD_SETTINGS, INVOICE_SETTINGS,
-  UNITS, SITES, ASSET_CATEGORY_DEFAULTS, FEE_TOLERANCE,
+  PAYMENT_TERMS, DEFAULT_TERM, VENDOR_CATEGORIES, PAYMENT_METHOD_SETTINGS,
+  UNITS, LOCATIONS, FEE_TOLERANCE,
 } from "../data/seed/moduleSettings";
-import { ITEM_CAT_LABELS, ITEM_CATEGORY_ACCOUNTS, UNIT_DEFAULTS, PRIMARY_UNITS, ITEM_UOM_LABELS } from "../data/seed/items";
+import { ITEM_CAT_LABELS, ITEM_CATEGORY_ACCOUNTS, ITEM_CATEGORY_TAXES, UNIT_DEFAULTS, PRIMARY_UNITS, ITEM_UOM_LABELS } from "../data/seed/items";
 import { ASSET_CATEGORIES } from "../data/seed/fixedAssets";
 
-// Module settings (Settings → Payables, Receivables, Inventory, Fixed Assets,
-// Reconciliation), shared so the forms that use them — vendor and customer
-// terms, item and asset categories — read the same lists the settings pages
-// edit.
+// Module settings (Settings → Items, Fixed Assets, Reconciliation), shared so
+// the forms that use them — item and asset categories — read the same lists
+// the settings pages edit. Vendor and customer lists (payment terms, vendor
+// categories, payment methods) are read here too, with no settings page.
 //
 // Item and asset categories write through to the registries in items.js and
-// fixedAssets.js (ITEM_CAT_LABELS, ITEM_CATEGORY_ACCOUNTS, ASSET_CATEGORIES),
+// fixedAssets.js (ITEM_CAT_LABELS, ITEM_CATEGORY_ACCOUNTS, ITEM_CATEGORY_TAXES,
+// ASSET_CATEGORIES),
 // which every screen already reads at call time, so a new or changed category
 // resolves its GL accounts everywhere at once. `rev` bumps on each such write.
 
 const ModuleSettingsContext = createContext(null);
 
 const itemCategoriesNow = () => Object.entries(ITEM_CAT_LABELS).map(([key, label]) => ({
-  key, label, accounts: { ...(ITEM_CATEGORY_ACCOUNTS[key] || {}) },
+  key, label, accounts: { ...(ITEM_CATEGORY_ACCOUNTS[key] || {}) }, taxes: { ...(ITEM_CATEGORY_TAXES[key] || {}) },
 }));
-const assetCategoriesNow = (defaults) => Object.entries(ASSET_CATEGORIES).map(([key, c]) => ({
-  key, label: c.label, type: c.type, accounts: { ...c.accounts }, ...(defaults[key] || { method: "straight_line", lifeMonths: null, taxGroup: null }),
+const assetCategoriesNow = () => Object.entries(ASSET_CATEGORIES).map(([key, c]) => ({
+  key, label: c.label, type: c.type, accounts: { ...c.accounts },
 }));
 
 export const slugKey = (label) => label.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "item";
@@ -34,24 +35,33 @@ const upsert = (list, row, keyField, orig) => {
   return list.some((x) => x[keyField] === k) ? list.map((x) => (x[keyField] === k ? row : x)) : [...list, row];
 };
 
+const hasNode = (tree, id) => tree.some((n) => n.id === id || hasNode(n.children || [], id));
+function saveNode(tree, node, parentId) {
+  if (hasNode(tree, node.id)) {
+    return tree.map((n) => (n.id === node.id ? { ...n, ...node }
+      : hasNode(n.children || [], node.id) ? { ...n, children: saveNode(n.children, node, parentId) } : n));
+  }
+  if (!parentId) return [...tree, { children: [], ...node }];
+  return tree.map((n) => (n.id === parentId
+    ? { ...n, children: [...(n.children || []), { children: [], ...node }] }
+    : { ...n, children: saveNode(n.children || [], node, parentId) }));
+}
+const dropNode = (tree, id) => tree.filter((n) => n.id !== id).map((n) => ({ ...n, children: dropNode(n.children || [], id) }));
+
 export function ModuleSettingsProvider({ children }) {
-  const [paymentTerms, setPaymentTerms] = useState(PAYMENT_TERMS);
-  const [defaultTerm, setDefaultTerm] = useState(DEFAULT_TERM);
-  const [vendorCategories, setVendorCategories] = useState(VENDOR_CATEGORIES);
-  const [paymentMethods, setPaymentMethods] = useState(PAYMENT_METHOD_SETTINGS);
-  const [invoiceSettings, setInvoiceSettings] = useState(INVOICE_SETTINGS);
+  // Read by the vendor and customer forms; there is no Payables or Receivables
+  // settings page to edit them.
+  const [paymentTerms] = useState(PAYMENT_TERMS);
+  const [defaultTerm] = useState(DEFAULT_TERM);
+  // Read by vendors, bills and payments; there is no Payables settings page to edit them.
+  const [vendorCategories] = useState(VENDOR_CATEGORIES);
+  const [paymentMethods] = useState(PAYMENT_METHOD_SETTINGS);
   const [units, setUnits] = useState(UNITS);
-  const [sites, setSites] = useState(SITES);
-  const [assetDefaults, setAssetDefaults] = useState(ASSET_CATEGORY_DEFAULTS);
+  const [locations, setLocations] = useState(LOCATIONS);
   const [feeTolerance, setFeeTolerance] = useState(FEE_TOLERANCE);
   const [rev, setRev] = useState(0);
   const bump = () => setRev((n) => n + 1);
 
-  const saveTerm = useCallback((row, orig) => setPaymentTerms((l) => upsert(l, row, "code", orig)), []);
-  const removeTerm = useCallback((code) => setPaymentTerms((l) => l.filter((t) => t.code !== code)), []);
-  const saveVendorCategory = useCallback((row, orig) => setVendorCategories((l) => upsert(l, row, "key", orig)), []);
-  const removeVendorCategory = useCallback((key) => setVendorCategories((l) => l.filter((c) => c.key !== key)), []);
-  const savePaymentMethod = useCallback((row, orig) => setPaymentMethods((l) => upsert(l, row, "key", orig)), []);
   // Units write through to the item registry too, so the item forms offer them.
   const saveUnit = useCallback((row, orig) => {
     UNIT_DEFAULTS[row.code] = {
@@ -70,46 +80,52 @@ export function ModuleSettingsProvider({ children }) {
     delete UNIT_DEFAULTS[code];
     setUnits((l) => l.filter((u) => u.code !== code));
   }, []);
-  const saveSite = useCallback((row, orig) => setSites((l) => upsert(l, row, "id", orig)), []);
-  const removeSite = useCallback((id) => setSites((l) => l.filter((s) => s.id !== id)), []);
+  // Locations are a tree: save a node under `parentId` (null for top level) —
+  // replacing it in place when it exists — or remove one with its subtree.
+  const saveLocation = useCallback((node, parentId = null) => setLocations((tree) => saveNode(tree, node, parentId)), []);
+  const removeLocation = useCallback((id) => setLocations((tree) => dropNode(tree, id)), []);
 
   // Write-through to the item registry.
   const saveItemCategory = useCallback((row) => {
     ITEM_CAT_LABELS[row.key] = row.label;
     ITEM_CATEGORY_ACCOUNTS[row.key] = { ...row.accounts };
+    // A new category starts on standard PPN both ways and no withholding.
+    ITEM_CATEGORY_TAXES[row.key] = { purchase_vat: "ppn_masukan", sales_vat: "ppn_keluaran", withholding: null, ...(ITEM_CATEGORY_TAXES[row.key] || {}), ...(row.taxes || {}) };
+    bump();
+  }, []);
+  const setItemCategoryTax = useCallback((key, kind, code) => {
+    ITEM_CATEGORY_TAXES[key] = { ...(ITEM_CATEGORY_TAXES[key] || {}), [kind]: code || null };
     bump();
   }, []);
   const removeItemCategory = useCallback((key) => {
     delete ITEM_CAT_LABELS[key];
     delete ITEM_CATEGORY_ACCOUNTS[key];
+    delete ITEM_CATEGORY_TAXES[key];
     bump();
   }, []);
 
-  // Write-through to the asset registry; defaults live here.
+  // Write-through to the asset registry.
   const saveAssetCategory = useCallback((row) => {
     ASSET_CATEGORIES[row.key] = { label: row.label, type: row.type, accounts: { ...row.accounts } };
-    setAssetDefaults((d) => ({ ...d, [row.key]: { method: row.method, lifeMonths: row.lifeMonths, taxGroup: row.taxGroup } }));
     bump();
   }, []);
   const removeAssetCategory = useCallback((key) => {
     delete ASSET_CATEGORIES[key];
-    setAssetDefaults((d) => { const { [key]: _, ...rest } = d; return rest; });
     bump();
   }, []);
 
   const value = useMemo(() => ({
     rev,
-    paymentTerms, defaultTerm, setDefaultTerm, saveTerm, removeTerm,
-    vendorCategories, saveVendorCategory, removeVendorCategory,
-    paymentMethods, savePaymentMethod,
-    invoiceSettings, setInvoiceSettings,
-    itemCategories: itemCategoriesNow(), saveItemCategory, removeItemCategory,
+    paymentTerms, defaultTerm,
+    vendorCategories,
+    paymentMethods,
+    itemCategories: itemCategoriesNow(), saveItemCategory, setItemCategoryTax, removeItemCategory,
     units, saveUnit, removeUnit,
-    sites, saveSite, removeSite,
-    assetCategories: assetCategoriesNow(assetDefaults), assetDefaults, saveAssetCategory, removeAssetCategory,
+    locations, saveLocation, removeLocation,
+    assetCategories: assetCategoriesNow(), saveAssetCategory, removeAssetCategory,
     feeTolerance, setFeeTolerance,
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [rev, paymentTerms, defaultTerm, vendorCategories, paymentMethods, invoiceSettings, units, sites, assetDefaults, feeTolerance]);
+  }), [rev, paymentTerms, defaultTerm, vendorCategories, paymentMethods, units, locations, feeTolerance]);
 
   return <ModuleSettingsContext.Provider value={value}>{children}</ModuleSettingsContext.Provider>;
 }

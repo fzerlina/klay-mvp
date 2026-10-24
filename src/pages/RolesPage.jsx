@@ -116,7 +116,7 @@ function CompareMatrix({ roles, capsOf }) {
 export default function RolesPage() {
   const { roles, capsOf, holdersOf, rev } = useRoles();
   const { hasCapability } = useCurrentUser();
-  const canManage = ROLE_EDITING && hasCapability("roles.manage");
+  const canManage = ROLE_EDITING && hasCapability("settings.roles.manage");
   const [searchParams, setSearchParams] = useSearchParams();
   const view = searchParams.get("view") === "compare" ? "compare" : "roles";
   const setView = (v) => setSearchParams(v === "roles" ? {} : { view: v }, { replace: true });

@@ -24,7 +24,7 @@ import "./cashflow-report.css";
 const AGE_COLOR = { current: "#2E7D44", b1_30: "#C99A2E", b31_60: "#B8770F", b61_90: "#A8620C", b91_120: "#A32D2D", b_gt120: "#8C2420" };
 
 // The general-ledger control account each aging must agree with: the default
-// AR and AP accounts (Settings → Accounting → Default accounts).
+// AR and AP accounts (seed/defaultAccounts.js).
 const CONTROL = DEFAULT_ACCOUNTS;
 
 const TABS = [

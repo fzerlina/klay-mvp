@@ -10,7 +10,7 @@
 // record (`vendor.banks`) and is where money is paid TO.
 
 export const COMPANY_BANK_ACCOUNTS = [
-  { id: "bca-op",          bank: "BCA",     bankColor: "#0050A8", name: "BCA Operating",     number: "0123456789", currency: "IDR", group: "operating", glAccount: "1-1300", glAccountName: "Bank — BCA Operating",       openingBalance: 1245680000, active: true, statementFrom: "2025-04-01", statementThrough: "2025-04-20" },
+  { id: "bca-op",          bank: "BCA",     bankColor: "#0050A8", name: "BCA Operating",     number: "0123456789", currency: "IDR", group: "operating", glAccount: "1-1500", glAccountName: "Bank — BCA Operating",       openingBalance: 1245680000, active: true, statementFrom: "2025-04-01", statementThrough: "2025-04-20" },
   { id: "bni-op",          bank: "BNI",     bankColor: "#F37021", name: "BNI Operating",     number: "5678901234", currency: "IDR", group: "operating", glAccount: "1-1410", glAccountName: "Bank — BNI Operating",       openingBalance:  380400000, active: true, statementFrom: "2025-04-01", statementThrough: "2025-04-20" },
   { id: "mandiri-op",      bank: "MDR",     bankColor: "#003D7A", name: "Mandiri Operating", number: "1300456789", currency: "IDR", group: "operating", glAccount: "1-1400", glAccountName: "Bank — Mandiri Operating",   openingBalance:  528200000, active: true, statementFrom: "2025-04-01", statementThrough: "2025-04-20" },
   { id: "cimb-op",         bank: "CIMB",    bankColor: "#7B2D8E", name: "CIMB Operating",    number: "8765432109", currency: "IDR", group: "operating", glAccount: "1-1420", glAccountName: "Bank — CIMB Operating",      openingBalance:  215800000, active: true, statementFrom: "2025-04-01", statementThrough: "2025-04-20" },

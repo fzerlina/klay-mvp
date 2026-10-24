@@ -1,4 +1,4 @@
-// Default accounts — Settings → Accounting → Default accounts.
+// Default accounts — company-wide, with no settings page of their own.
 //
 // The company-wide accounts each module falls back to or pre-fills when the
 // record in hand doesn't name its own: the payable a bill credits, the
@@ -7,15 +7,16 @@
 // scattered through lib/ and pages/.
 //
 // Like ITEM_CATEGORY_ACCOUNTS (items.js), this object is the LIVE registry:
-// code reads it at call time (DEFAULT_ACCOUNTS.ap), and the settings page
-// writes into it through AccountingSettingsContext.setDefaultAccount, so a
-// change reaches every module at once.
+// code reads it at call time (DEFAULT_ACCOUNTS.ap). Only Opening stock is
+// edited in the app (Settings → Items → Stock movement), written through
+// AccountingSettingsContext.setDefaultAccount so it reaches every module.
 //
 // What's NOT here, because it's set per record and edited where the record
-// lives (the Default accounts page lists it all the same):
+// lives:
 //   • VAT and withholding accounts — on each tax code (taxCodes.js)
 //   • each bank account's GL account — bankAccounts.js
-//   • inventory, sales and COGS per item category — items.js
+//   • the thirteen stock, sales and cost accounts per item category — items.js
+//     (Settings → Items)
 //   • asset, depreciation and disposal per asset category — fixedAssets.js
 //   • the starting expense per vendor category — moduleSettings.js
 //
@@ -37,9 +38,8 @@ export const DEFAULT_ACCOUNTS = {
   bankFee: "72050",             // Other Non-Operating Expenses
   interestIncome: "71010",      // Interest Income
   interestTax: "8-1300",        // Final Tax (PPh Final)
-  // Inventory
-  inventory: "1-3100",          // Raw Materials
-  inventoryAdjustment: "5-1500", // Inventory Adjustments
+  // Items — edited on Settings → Inventory → Stock movement, the only stock
+  // account that isn't the item category's
   openingStock: "3-1300",       // Retained Earnings
   // Year end
   retainedEarnings: "3-1300",   // Retained Earnings

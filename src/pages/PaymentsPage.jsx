@@ -420,7 +420,7 @@ export default function PaymentsPage() {
     if (payMode === "request") requestPayment(ids, user?.name || "AP Staff");
     else if (payMode === "approve") approvePayment(ids, user?.name || "Finance Manager");
     else if (payMode === "execute") {
-      const by = user?.name || "Finance Staff";
+      const by = user?.name || "CFO";
       const dateISO = `${TODAY.getFullYear()}-${String(TODAY.getMonth() + 1).padStart(2, "0")}-${String(TODAY.getDate()).padStart(2, "0")}`;
       const linesById = {};
       for (const id of ids) {
@@ -459,7 +459,7 @@ export default function PaymentsPage() {
   const onAcknowledge = (id, flagKey) => acknowledgeFlag(id, flagKey, user?.name || "Finance Manager");
   const confirmPayment = (id, breakdown, payDate) => {
     const line = rows.find((r) => r.id === id);
-    const by = user?.name || "Finance Staff";
+    const by = user?.name || "CFO";
     const dateISO = payDate || `${TODAY.getFullYear()}-${String(TODAY.getMonth() + 1).padStart(2, "0")}-${String(TODAY.getDate()).padStart(2, "0")}`;
     if (line) {
       const total = breakdownTotal(breakdown);

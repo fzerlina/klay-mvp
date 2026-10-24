@@ -86,7 +86,9 @@ function FieldInput({ f, value, onChange, locked }) {
   );
 }
 
-function EditModal({ title, fields, row, isNew, onSave, onClose, validate }) {
+// Also used on its own (Settings → Items → Default accounts), where `onDelete`
+// puts a Delete in the dialog — refused with `deleteBlocked`'s reason.
+export function EditModal({ title, fields, row, isNew, onSave, onClose, validate, onDelete, deleteBlocked }) {
   const [d, setD] = useState(row);
   const missing = fields.filter((f) => f.required && f.type !== "checkbox" && (getAt(d, f.key) == null || String(getAt(d, f.key)).trim() === ""));
   const error = validate ? validate(d, isNew) : null;
@@ -116,6 +118,11 @@ function EditModal({ title, fields, row, isNew, onSave, onClose, validate }) {
         </div>
         {error && <em className="rl-field-err">{error}</em>}
         <div className="rl-modal-actions">
+          {onDelete && !isNew && (
+            <button type="button" className="drawer-btn ghost rl-modal-delete" disabled={!!deleteBlocked} title={deleteBlocked || undefined} onClick={onDelete}>
+              Delete
+            </button>
+          )}
           <button type="button" className="drawer-btn ghost" onClick={onClose}>Cancel</button>
           <button type="button" className="drawer-btn primary" disabled={!ok} onClick={() => onSave(clean(d))}>
             {isNew ? "Add" : "Save"}

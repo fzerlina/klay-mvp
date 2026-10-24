@@ -115,7 +115,7 @@ function TaxModal({ tax, onSave, onClose }) {
 
 export default function TaxSettingsPage() {
   const { hasCapability } = useCurrentUser();
-  const canEdit = hasCapability("coa.manage");
+  const canEdit = hasCapability("settings.tax.manage");
   const { log } = useSettingsAudit();
   const [codes, setCodes] = useState(() => [...TAX_CODES]);
   const [editing, setEditing] = useState(null); // null | "new" | tax code
@@ -192,7 +192,7 @@ export default function TaxSettingsPage() {
               </div>
             </section>
           ))}
-          {!canEdit && <p className="tx-ro">Read only — changing tax codes needs the <em>Manage Chart of Accounts</em> capability.</p>}
+          {!canEdit && <p className="tx-ro">Read only — changing tax codes needs the <em>Manage tax codes</em> capability.</p>}
         </div>
       </div>
 

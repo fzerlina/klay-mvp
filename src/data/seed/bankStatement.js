@@ -243,11 +243,11 @@ const SENT_IN_PARTS = { "BILL068:0": [50000000] };
 // with the names, so the amount ties and the description has to break it: one
 // name was confirmed last month and matches on its own, the other is read fresh
 // and only suggested.
-const ALWAYS_PRINTED = new Set(["JE-2025-0305:1-1300", "JE-2025-0306:1-1300"]);
+const ALWAYS_PRINTED = new Set(["JE-2025-0305:1-1500", "JE-2025-0306:1-1500"]);
 
 // The two Percetakan Maju payments were sent together, so the bank never prints
 // them one by one — only the combined Rp 8.25M line in BANK_ONLY above.
-const PAID_TOGETHER = new Set(["JE-2025-0307:1-1300", "JE-2025-0308:1-1300"]);
+const PAID_TOGETHER = new Set(["JE-2025-0307:1-1500", "JE-2025-0308:1-1500"]);
 
 // A payment that went out twice. The books hold one; the bank holds both.
 const DUPLICATED = { "bca-op": ["BILL009:0"] };

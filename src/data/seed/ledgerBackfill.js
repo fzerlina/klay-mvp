@@ -48,7 +48,7 @@ const TODAY_ISO = `${TODAY.getFullYear()}-${String(TODAY.getMonth() + 1).padStar
 const AP = { code: "2-1100", name: "Accounts Payable — Trade" };
 // Historical payments went out of the two operating accounts in the chart.
 const PAY_FROM = [
-  { code: "1-1300", name: "Bank — BCA Operating" },
+  { code: "1-1500", name: "Bank — BCA Operating" },
   { code: "1-1400", name: "Bank — Mandiri Operating" },
 ];
 const AR = { code: "1-2100", name: "Accounts Receivable — Trade" };

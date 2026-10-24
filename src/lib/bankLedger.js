@@ -30,7 +30,7 @@ import { volumeRecords } from "../data/seed/bankVolume";
 // ── From a ledger code to a bank account ────────────────────────────────────
 //
 // Each bank account in the master names the chart-of-accounts code it posts
-// to (e.g. bca-op → "1-1300 Bank — BCA Operating"). The bridge tries that
+// to (e.g. bca-op → "1-1500 Bank — BCA Operating"). The bridge tries that
 // configured code FIRST and falls back to the CoA name only because
 // "Bank — {account name}" is a naming convention the chart follows — which
 // covers accounts with no code configured. Where neither works we return null

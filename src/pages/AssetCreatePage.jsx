@@ -14,7 +14,7 @@ import { assetAccounts } from "../lib/fixedAssets";
 import "./invoice-create.css";
 import "./items.css";
 import "./assets.css";
-import { useModuleSettings } from "../state/ModuleSettingsContext";
+import { useAccountingSettings } from "../state/AccountingSettingsContext";
 
 // ── Add New Asset ────────────────────────────────────────────────────────────
 // Every field here is ENTERED (Fixed Asset PRD §3) — there is no class to
@@ -24,8 +24,8 @@ import { useModuleSettings } from "../state/ModuleSettingsContext";
 // Active.
 //
 // What is NOT a default any more is where it lands on the BOOK axis. A new
-// asset can be under construction, capitalized but not yet available for use,
-// or in service from a named date. Only the third builds a schedule — and the
+// asset can be under construction or in service from a named date. Only the
+// second builds a schedule — and the
 // in-service date, not the acquisition date, is what it starts from.
 
 export default function AssetCreatePage() {
@@ -45,26 +45,14 @@ export default function AssetCreatePage() {
   const [bookStatus, setBookStatus] = useState("in_service");
   const [serviceDate, setServiceDate] = useState("");
   const [operationalStatus, setOperationalStatus] = useState("in_use");
-  const [method, setMethod] = useState("straight_line");
+  // Every new asset starts on the company method (Settings → Fixed Assets →
+  // Preferences); the asset can still change it.
+  const { assetDepreciationMethod } = useAccountingSettings();
+  const [method, setMethod] = useState(assetDepreciationMethod);
   const [rate, setRate] = useState("");
   const [durationValue, setDurationValue] = useState("");
   const [durationUnit, setDurationUnit] = useState("months");
-  // A category's defaults (Settings → Fixed Assets) pre-fill method and life;
-  // the asset can still change them.
-  const { assetDefaults } = useModuleSettings();
-  function pickCategory(key) {
-    setCategory(key);
-    const d = assetDefaults[key];
-    if (!d) return;
-    setMethod(d.method);
-    if (d.lifeMonths) {
-      const years = d.lifeMonths % 12 === 0;
-      setDurationValue(String(years ? d.lifeMonths / 12 : d.lifeMonths));
-      setDurationUnit(years ? "years" : "months");
-    } else {
-      setDurationValue("");
-    }
-  }
+  const pickCategory = (key) => setCategory(key);
   const [computation, setComputation] = useState("constant_period");
 
   const [toast, setToast] = useState("");
@@ -83,7 +71,7 @@ export default function AssetCreatePage() {
 
   // The same scoping applies to the book axis: a prepaid is never under
   // construction, so the option is not offered rather than offered and refused.
-  const bookOptions = bookStatusesForType(type).filter((k) => k !== "held_for_sale" && k !== "disposed");
+  const bookOptions = bookStatusesForType(type).filter((k) => ["under_construction", "in_service"].includes(k));
   // Switching type has to drop an operational state the new type cannot hold,
   // exactly as it drops a category that no longer applies.
   const opStates = operationalStatesForType(type);

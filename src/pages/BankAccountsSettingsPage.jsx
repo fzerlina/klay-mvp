@@ -5,10 +5,11 @@ import "./settings-pages.css";
 import "./bank-accounts-settings.css";
 import { COMPANY_BANK_ACCOUNTS } from "../data/seed/bankAccounts";
 import { COA } from "../data/seed/coa";
-import SettingsHeader, { ACCOUNTING_TABS } from "../components/SettingsHeader";
+import SettingsHeader, { RECONCILIATION_TABS } from "../components/SettingsHeader";
 import { useSettingsAudit } from "../state/SettingsAuditContext";
+import { useCurrentUser } from "../state/CurrentUserContext";
 
-// Settings → Accounting → General Ledger → Bank accounts. Saves write through
+// Settings → Accounting → Reconciliation → Bank accounts. Saves write through
 // to COMPANY_BANK_ACCOUNTS, which payments and reconciliation read. An account
 // held overseas (luar negeri) names its bank freely and needs a SWIFT/BIC code;
 // a foreign-currency account at an Indonesian bank may carry one too.
@@ -56,7 +57,7 @@ function groupLabel(k) {
 }
 
 // ── Edit/Add drawer ─────────────────────────────────────────────────────
-function BankAccountDrawer({ open, account, onClose, onSave, onArchive }) {
+function BankAccountDrawer({ open, account, onClose, onSave, onArchive, canCreate, canManage, canDelete }) {
   const isNew = !account?.id;
   const [draft, setDraft] = useState(account || {});
 
@@ -221,7 +222,7 @@ function BankAccountDrawer({ open, account, onClose, onSave, onArchive }) {
             </label>
           </div>
 
-          {!isNew && (
+          {!isNew && canDelete && (
             <div className="ba-section">
               <button type="button" className="ba-archive-btn" onClick={() => onArchive(draft)}>
                 Archive this bank account
@@ -233,7 +234,8 @@ function BankAccountDrawer({ open, account, onClose, onSave, onArchive }) {
 
         <div className="drawer-footer">
           <button className="drawer-btn ghost" onClick={onClose}>Cancel</button>
-          <button className="drawer-btn primary" disabled={!valid} onClick={() => onSave(draft)}>
+          <button className="drawer-btn primary" disabled={!valid || !(isNew ? canCreate : canManage)}
+            title={(isNew ? canCreate : canManage) ? undefined : "Your role can't change bank accounts"} onClick={() => onSave(draft)}>
             {isNew ? "Add account" : "Save changes"}
           </button>
         </div>
@@ -246,6 +248,10 @@ function BankAccountDrawer({ open, account, onClose, onSave, onArchive }) {
 export default function BankAccountsSettingsPage() {
   const [accounts, setAccountsState] = useState(() => [...COMPANY_BANK_ACCOUNTS]);
   const { log } = useSettingsAudit();
+  const { hasCapability } = useCurrentUser();
+  const canCreate = hasCapability("bank.account.create");
+  const canManage = hasCapability("bank.account.manage");
+  const canDelete = hasCapability("bank.account.delete");
   // Write-through, so payments and reconciliation see the change.
   const setAccounts = (fn) => setAccountsState((prev) => {
     const next = fn(prev);
@@ -278,13 +284,6 @@ export default function BankAccountsSettingsPage() {
     return list;
   }, [accounts, groupFilter, search]);
 
-  const stats = useMemo(() => {
-    const all = accounts.length;
-    const unlinked = accounts.filter((a) => !a.glAccount).length;
-    const archived = accounts.filter((a) => a.active === false).length;
-    return { all, unlinked, archived };
-  }, [accounts]);
-
   function handleSave(draft) {
     draft = { ...draft, swift: (draft.swift || "").trim().toUpperCase() || null };
     if (draft.id) {
@@ -293,21 +292,21 @@ export default function BankAccountsSettingsPage() {
         ["name", "name"], ["number", "number"], ["currency", "currency"], ["glAccount", "GL account"], ["swift", "SWIFT"],
         ["bankName", "bank"], ["country", "country"],
       ].filter(([k]) => (before[k] || "") !== (draft[k] || "")).map(([k, l]) => `${l} ${before[k] || "—"} → ${draft[k] || "—"}`);
-      if (changes.length) log("General Ledger", "Bank accounts", `${draft.name}: ${changes.join("; ")}`);
+      if (changes.length) log("Reconciliation", "Bank accounts", `${draft.name}: ${changes.join("; ")}`);
       setAccounts((prev) => prev.map((a) => (a.id === draft.id ? { ...a, ...draft } : a)));
       showToast(`${draft.name} updated`);
     } else {
       const id = `bank-${Date.now()}`;
       const newAcct = { id, ...draft, active: draft.active !== false };
       setAccounts((prev) => [...prev, newAcct]);
-      log("General Ledger", "Bank accounts", `Added bank account ${draft.name}${draft.glAccount ? ` → ${draft.glAccount}` : ""}${draft.swift ? ` (SWIFT ${draft.swift})` : ""}`);
+      log("Reconciliation", "Bank accounts", `Added bank account ${draft.name}${draft.glAccount ? ` → ${draft.glAccount}` : ""}${draft.swift ? ` (SWIFT ${draft.swift})` : ""}`);
       showToast(`${draft.name} added`);
     }
     setDrawer(null);
   }
   function handleArchive(draft) {
     setAccounts((prev) => prev.map((a) => (a.id === draft.id ? { ...a, active: false } : a)));
-    log("General Ledger", "Bank accounts", `Archived bank account ${draft.name}`);
+    log("Reconciliation", "Bank accounts", `Archived bank account ${draft.name}`);
     showToast(`${draft.name} archived`);
     setDrawer(null);
   }
@@ -315,38 +314,18 @@ export default function BankAccountsSettingsPage() {
   return (
     <div className="lg-page bank-accounts-page">
       <div className="lg-scroll-container">
-        {/* ── Header: Accounting tabs + add; KPI summary strip below ───── */}
+        {/* ── Header: Reconciliation tabs + add ─────────────────────────── */}
         <SettingsHeader
-          title="General Ledger"
-          tabs={ACCOUNTING_TABS}
+          title="Reconciliation"
+          tabs={RECONCILIATION_TABS}
           intro="The bank accounts your team reconciles against. Link each to a GL account from your Chart of Accounts so matched entries post to the right ledger."
-          actions={
+          actions={canCreate && (
             <button type="button" className="lg-btn-brand" onClick={() => setDrawer({ account: null })}>
               <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
               Add bank account
             </button>
-          }
+          )}
         />
-
-        <div className="cs-kpis">
-          <div className="lg-kpi-strip kpi-3">
-            <button type="button" className="lg-kpi-cell">
-              <div className="lg-kpi-lbl">Total accounts</div>
-              <div className="lg-kpi-val">{stats.all}</div>
-              <div className="lg-kpi-sub">{stats.all - stats.archived} active</div>
-            </button>
-            <button type="button" className="lg-kpi-cell">
-              <div className="lg-kpi-lbl">Unlinked to GL</div>
-              <div className={`lg-kpi-val${stats.unlinked > 0 ? " warn" : ""}`}>{stats.unlinked}</div>
-              <div className="lg-kpi-sub">{stats.unlinked > 0 ? "needs setup before recon" : "all accounts linked"}</div>
-            </button>
-            <button type="button" className="lg-kpi-cell">
-              <div className="lg-kpi-lbl">Archived</div>
-              <div className="lg-kpi-val">{stats.archived}</div>
-              <div className="lg-kpi-sub">hidden from reconciliation</div>
-            </button>
-          </div>
-        </div>
 
         {/* ── Table card (pills + search + grid rows) ─────────────────── */}
         <div className="lg-table-wrap">
@@ -452,6 +431,9 @@ export default function BankAccountsSettingsPage() {
         onClose={() => setDrawer(null)}
         onSave={handleSave}
         onArchive={handleArchive}
+        canCreate={canCreate}
+        canManage={canManage}
+        canDelete={canDelete}
       />
 
       {toast && <div className="toast show">{toast}</div>}

@@ -67,7 +67,7 @@ function PaymentTab({ bill, detail }) {
   const { resolutions } = useBankRecon();
   const { reviewUnapproved } = usePayments();
   const { user, hasCapability } = useCurrentUser();
-  const canReview = hasCapability("payment.approve");
+  const canReview = hasCapability("ap.payment.authorize");
   const isPosted = !!bill.je_number || workflowStatus(bill) === "POSTED" || workflowStatus(bill) === "PAID";
   const total = bill.total || 0;
   const remaining = bill.sisa != null ? bill.sisa : total;
@@ -351,10 +351,9 @@ const AP_ACTION_LEVEL = {
   "Cancel bill":       "transact",
 };
 
-// Payment actions are governed by the payment.* capabilities, not by the AP
-// read/transact/approve ladder — Finance Staff executes payments while holding
-// only view on AP. paymentActionFor() has already checked the capability, so
-// these must not be re-checked against an AP level that would hide them.
+// Payment actions follow the payment stage a persona works (lib/paymentStage.js),
+// not the AP read/transact/approve ladder. paymentActionFor() has already
+// checked it, so these must not be re-checked against an AP level.
 const PAYMENT_ACTION_LABELS = new Set(["Request payment", "Approve payment", "Record payment", "Return"]);
 
 // ─── Review Brief ───────────────────────────────────────────────────────────
@@ -1422,7 +1421,7 @@ export default function BillDetailPage() {
   // Same write the Payment list performs, so a payment recorded from either
   // surface lands in the ledger and the trail identically.
   function confirmPayment(id, breakdown, payDate) {
-    const by = user?.name || "Finance Staff";
+    const by = user?.name || "CFO";
     const total = breakdownTotal(breakdown);
     const full = total >= paymentOpenBalance;
     recordPayment([{ id, breakdown, paysInFull: full, date: payDate }], by);

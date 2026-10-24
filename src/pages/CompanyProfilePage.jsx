@@ -12,8 +12,7 @@ import { COMPANY } from "../data/seed/company";
 // Settings → Company (the company profile). Who the company is: the legal
 // identity used on invoices, POs and tax documents, and the logo printed on
 // them. The accounting basics (base currency, fiscal year, time zone) live in
-// Accounting → Preferences. Company administration sits with the Admin role
-// (users.manage).
+// Accounting → Preferences. Editing needs settings.entity.manage (Admin).
 
 const FIELDS = [
   ["legalName", "Legal name"],
@@ -32,7 +31,7 @@ const MAX_LOGO_BYTES = 1024 * 1024;
 export default function CompanyProfilePage() {
   const { hasCapability } = useCurrentUser();
   const { log } = useSettingsAudit();
-  const canEdit = hasCapability("users.manage");
+  const canEdit = hasCapability("settings.entity.manage");
   const [saved, setSaved] = useState(COMPANY);
   const [draft, setDraft] = useState(COMPANY);
   const [toast, setToast] = useState("");

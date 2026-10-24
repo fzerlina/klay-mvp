@@ -12,7 +12,7 @@ import { useModuleSettings } from "../state/ModuleSettingsContext";
 // ── New Customer — manual creation (Customer Master PRD, mirror of New Vendor) ─
 // Capability-gated per the Role & Permission engine: creating a customer requires
 // the `customer.create` capability (AR Staff). SoD: the creator can't approve the
-// draft — an approver (Finance Manager / Accounting Manager) confirms/activates
+// draft — an approver (Finance Manager / CFO) confirms/activates
 // it on the Detail page. Manual creation always lands as DRAFT_PENDING.
 
 // Payment terms come from Settings → Receivables.
@@ -70,10 +70,10 @@ export default function CustomerCreatePage() {
   const { user, hasCapability } = useCurrentUser();
 
   // Capabilities (source of truth = roles.js). customer.create → AR Staff.
-  const canCreateCustomer = hasCapability("customer.create");
-  // Relationship tier is a customer-master classification (customer.classify) —
+  const canCreateCustomer = hasCapability("ar.customer.create");
+  // Relationship tier is a customer-master classification (ar.customer.edit) —
   // AR Staff (the creator) holds it, so it can be set at onboarding.
-  const canClassify = hasCapability("customer.classify");
+  const canClassify = hasCapability("ar.customer.edit");
 
   const [entityType, setEntityType] = useState(null); // null | 'perusahaan' | 'individu'
 
@@ -561,7 +561,7 @@ export default function CustomerCreatePage() {
             </div>
           </div>
 
-          {/* Relationship tier (customer.classify) */}
+          {/* Relationship tier (ar.customer.edit) */}
           {canClassify && (
             <div className="form-sec card">
               <div className="form-sec-title">Relationship tier</div>

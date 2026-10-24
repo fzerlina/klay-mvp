@@ -55,23 +55,23 @@
 //
 // `null` means the account does not apply to this category. A prepaid has no
 // accumulated-contra account (it releases straight out of its own account) and
-// no loss-on-disposal account, because a prepaid is never disposed of — it runs
-// out. `cip` and `held_for_sale` are the two accounts the book-status axis
+// no loss- or gain-on-disposal account, because a prepaid is never disposed of
+// — it runs out. `cip` and `held_for_sale` are the two accounts the book-status axis
 // moves cost between; neither applies to a prepaid, which is never built and
 // never marketed.
 export const ASSET_CATEGORIES = {
-  building:             { label: "Building",             type: "fixed_asset", accounts: { asset: "1-6200", accumulated: "1-6210", expense: "6-3400", loss: "7-1300", cip: "1-6600", held_for_sale: "1-5400" } },
-  building_services:    { label: "Building Services",    type: "fixed_asset", accounts: { asset: "1-6200", accumulated: "1-6210", expense: "6-3400", loss: "7-1300", cip: "1-6600", held_for_sale: "1-5400" } },
-  machinery:            { label: "Machinery",            type: "fixed_asset", accounts: { asset: "1-6500", accumulated: "1-6510", expense: "6-3400", loss: "7-1300", cip: "1-6600", held_for_sale: "1-5400" } },
-  vehicle:              { label: "Vehicle",              type: "fixed_asset", accounts: { asset: "1-6400", accumulated: "1-6410", expense: "6-3400", loss: "7-1300", cip: "1-6600", held_for_sale: "1-5400" } },
-  office_equipment:     { label: "Office Equipment",     type: "fixed_asset", accounts: { asset: "1-6300", accumulated: "1-6310", expense: "6-3400", loss: "7-1300", cip: "1-6600", held_for_sale: "1-5400" } },
-  furniture:            { label: "Furniture",            type: "fixed_asset", accounts: { asset: "1-6300", accumulated: "1-6310", expense: "6-3400", loss: "7-1300", cip: "1-6600", held_for_sale: "1-5400" } },
-  software_license:     { label: "Software Licence",     type: "intangible",  accounts: { asset: "1-7100", accumulated: "1-7110", expense: "6-3400", loss: "7-1300", cip: "1-7190", held_for_sale: null } },
-  trademark:            { label: "Trademark",            type: "intangible",  accounts: { asset: "1-7100", accumulated: "1-7110", expense: "6-3900", loss: "7-1300", cip: "1-7190", held_for_sale: null } },
-  goodwill:             { label: "Goodwill",             type: "intangible",  accounts: { asset: "1-7300", accumulated: null,     expense: null,     loss: "7-1300", cip: null,     held_for_sale: null } },
-  insurance:            { label: "Insurance",            type: "prepaid",     accounts: { asset: "1-4200", accumulated: null,     expense: "6-2800", loss: null,     cip: null,     held_for_sale: null } },
-  software_subscription:{ label: "Software Subscription", type: "prepaid",    accounts: { asset: "1-4300", accumulated: null,     expense: "6-2600", loss: null,     cip: null,     held_for_sale: null } },
-  rent_advance:         { label: "Rent Advance",         type: "prepaid",     accounts: { asset: "1-4100", accumulated: null,     expense: "6-2300", loss: null,     cip: null,     held_for_sale: null } },
+  building:             { label: "Building",             type: "fixed_asset", accounts: { asset: "1-6200", accumulated: "1-6210", expense: "6-3400", loss: "7-1300", gain: "4-2400", cip: "1-6600", held_for_sale: "1-5400" } },
+  building_services:    { label: "Building Services",    type: "fixed_asset", accounts: { asset: "1-6200", accumulated: "1-6210", expense: "6-3400", loss: "7-1300", gain: "4-2400", cip: "1-6600", held_for_sale: "1-5400" } },
+  machinery:            { label: "Machinery",            type: "fixed_asset", accounts: { asset: "1-6500", accumulated: "1-6510", expense: "6-3400", loss: "7-1300", gain: "4-2400", cip: "1-6600", held_for_sale: "1-5400" } },
+  vehicle:              { label: "Vehicle",              type: "fixed_asset", accounts: { asset: "1-6400", accumulated: "1-6410", expense: "6-3400", loss: "7-1300", gain: "4-2400", cip: "1-6600", held_for_sale: "1-5400" } },
+  office_equipment:     { label: "Office Equipment",     type: "fixed_asset", accounts: { asset: "1-6300", accumulated: "1-6310", expense: "6-3400", loss: "7-1300", gain: "4-2400", cip: "1-6600", held_for_sale: "1-5400" } },
+  furniture:            { label: "Furniture",            type: "fixed_asset", accounts: { asset: "1-6300", accumulated: "1-6310", expense: "6-3400", loss: "7-1300", gain: "4-2400", cip: "1-6600", held_for_sale: "1-5400" } },
+  software_license:     { label: "Software Licence",     type: "intangible",  accounts: { asset: "1-7100", accumulated: "1-7110", expense: "6-3400", loss: "7-1300", gain: "4-2400", cip: "1-7190", held_for_sale: null } },
+  trademark:            { label: "Trademark",            type: "intangible",  accounts: { asset: "1-7100", accumulated: "1-7110", expense: "6-3900", loss: "7-1300", gain: "4-2400", cip: "1-7190", held_for_sale: null } },
+  goodwill:             { label: "Goodwill",             type: "intangible",  accounts: { asset: "1-7300", accumulated: null,     expense: null,     loss: "7-1300", gain: "4-2400", cip: null,     held_for_sale: null } },
+  insurance:            { label: "Insurance",            type: "prepaid",     accounts: { asset: "1-4200", accumulated: null,     expense: "6-2800", loss: null,     gain: null,     cip: null,     held_for_sale: null } },
+  software_subscription:{ label: "Software Subscription", type: "prepaid",    accounts: { asset: "1-4300", accumulated: null,     expense: "6-2600", loss: null,     gain: null,     cip: null,     held_for_sale: null } },
+  rent_advance:         { label: "Rent Advance",         type: "prepaid",     accounts: { asset: "1-4100", accumulated: null,     expense: "6-2300", loss: null,     gain: null,     cip: null,     held_for_sale: null } },
 };
 
 export const ASSET_ACCOUNT_ROWS = [
@@ -79,9 +79,19 @@ export const ASSET_ACCOUNT_ROWS = [
   ["accumulated",   "Accumulated Depreciation / Amortisation"],
   ["expense",       "Depreciation / Amortisation Expense"],
   ["loss",          "Loss on Disposal"],
+  ["gain",          "Gain on Disposal"],
   ["cip",           "Construction in Progress"],
   ["held_for_sale", "Assets Held for Sale"],
 ];
+
+// The accounts a category of each type carries. A prepaid releases straight
+// out of its own account into expense, so it has only those two.
+export const ASSET_ACCOUNT_ROWS_BY_TYPE = {
+  fixed_asset: ASSET_ACCOUNT_ROWS,
+  // Never held for sale — derecognised directly.
+  intangible: ASSET_ACCOUNT_ROWS.filter(([k]) => k !== "held_for_sale"),
+  prepaid: ASSET_ACCOUNT_ROWS.filter(([k]) => k === "asset" || k === "expense"),
+};
 
 export const categoriesForType = (type) =>
   Object.entries(ASSET_CATEGORIES).filter(([, c]) => c.type === type).map(([key, c]) => ({ key, ...c }));
@@ -407,10 +417,11 @@ export const ASSETS = [
     updated: "2025-03-14",
   },
 
-  // ── Capitalized, not in service — and operationally IN USE ───────────────
-  // The contradiction the split exists to surface: on the floor it is being
-  // driven; in the books nothing is depreciating. One flag, one fix — place it
-  // in service and name the date.
+  // ── Under construction — and operationally IN USE ────────────────────────
+  // Delivered and paid, commissioning not signed off, so its cost still sits in
+  // Construction in Progress. The contradiction the split exists to surface: on
+  // the floor it is being driven; in the books nothing is depreciating. One
+  // flag, one fix — place it in service and name the date.
   {
     id: "AST018", asset_tag: "FA-0018", name: "Forklift Unit 3",
     description: "3.5-tonne electric forklift, Cikarang warehouse.",
@@ -420,9 +431,9 @@ export const ASSETS = [
     acquisition_date: "2025-03-05", service_date: null,
     method: "straight_line", rate: null,
     duration_value: 96, duration_unit: "months", computation: "constant_period",
-    lifecycle: "active", book_status: "capitalized_not_in_service", operational_status: "in_use",
+    lifecycle: "active", book_status: "under_construction", operational_status: "in_use",
     value_revisions: [], holds: [], disposal: null,
-    book_events: [{ date: "2025-03-05", period: "2025-03", event: "capitalized", note: "Delivered and paid; commissioning sign-off outstanding.", by: "Sarah Wijaya" }],
+    book_events: [{ date: "2025-03-05", period: "2025-03", event: "created", note: "Delivered and paid; commissioning sign-off outstanding.", by: "Sarah Wijaya" }],
     bills: [{ bill_id: "BILL219", line_no: 1, desc: "Electric forklift, 3.5t", date: "2025-03-05", amount: 420_000_000 }],
     updated: "2025-03-05",
   },
@@ -439,7 +450,7 @@ export const ASSETS = [
     acquisition_date: "2023-03-10", service_date: null,
     method: "straight_line", rate: null,
     duration_value: 96, duration_unit: "months", computation: "constant_period",
-    lifecycle: "inactive", book_status: "capitalized_not_in_service", operational_status: null,
+    lifecycle: "inactive", book_status: "under_construction", operational_status: null,
     value_revisions: [], holds: [], disposal: null,
     inactivation: { reason: "Duplicate record", note: "Same bill line as FA-0002. Nothing had posted.", by: "Sarah Wijaya", at: "2025-02-03" },
     book_events: [{ date: "2025-02-03", period: "2025-02", event: "deactivated", note: "Duplicate of FA-0002.", by: "Sarah Wijaya" }],

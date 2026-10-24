@@ -20,9 +20,8 @@ import "./vendor-detail.css";
 // Full page at /vendors/:id. Status bar + health alerts, section grid, a real
 // Transactions tab (bills for this vendor) and an Activity/change log.
 // Lifecycle actions are capability-gated: Approve / Block / Unblock / Deactivate
-// / Reactivate and manual health are the approver control (ap.post — Finance
-// Manager + Accounting Manager, a prototype stand-in for vendor.confirm /
-// vendor.hold). SoD: the AP Staff who onboards can't approve or hold.
+// / Reactivate and manual health are the approver control (ap.vendor.approve —
+// Finance Manager and CFO). SoD: the AP Staff who onboards can't approve or hold.
 
 // Two independent axes: lifecycle (draft/active/inactive) and approval.
 const STATUS = {
@@ -60,14 +59,13 @@ export default function VendorDetailPage() {
 
   const vendor = vendorById(id);
 
-  // Approver control (ap.post = Finance Manager + Accounting Manager). Stand-in
-  // for the future vendor.confirm / vendor.hold capabilities.
-  const canApprove = hasCapability("ap.post");
+  // Approver control (ap.vendor.approve = Finance Manager + CFO).
+  const canApprove = hasCapability("ap.vendor.approve");
   const canBill = hasLevel("ap", "transact");
   // Proposing a vendor bank/payee change is open to staff — the approval flow
   // provides the control (SoD: proposer ≠ approver). The company (paying)
   // account has no approval flow, so it stays manager-only.
-  const canEditBank = hasCapability("vendor.edit_bank");
+  const canEditBank = hasCapability("ap.vendor.edit_bank");
   const { detailOf, payments } = usePayments();
   const { entries: journalEntries } = useJournalEntries();
   const { reconcilableAccounts } = useAccountingSettings();
@@ -238,7 +236,7 @@ export default function VendorDetailPage() {
         {awaitingApproval && (
           <div className="vd-alert info">
             <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></svg>
-            <div><strong>Pending approval.</strong> This vendor is usable to create bills, but stays blocking at posting &amp; payment until approved. {canApprove ? "Review the details, then Approve — or Reject to send it back." : "An approver (Finance Manager or Accounting Manager) signs it off."}</div>
+            <div><strong>Pending approval.</strong> This vendor is usable to create bills, but stays blocking at posting &amp; payment until approved. {canApprove ? "Review the details, then Approve — or Reject to send it back." : "An approver (Finance Manager or CFO) signs it off."}</div>
           </div>
         )}
 

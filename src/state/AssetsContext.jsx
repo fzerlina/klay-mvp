@@ -4,9 +4,9 @@ import { TODAY } from "../lib/clock";
 import { useClosePeriod } from "./ClosePeriodContext";
 import {
   buildSchedule, summarizeSchedule, firstOpenPeriod, scheduleLocked, categoryChangeGuard,
-  disposalGuard, capitaliseGuard, placeInServiceGuard, holdForSaleGuard, returnToServiceGuard,
+  disposalGuard, placeInServiceGuard, holdForSaleGuard, returnToServiceGuard,
   deactivateGuard, reactivateGuard, bookStatusLabel, operationalStatesForType,
-  bookStatusTransitions, operationalEditable, depreciableValue,
+  bookStatusTransitions, operationalEditable, depreciableValue, withDerivedStatus,
 } from "../lib/fixedAssets";
 
 // ── Fixed Assets — one register, one context ────────────────────────────────
@@ -77,6 +77,16 @@ function nextTag(list) {
 }
 const today = () => TODAY.toISOString().slice(0, 10);
 
+// Field values as the edit dialog sends them back: a blank comes as "" or 0,
+// a number as a string. Blank equals blank, numbers compare as numbers.
+const blank = (v) => v == null || v === "";
+function sameValue(a, b) {
+  if (blank(a) && blank(b)) return true;
+  const na = Number(blank(a) ? 0 : a), nb = Number(blank(b) ? 0 : b);
+  if (!Number.isNaN(na) && !Number.isNaN(nb) && (typeof a === "number" || typeof b === "number" || blank(a) || blank(b))) return na === nb;
+  return String(a ?? "") === String(b ?? "");
+}
+
 export function AssetsProvider({ children }) {
   const [assets, setAssets] = useState(SEED_ASSETS);
 
@@ -127,12 +137,17 @@ export function AssetsProvider({ children }) {
   }, [closedThrough]);
 
   // Shared plumbing for every book event: append the dated record, version the
-  // new book status, and log it.
-  const applyBookEvent = useCallback((asset, { event, period, date, note, actor, patch, logAction, logDetail }) => {
+  // new book status, and log it. The event keeps the status it left (`from`)
+  // and the figures it was booked at (`amounts`), so its journal can be shown
+  // later exactly as it was posted, never re-read from today's values.
+  const applyBookEvent = useCallback((asset, { event, period, date, note, actor, patch, logAction, logDetail, amounts }) => {
     const next = {
       ...asset,
       ...patch,
-      book_events: [...(asset.book_events || []), { date: date || today(), period, event, note: note || "", by: actor || "—" }],
+      book_events: [...(asset.book_events || []), {
+        date: date || today(), period, event, note: note || "", by: actor || "—",
+        from: asset.book_status, ...(amounts ? { amounts } : {}),
+      }],
       updated: today(),
     };
     writeAsset(next);
@@ -142,8 +157,8 @@ export function AssetsProvider({ children }) {
   }, [writeAsset, logEvent, pushVersion]);
 
   // Creation is ungated. Where a new asset LANDS is now a choice rather than a
-  // default: under construction, capitalized-not-in-service, or straight into
-  // service with a date. Only the third builds a schedule.
+  // default: under construction, or straight into service with a date. Only
+  // the second builds a schedule.
   const addAsset = useCallback((draft) => {
     const id = nextId(assetsRef.current);
     const asset_tag = nextTag(assetsRef.current);
@@ -220,11 +235,13 @@ export function AssetsProvider({ children }) {
     // through, and a caller that tries anyway is refused rather than ignored.
     const lock = scheduleLocked(asset, read(asset));
     const editable = lock.locked ? IDENTITY_FIELDS : [...IDENTITY_FIELDS, ...SCHEDULE_FIELDS];
-    const attempted = Object.keys(patch).filter((k) => SCHEDULE_FIELDS.includes(k));
+    // Only a schedule field that actually changes is an attempt — the edit
+    // dialog sends every field back, changed or not, with blanks as "" or 0.
+    const attempted = Object.keys(patch).filter((k) => SCHEDULE_FIELDS.includes(k) && !sameValue(asset[k], patch[k]));
     if (lock.locked && attempted.length) return { changed: [], error: lock.reason };
 
     const allowed = Object.keys(patch).filter((k) => editable.includes(k));
-    const changed = allowed.filter((k) => String(asset[k] ?? "") !== String(patch[k] ?? ""));
+    const changed = allowed.filter((k) => !sameValue(asset[k], patch[k]));
     if (!changed.length) return { changed: [] };
     const versioned = changed.filter((k) => VERSIONED_FIELDS.includes(k));
     const next = { ...asset, ...Object.fromEntries(changed.map((k) => [k, patch[k]])), updated: today() };
@@ -317,25 +334,9 @@ export function AssetsProvider({ children }) {
 
   // ── Book events ───────────────────────────────────────────────────────────
 
-  // under_construction → capitalized_not_in_service. Cost leaves CIP for the
-  // category's asset account. Effective period computed, never typed.
-  const capitaliseAsset = useCallback((id, { note, actor } = {}) => {
-    const asset = findAsset(id);
-    if (!asset) return { ok: false, error: "Asset not found." };
-    const guard = capitaliseGuard(asset);
-    if (guard.blocked) return { ok: false, error: guard.reason };
-    const period = firstOpenPeriod(buildSchedule(asset, { closedThrough }), closedThrough);
-    console.assert(period > closedThrough, "capitaliseAsset: period must be strictly after closedThrough");
-    applyBookEvent(asset, {
-      event: "capitalized", period, note, actor,
-      patch: { book_status: "capitalized_not_in_service" },
-      logAction: "Capitalized", logDetail: `Cost moved out of CIP — ${period}`,
-    });
-    return { ok: true };
-  }, [findAsset, closedThrough, applyBookEvent]);
-
-  // → in_service. The one event that takes a real date rather than a computed
-  // period, because the date IS the schedule's start — and it is guarded into
+  // under_construction → in_service. Cost leaves CIP for the category's asset
+  // account, and this is the one event that takes a real date rather than a
+  // computed period, because the date IS the schedule's start — guarded into
   // an open period for exactly that reason.
   const placeInService = useCallback((id, { date, note, actor } = {}) => {
     const asset = findAsset(id);
@@ -346,31 +347,44 @@ export function AssetsProvider({ children }) {
     if (guard.blocked) return { ok: false, error: guard.reason };
     applyBookEvent(asset, {
       event: "placed_in_service", period: targetPeriod, date: serviceDate, note, actor,
+      amounts: { cost: read(asset)?.current_value ?? asset.first_value ?? 0 },
       patch: { book_status: "in_service", service_date: serviceDate },
       logAction: "Placed in service", logDetail: `Schedule starts ${targetPeriod}`,
     });
     return { ok: true };
-  }, [findAsset, closedThrough, applyBookEvent]);
+  }, [findAsset, closedThrough, read, applyBookEvent]);
 
   // in_service → held_for_sale. Reclassified out of PPE; the charge stops and
   // the duration extends by the length of the hold (buildSchedule). This is
   // the ONLY non-terminal stop — "idle" and "under repair" are operational and
   // do nothing, which is what PSAK 16 requires.
-  const holdForSale = useCallback((id, { reason, note, actor } = {}) => {
+  //
+  // Measured at the lower of carrying amount and fair value less costs to sell
+  // (PSAK 58 / IFRS 5): a fair value below carrying books the difference as a
+  // loss; one above it books nothing — a gain waits for the sale.
+  const holdForSale = useCallback((id, { reason, note, actor, fairValue } = {}) => {
     const asset = findAsset(id);
     if (!asset) return { ok: false, error: "Asset not found." };
     const guard = holdForSaleGuard(asset);
     if (guard.blocked) return { ok: false, error: guard.reason };
+    const fv = Number(fairValue);
+    if (fairValue === "" || fairValue == null || !(fv >= 0)) return { ok: false, error: "Enter the fair value less costs to sell." };
+    const sum = read(asset);
+    const cost = sum?.current_value ?? asset.first_value ?? 0;
+    const accumulated = sum?.accumulated || 0;
+    const carrying = cost - accumulated;
+    const held = Math.min(carrying, Math.round(fv));
     const from_period = firstOpenPeriod(buildSchedule(asset, { closedThrough }), closedThrough);
     console.assert(from_period > closedThrough, "holdForSale: from_period must be strictly after closedThrough");
     const holds = [...asset.holds, { from_period, to_period: null, reason: reason || "Other", note: note || "", by: actor || "—" }];
     applyBookEvent(asset, {
       event: "held_for_sale", period: from_period, note: note || reason, actor,
+      amounts: { cost, accumulated, carrying, fair_value: Math.round(fv), held, write_down: carrying - held },
       patch: { book_status: "held_for_sale", holds },
       logAction: "Reclassified — held for sale", logDetail: `${reason || "Other"} — from ${from_period}`,
     });
     return { ok: true };
-  }, [findAsset, closedThrough, applyBookEvent]);
+  }, [findAsset, closedThrough, read, applyBookEvent]);
 
   // held_for_sale → in_service. Closes the open hold at the current close, so
   // charges resume from the next open period — never mid-closed.
@@ -381,8 +395,10 @@ export function AssetsProvider({ children }) {
     if (guard.blocked) return { ok: false, error: guard.reason };
     const holds = asset.holds.map((h, i, arr) => (i === arr.length - 1 && h.to_period == null ? { ...h, to_period: closedThrough } : h));
     const resumesAt = firstOpenPeriod(buildSchedule(asset, { closedThrough }), closedThrough);
+    const lastHold = [...(asset.book_events || [])].reverse().find((e) => e.event === "held_for_sale");
     applyBookEvent(asset, {
       event: "returned_to_service", period: resumesAt, note, actor,
+      ...(lastHold?.amounts ? { amounts: lastHold.amounts } : {}),
       patch: { book_status: "in_service", holds },
       logAction: "Returned to service", logDetail: `Charges resume from ${resumesAt}`,
     });
@@ -439,8 +455,16 @@ export function AssetsProvider({ children }) {
     const targetPeriod = disposalDate.slice(0, 7);
     const guard = disposalGuard(asset, { targetPeriod, closedThrough });
     if (guard.blocked) return { ok: false, error: guard.reason };
+    const sum = read(asset);
+    const lastHold = asset.book_status === "held_for_sale"
+      ? [...(asset.book_events || [])].reverse().find((e) => e.event === "held_for_sale") : null;
+    const cost = sum?.current_value ?? asset.first_value ?? 0;
+    const accumulated = sum?.accumulated || 0;
+    // Out of Held for Sale, what leaves the books is the held amount.
+    const carrying = lastHold?.amounts ? lastHold.amounts.held : cost - accumulated;
     applyBookEvent(asset, {
       event: "disposed", period: targetPeriod, date: disposalDate, note: reason, actor,
+      amounts: { cost, accumulated, carrying, proceeds: proceeds || 0, customer: customer || null, gain_loss: (proceeds || 0) - carrying },
       patch: {
         book_status: "disposed",
         operational_status: null,
@@ -449,7 +473,7 @@ export function AssetsProvider({ children }) {
       logAction: "Disposed", logDetail: `${reason || "Sold"} — ${disposalDate}`,
     });
     return { ok: true };
-  }, [findAsset, closedThrough, applyBookEvent]);
+  }, [findAsset, closedThrough, read, applyBookEvent]);
 
   // Bills history — every AP bill that fed this asset's cost, the original
   // purchase and any later capital additions/improvements (§7.6, PRD's OQ7
@@ -462,24 +486,26 @@ export function AssetsProvider({ children }) {
     return { ok: true };
   }, [findAsset, writeAsset]);
 
-  const assetById = useCallback((id) => assets.find((a) => a.id === id) || null, [assets]);
+  // What screens read: Fully depreciated derived from each schedule.
+  const shown = useMemo(() => assets.map((a) => withDerivedStatus(a, read(a))), [assets, read]);
+  const assetById = useCallback((id) => shown.find((a) => a.id === id) || null, [shown]);
   const versionsOf = useCallback((id) => versions[id] || [], [versions]);
 
   const value = useMemo(() => ({
-    assets, read, addAsset, updateAsset, reviseValue, previewValueRevision,
+    assets: shown, read, addAsset, updateAsset, reviseValue, previewValueRevision,
     setOperationalStatus,
-    capitaliseAsset, placeInService, holdForSale, returnToService,
+    placeInService, holdForSale, returnToService,
     deactivateAsset, reactivateAsset, disposeAsset, addBill,
     assetById, versionsOf, changeLog, closedThrough,
     scheduleLocked: (asset) => scheduleLocked(asset, read(asset)),
     categoryChangeGuard: (asset) => categoryChangeGuard(asset, read(asset)),
     disposalGuard: (asset, opts) => disposalGuard(asset, { ...opts, closedThrough }),
     placeInServiceGuard: (asset, opts) => placeInServiceGuard(asset, { ...opts, closedThrough }),
-    capitaliseGuard, holdForSaleGuard, returnToServiceGuard, reactivateGuard, operationalEditable,
+    holdForSaleGuard, returnToServiceGuard, reactivateGuard, operationalEditable,
     bookStatusTransitions: (asset) => bookStatusTransitions(asset, { closedThrough }),
     deactivateGuard: (asset) => deactivateGuard(asset, read(asset)),
-  }), [assets, read, addAsset, updateAsset, reviseValue, previewValueRevision,
-      setOperationalStatus, capitaliseAsset, placeInService, holdForSale, returnToService,
+  }), [shown, read, addAsset, updateAsset, reviseValue, previewValueRevision,
+      setOperationalStatus, placeInService, holdForSale, returnToService,
       deactivateAsset, reactivateAsset, disposeAsset, addBill,
       assetById, versionsOf, changeLog, closedThrough]);
   return <AssetsContext.Provider value={value}>{children}</AssetsContext.Provider>;

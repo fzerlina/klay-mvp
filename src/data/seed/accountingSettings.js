@@ -30,8 +30,13 @@ export const COSTING_METHOD_LABELS = {
 // matched in bank reconciliation, never paid through Payment. Trade AP (2-1100)
 // is never here: bills already carry it, and listing it would put every bill on
 // the Payment list twice.
+// The DEPRECIATION METHOD a new fixed asset, prepaid or intangible starts on
+// (Settings → Fixed Assets → Preferences). Unlike costing it is only a
+// starting point: method is entered per asset, and each asset can change it
+// until its first period posts. Codes from lib/fixedAssets.js METHOD_LABELS.
 export const ACCOUNTING_SETTINGS = {
   inventory_costing_method: "average_cost",
+  asset_depreciation_method: "straight_line",
   recon_difference_accounts: ["7-1500", "4-2300"],
   reconcilable_accounts: ["2-4400", "2-4500", "2-4600"],
 };

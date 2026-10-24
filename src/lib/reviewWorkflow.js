@@ -14,7 +14,7 @@
 // selector helpers below so the UI can gate the Post action via canPost().
 //
 // Routing (Vina 2026-07-11): exceptions are primarily AP Staff's to fix — they
-// own the bill data. Accounting Manager sees the same items as oversight; the
+// own the bill data. The CFO sees the same items as oversight; the
 // Finance Manager approves and overrides BLOCKING flags. So every flag's
 // ownerRole is "ap_staff" except the structural Period-Locked block (FM).
 
@@ -330,12 +330,12 @@ export function flagSummary(bill, vendorArg, opts) {
 }
 
 // Does this bill belong in a given persona's review queue? AP Staff owns the
-// fixes; Accounting Manager sees the same items as oversight; FM sees the ones
+// fixes; the CFO sees the same items as oversight; FM sees the ones
 // needing approval/override. Used to scope the "My queue" filter.
 export function inQueueFor(roleKey, summary) {
   if (summary.open === 0) return false;
   if (roleKey === "finance_manager") return summary.openBlocking > 0 || summary.openReview > 0;
-  if (roleKey === "accounting_manager") return summary.open > 0;
+  if (roleKey === "cfo") return summary.open > 0;
   // ap_staff (and everyone operational) — the primary fix queue
   return summary.openBlocking > 0 || summary.openReview > 0;
 }

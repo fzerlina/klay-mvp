@@ -36,9 +36,9 @@ export default function RelationshipTierControl({ vendorId, customerId, editable
   const id = customerId || vendorId;
   const getById = isCustomer ? customers.customerById : vendors.vendorById;
   const setTier = isCustomer ? customers.setCustomerTier : vendors.setVendorTier;
-  // Tier-setting is a master-data capability (vendor.classify / customer.classify),
+  // Tier-setting is a master-data capability (ap.vendor.edit / ar.customer.edit),
   // not a generic verb. Callers can force display-only with editable={false}.
-  const canEdit = editable ?? hasCapability(isCustomer ? "customer.classify" : "vendor.classify");
+  const canEdit = editable ?? hasCapability(isCustomer ? "ar.customer.edit" : "ap.vendor.edit");
   const v = getById(id);
   const tier = v?.relationship_tier || "standard";
 

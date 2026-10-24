@@ -5,7 +5,8 @@ import { MODULES, MODULE_VERBS, CAPABILITIES, VERBS, SOD_RULES, sodDecision } fr
 
 export const MODULE_SHORT = {
   gl: "GL", ap: "AP", ar: "AR", purchasing: "Purchasing", inventory: "Inventory",
-  bank: "Bank", reports: "Reports", settings: "Settings",
+  bank: "Bank", masterdata: "Master data", reports: "Reports", settings: "Settings", migration: "Migration",
+  other: "Other",
 };
 
 // Plain-sentence copy for the verbs (the named capabilities carry their own).
@@ -61,13 +62,13 @@ export function diffCaps(before = {}, after = {}) {
 }
 
 // Modules on which holders can be picked as approvers. Payments are their own
-// lifecycle (payment.approve), so they are listed separately.
+// lifecycle (ap.payment.authorize), so they are listed separately.
 export function approverScopes(caps = {}) {
   const out = [];
   for (const s of CAP_SECTIONS) {
     if (hasCap(caps, s.key, "approve") || (hasCap(caps, s.key, "full") && s.verbs.includes("approve"))) out.push(s);
   }
-  if (hasCap(caps, "ap", "payment.approve")) out.push({ key: "payment", label: "Payments", short: "Payments", desc: "Payment requests" });
+  if (hasCap(caps, "ap", "ap.payment.authorize")) out.push({ key: "payment", label: "Payments", short: "Payments", desc: "Payment requests" });
   return out;
 }
 

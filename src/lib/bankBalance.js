@@ -20,7 +20,7 @@
 //
 // Klay's balance is read from the same cash journals reconciliation pairs, not
 // from the GL report: the demo chart carries two codes for some bank accounts
-// (1-1300 and 11110), and a GL figure would disagree with this page until
+// (1-1500 and 11110), and a GL figure would disagree with this page until
 // those are one.
 
 const isLater = (r) => r?.action === "later";

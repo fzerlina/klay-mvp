@@ -231,13 +231,11 @@ export default function VendorsPage() {
   const canCreate = hasLevel("ap", "transact");
   // Onboarding a vendor is a discrete capability (roles.js): AP Staff holds it;
   // Finance Manager is excluded by SoD (create + pay = fake-vendor fraud).
-  const canCreateVendor = hasCapability("vendor.create");
+  const canCreateVendor = hasCapability("ap.vendor.create");
   // Approving a pending vendor (and unblocking a held one) is an approver
-  // control action — SoD-separated from creating it. Prototype stand-in for the
-  // future vendor.confirm / vendor.hold capabilities: gate on ap.post, which
-  // both Finance Manager and Accounting Manager hold (AP Staff / Finance Staff
-  // do not), matching "the managers can approve/unblock."
-  const canApprove = hasCapability("ap.post");
+  // control action — SoD-separated from creating it. Gate on ap.vendor.approve,
+  // which the Finance Manager and CFO hold (AP Staff does not).
+  const canApprove = hasCapability("ap.vendor.approve");
   const { vendors, setVendorStatus, setVendorApproval, submitVendor } = useVendors();
   // AP balance as of vendor (derived from bills)
   const apBalance = useMemo(() => {

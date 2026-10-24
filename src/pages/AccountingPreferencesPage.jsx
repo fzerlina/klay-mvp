@@ -64,6 +64,7 @@ function Section({ id, title, children }) {
 function BasicsSection() {
   const { baseCurrency, fiscalYearStart, setFiscalYearStart, timezone, setTimezone } = useAccountingSettings();
   const { log } = useSettingsAudit();
+  const canEdit = useCurrentUser().hasCapability("settings.entity.manage");
   const created = new Date(COMPANY.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
   return (
     <Section id="basics" title="Basics">
@@ -82,7 +83,7 @@ function BasicsSection() {
             </label>
             <label className="cp-field">
               <span>Fiscal year starts</span>
-              <select value={fiscalYearStart} onChange={(e) => {
+              <select value={fiscalYearStart} disabled={!canEdit} onChange={(e) => {
                 log("General Ledger", "Preferences", `Fiscal year start: ${MONTHS[fiscalYearStart - 1]} → ${MONTHS[Number(e.target.value) - 1]}`);
                 setFiscalYearStart(Number(e.target.value));
               }}>
@@ -92,7 +93,7 @@ function BasicsSection() {
             </label>
             <label className="cp-field">
               <span>Time zone</span>
-              <select value={timezone} onChange={(e) => {
+              <select value={timezone} disabled={!canEdit} onChange={(e) => {
                 log("General Ledger", "Preferences", `Time zone: ${timezone} → ${e.target.value}`);
                 setTimezone(e.target.value);
               }}>
@@ -119,6 +120,7 @@ function cutoffDate(period, day) {
 
 function ClosingSection() {
   const { closeCutoffDay, setCloseCutoffDay } = useAccountingSettings();
+  const canEdit = useCurrentUser().hasCapability("settings.period.lock");
   const { nextOpenPeriod } = useClosePeriod();
   const { log } = useSettingsAudit();
   const pick = (day) => {
@@ -136,7 +138,7 @@ function ClosingSection() {
           <div className="cp-grid ap-basics">
             <label className="cp-field">
               <span>Close by</span>
-              <select value={closeCutoffDay} onChange={(e) => pick(Number(e.target.value))}>
+              <select value={closeCutoffDay} disabled={!canEdit} onChange={(e) => pick(Number(e.target.value))}>
                 {Array.from({ length: 28 }, (_, k) => k + 1).map((d) => (
                   <option key={d} value={d}>{ordinal(d)} of the following month</option>
                 ))}
@@ -161,7 +163,7 @@ function DeleteJournalsSection() {
   const { closedThrough } = useClosePeriod();
   const { user, hasCapability } = useCurrentUser();
   const { log } = useSettingsAudit();
-  const canDeleteHere = hasCapability("coa.manage");
+  const canDeleteHere = hasCapability("gl.je.reverse");
   const [text, setText] = useState("");
   const [checked, setChecked] = useState(null); // [{ number, je, check }]
   const [reason, setReason] = useState("");
@@ -241,7 +243,7 @@ function DeleteJournalsSection() {
               {done && <p className="dj-done">{done}</p>}
             </>
           ) : (
-            <p className="pp-setting-note">Deleting journals needs the <em>Manage Chart of Accounts</em> capability.</p>
+            <p className="pp-setting-note">Deleting journals needs the <em>Reverse journals</em> capability.</p>
           )}
         </div>
       </div>
@@ -267,6 +269,7 @@ function DeleteJournalsSection() {
 function PostingSection() {
   const { closedThrough, nextOpenPeriod, autoAssignLateBills, setAutoAssignLateBills } = useClosePeriod();
   const { log } = useSettingsAudit();
+  const canEdit = useCurrentUser().hasCapability("settings.posting_rules.manage");
   return (
     <Section id="posting" title="Posting">
       <div className="pp-setting-card">
@@ -288,6 +291,7 @@ function PostingSection() {
             role="switch"
             aria-checked={autoAssignLateBills}
             className={`pp-switch${autoAssignLateBills ? " on" : ""}`}
+            disabled={!canEdit}
             onClick={() => {
               log("General Ledger", "Preferences", `Auto-assign late bills to the open period: ${autoAssignLateBills ? "off" : "on"}`);
               setAutoAssignLateBills(!autoAssignLateBills);
@@ -310,6 +314,7 @@ function PostingSection() {
 export function InventorySection() {
   const { inventoryCostingMethod, setInventoryCostingMethod } = useAccountingSettings();
   const { log } = useSettingsAudit();
+  const canEdit = useCurrentUser().hasCapability("settings.posting_rules.manage");
   return (
     <Section id="inventory" title="Inventory">
       <div className="pp-setting-card">
@@ -327,6 +332,7 @@ export function InventorySection() {
                 key={o.k}
                 type="button"
                 className={`is-option${selected ? " selected" : ""}`}
+                disabled={!canEdit}
                 onClick={() => {
                   if (o.k === inventoryCostingMethod) return;
                   log("Inventory", "Costing", `Costing method: ${COSTING_OPTIONS.find((x) => x.k === inventoryCostingMethod)?.title} → ${o.title}`);
@@ -355,10 +361,75 @@ export function InventorySection() {
   );
 }
 
+// Shown on Settings → Fixed Assets → Preferences. Not offered: "None", which
+// is a per-asset choice (goodwill), never a company default.
+const DEPRECIATION_OPTIONS = [
+  {
+    k: "straight_line",
+    title: "Straight line",
+    desc: "The same charge every period across the asset's duration, down to its salvage value.",
+  },
+  {
+    k: "declining_balance",
+    title: "Declining balance",
+    desc: "A fixed rate of the remaining book value each period — larger charges early, smaller later. Each asset needs its rate.",
+  },
+];
+
+export function FixedAssetPreferencesSection() {
+  const { assetDepreciationMethod: method, setAssetDepreciationMethod: setMethod } = useAccountingSettings();
+  const { log } = useSettingsAudit();
+  const canEdit = useCurrentUser().hasCapability("settings.posting_rules.manage");
+  return (
+    <Section id="fixed-assets" title="New assets">
+      <div className="pp-setting-card">
+        <div className="pp-setting-pad">
+        <div className="pp-setting-title">Depreciation method</div>
+        <p className="pp-setting-desc">
+          The method every new asset, prepaid and intangible starts on. Each asset can still change it until its
+          first period posts.
+        </p>
+        <div className="is-options">
+          {DEPRECIATION_OPTIONS.map((o) => {
+            const selected = method === o.k;
+            return (
+              <button
+                key={o.k}
+                type="button"
+                className={`is-option${selected ? " selected" : ""}`}
+                disabled={!canEdit}
+                onClick={() => {
+                  if (o.k === method) return;
+                  log("Fixed Assets", "Preferences", `Depreciation method: ${DEPRECIATION_OPTIONS.find((x) => x.k === method)?.title} → ${o.title}`);
+                  setMethod(o.k);
+                }}
+              >
+                <span className="is-option-radio" aria-hidden />
+                <span className="is-option-body">
+                  <span className="is-option-title">
+                    {o.title}
+                    {selected && <span className="is-current">Current</span>}
+                  </span>
+                  <span className="is-option-desc">{o.desc}</span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <p className="pp-setting-note">
+          A change applies to assets added from then on. Assets already in the register keep the method they have.
+        </p>
+        </div>
+      </div>
+    </Section>
+  );
+}
+
 // Shown on Settings → Reconciliation.
 export function ReconciliationSection() {
   const { reconDifferenceAccounts: codes, setReconDifferenceAccounts: setCodes } = useAccountingSettings();
   const { log } = useSettingsAudit();
+  const canEdit = useCurrentUser().hasCapability("settings.posting_rules.manage");
   const [adding, setAdding] = useState("");
   const available = RECON_ELIGIBLE.filter((a) => !codes.includes(a.code));
   const add = (code) => {
@@ -395,7 +466,7 @@ export function ReconciliationSection() {
               <div key={code} className="brs-row">
                 <span className="brs-code">{code}</span>
                 <span className="brs-name">{accountOf(code)?.name || "Unknown account"}</span>
-                <button type="button" className="brs-remove" onClick={() => remove(code)} aria-label={`Remove ${code}`}>
+                <button type="button" className="brs-remove" disabled={!canEdit} onClick={() => remove(code)} aria-label={`Remove ${code}`}>
                   <svg viewBox="0 0 12 12"><line x1="2" y1="2" x2="10" y2="10" /><line x1="10" y1="2" x2="2" y2="10" /></svg>
                 </button>
               </div>
@@ -403,7 +474,7 @@ export function ReconciliationSection() {
           )}
         </div>
         <div className="brs-add">
-          <select className="brs-select" value={adding} onChange={(e) => add(e.target.value)} aria-label="Add an account">
+          <select className="brs-select" value={adding} disabled={!canEdit} onChange={(e) => add(e.target.value)} aria-label="Add an account">
             <option value="">Add an account…</option>
             {available.map((a) => (
               <option key={a.code} value={a.code}>{a.code} · {a.name}</option>

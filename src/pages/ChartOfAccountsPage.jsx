@@ -107,7 +107,7 @@ export default function ChartOfAccountsPage() {
   const { entries } = useJournalEntries();
   const { hasCapability } = useCurrentUser();
   const { log } = useSettingsAudit();
-  const canEdit = hasCapability("coa.manage");
+  const canEdit = hasCapability("settings.coa.manage");
 
   const byId = useMemo(() => Object.fromEntries(COA.map((n) => [n.id, n])), []);
   const accounts = useMemo(() => COA.filter((n) => n.code), []);

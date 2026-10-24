@@ -1,10 +1,5 @@
 /* ── BANK ACCOUNTS — SETTINGS PAGE ──────────────────────────────────── */
 
-/* 3-column KPI strip variant (Invoices uses kpi-5; we use 3) */
-.lg-kpi-strip.kpi-3{grid-template-columns:1fr 1fr 1fr}
-.lg-kpi-strip.kpi-3 .lg-kpi-cell{padding:14px 18px}
-.lg-kpi-strip.kpi-3 .lg-kpi-val{font-size:22px}
-
 /* Settings sub-text rendered as the page intro under the title */
 .bank-accounts-page .settings-sub{margin-top:4px;max-width:680px}
 

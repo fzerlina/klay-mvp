@@ -55,7 +55,7 @@ export const PPH_LABELS = {
 // Kept here so the vendor dropdown stays a fixed shortlist; pages render
 // arbitrary account labels via COA_BY_CODE lookup.
 export const ACCT_LABELS = {
-  '1-3100': '1-3100 · Raw Materials',
+  '1-1300': '1-1300 · Raw Materials',
   '6-2300': '6-2300 · Office Rent',
   '6-2700': '6-2700 · Professional Services',
   '1-6300': '1-6300 · Office Equipment',

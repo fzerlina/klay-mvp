@@ -148,7 +148,7 @@ export function requiredApprovals(payment = {}, policy = defaultPolicy()) {
 // Who may approve, and up to how much. A band sets HOW MANY signatures; a
 // seat's limit sets WHOSE signature counts. Both are needed: two approvals
 // from two people who each top out at Rp 100 jt do not authorise Rp 2 miliar.
-const roleHasApprove = (roleKey) => (ROLE_CAPS[roleKey]?.ap || []).includes("payment.approve");
+const roleHasApprove = (roleKey) => (ROLE_CAPS[roleKey]?.ap || []).includes("ap.payment.authorize");
 
 export function approverSeats() {
   return USERS

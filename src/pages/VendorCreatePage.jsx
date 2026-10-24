@@ -86,14 +86,14 @@ export default function VendorCreatePage() {
   const { user, hasCapability } = useCurrentUser();
 
   // Capabilities (source of truth = roles.js). vendor.create → AP Staff.
-  const canCreateVendor = hasCapability("vendor.create");
+  const canCreateVendor = hasCapability("ap.vendor.create");
   // Entering the vendor bank/payee is open to staff (vendor.edit_bank) — the new
   // vendor lands Pending approval, so a manager confirms the payee before it can
   // post or pay. The approval flow is the control, not the create-time gate.
-  const canBank = hasCapability("vendor.edit_bank");
-  // Relationship tier is a vendor-master classification (vendor.classify) —
+  const canBank = hasCapability("ap.vendor.edit_bank");
+  // Relationship tier is a vendor-master classification (ap.vendor.edit) —
   // AP Staff (the creator) holds it, so it can be set at onboarding.
-  const canClassify = hasCapability("vendor.classify");
+  const canClassify = hasCapability("ap.vendor.edit");
 
   const [code, setCode] = useState("");
   const [category, setCategory] = useState("");
@@ -514,7 +514,7 @@ export default function VendorCreatePage() {
             </div>
           </div>
 
-          {/* 7 — Relationship tier (vendor.classify) */}
+          {/* 7 — Relationship tier (ap.vendor.edit) */}
           {canClassify && (
             <div className="form-sec card">
               <div className="form-sec-title">Relationship tier</div>

@@ -14,11 +14,11 @@
 export const OPENING_BALANCES = [
   // Debits — assets at opening
   { account_code: "1-1100", debit:  25000000, credit: 0 },         // Cash on Hand
-  { account_code: "1-1300", debit: 425000000, credit: 0 },         // Bank — BCA Operating
+  { account_code: "1-1500", debit: 425000000, credit: 0 },         // Bank — BCA Operating
   { account_code: "1-1400", debit: 200000000, credit: 0 },         // Bank — Mandiri Operating
   { account_code: "1-2300", debit:  95000000, credit: 0 },         // Other Receivables (carry-over; see note above)
-  { account_code: "1-3100", debit:  85000000, credit: 0 },         // Raw Materials
-  { account_code: "1-3300", debit:  95000000, credit: 0 },         // Finished Goods
+  { account_code: "1-1300", debit:  85000000, credit: 0 },         // Raw Materials
+  { account_code: "1-1310", debit:  95000000, credit: 0 },         // Finished Goods
   { account_code: "1-6300", debit:  65000000, credit: 0 },         // Office Equipment
   { account_code: "1-6400", debit: 285000000, credit: 0 },         // Vehicles
   { account_code: "1-6310", debit: 0,         credit:  18000000 }, // AccDep — Office Equipment (contra)

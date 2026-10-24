@@ -12,7 +12,7 @@
 //
 // Nothing here posts on its own.
 //
-// The account mapping (Settings → Accounting → Default accounts; codes below
+// The account mapping (seed/defaultAccounts.js; codes below
 // are the seeded defaults):
 //
 //   Bank fee        Dr 72050 Other Non-Operating Expenses

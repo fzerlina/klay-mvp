@@ -24,7 +24,7 @@ export const REQ_META = {
 };
 
 // Role → the stage that persona works. Capabilities come from roles.js:
-// AP Staff request, Finance Manager approves, Finance Staff executes.
+// AP Staff request, Finance Manager authorizes, CFO records the payment.
 export const PAYMENT_ROLES = {
   request: {
     stage: "request",
@@ -54,10 +54,13 @@ export const PAYMENT_ROLES = {
 // The stage a persona works. Only one, so nobody sees two sides of the same
 // gate — approving and executing your own request is the thing the gate exists
 // to prevent.
+//   approve — ap.payment.authorize (Finance Manager)
+//   execute — ap.post without authorize (CFO records the payment)
+//   request — ap.transact (AP Staff)
 export function payModeFor(hasCapability) {
-  if (hasCapability("payment.approve")) return "approve";
-  if (hasCapability("payment.request")) return "request";
-  if (hasCapability("payment.execute")) return "execute";
+  if (hasCapability("ap.payment.authorize")) return "approve";
+  if (hasCapability("ap.post")) return "execute";
+  if (hasCapability("ap.transact")) return "request";
   return "view";
 }
 

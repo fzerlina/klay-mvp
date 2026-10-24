@@ -29,20 +29,12 @@ export const DEFAULT_TERM = "NET 30";
 // Vendor categories (the vendor form's Category). The default account pre-fills
 // a new vendor's default expense account.
 export const VENDOR_CATEGORIES = [
-  { key: "inventory", label: "Inventory", description: "Goods for resale or production", defaultAccount: "1-3100" },
+  { key: "inventory", label: "Inventory", description: "Goods for resale or production", defaultAccount: "1-1300" },
   { key: "expense", label: "Expense", description: "Operating costs: rent, utilities, supplies", defaultAccount: null },
   { key: "service", label: "Service", description: "Professional and outsourced services", defaultAccount: "6-2700" },
 ];
 
 export const PAYMENT_METHOD_SETTINGS = PAYMENT_METHODS.map((m) => ({ ...m, active: true }));
-
-// Invoice numbering and defaults (invoice creation ships Dec 2026).
-export const INVOICE_SETTINGS = {
-  numberFormat: "INV-{YYYY}-{####}",
-  nextNumber: 1,
-  defaultTerm: DEFAULT_TERM,
-  footerNote: "Please transfer to the account above and quote the invoice number.",
-};
 
 // ── Inventory ───────────────────────────────────────────────────────────
 // Units an item may be stocked in, with their default conversion.
@@ -55,35 +47,26 @@ export const UNITS = PRIMARY_UNITS.map((u) => ({
   precision: UNIT_DEFAULTS[u].precision,
 }));
 
-// Sites and locations, with the naming promised to GKB (15 Oct 2026):
-// Site = the broader place (city, area, project); Location = a specific spot
-// within it (was "Warehouse"). Location names match the stock seed.
-export const SITES = [
-  { id: "S01", name: "Jakarta — Head Office", address: "Jl. Jend. Sudirman, Jakarta Selatan", locations: ["Jakarta Warehouse", "Head Office"] },
-  { id: "S02", name: "Surabaya", address: "Rungkut Industri, Surabaya", locations: ["Surabaya Warehouse"] },
-  { id: "S03", name: "Bandung", address: "Soekarno-Hatta, Bandung", locations: ["Bandung Warehouse"] },
+// Locations, as a tree: a top-level place (city, area, project) and the spots
+// inside it, each node holding its own `children`. Two levels today
+// (LOCATION_LEVELS, components/LocationCards.jsx); deeper levels need no new
+// shape. The levels are Location (the broader place) and Sub-location (a
+// specific spot within it, was "Warehouse"). That replaces the Site / Location
+// naming promised to GKB on 15 Oct 2026, by decision on 21 Oct 2026.
+// Sub-location names match the stock seed.
+export const LOCATIONS = [
+  { id: "L01", name: "Jakarta", address: "Jl. Jend. Sudirman, Jakarta Selatan", children: [
+    { id: "L01-1", name: "Benhil", children: [] },
+    { id: "L01-2", name: "Jakarta Warehouse", children: [] },
+    { id: "L01-3", name: "Head Office", children: [] },
+  ] },
+  { id: "L02", name: "Surabaya", address: "Rungkut Industri, Surabaya", children: [
+    { id: "L02-1", name: "Surabaya Warehouse", children: [] },
+  ] },
+  { id: "L03", name: "Bandung", address: "Soekarno-Hatta, Bandung", children: [
+    { id: "L03-1", name: "Bandung Warehouse", children: [] },
+  ] },
 ];
-
-// ── Fixed assets ────────────────────────────────────────────────────────
-// Defaults a new asset of each category starts from. Useful lives follow the
-// Indonesian tax asset groups (Kelompok 1–4, permanent / non-permanent
-// buildings), since GKB depreciates on the tax basis; a company can change
-// them. Prepaid categories release over their contract term.
-export const ASSET_CATEGORY_DEFAULTS = {
-  building:              { method: "straight_line", lifeMonths: 240, taxGroup: "Bangunan permanen" },
-  building_services:     { method: "straight_line", lifeMonths: 120, taxGroup: "Bangunan tidak permanen" },
-  machinery:             { method: "straight_line", lifeMonths: 96,  taxGroup: "Kelompok 2" },
-  vehicle:               { method: "straight_line", lifeMonths: 96,  taxGroup: "Kelompok 2" },
-  office_equipment:      { method: "straight_line", lifeMonths: 48,  taxGroup: "Kelompok 1" },
-  furniture:             { method: "straight_line", lifeMonths: 48,  taxGroup: "Kelompok 1" },
-  software_license:      { method: "straight_line", lifeMonths: 48,  taxGroup: "Kelompok 1" },
-  trademark:             { method: "straight_line", lifeMonths: 120, taxGroup: null },
-  goodwill:              { method: "none",          lifeMonths: null, taxGroup: null },
-  insurance:             { method: "straight_line", lifeMonths: 12,  taxGroup: null },
-  software_subscription: { method: "straight_line", lifeMonths: 12,  taxGroup: null },
-  rent_advance:          { method: "straight_line", lifeMonths: 12,  taxGroup: null },
-};
-export const TAX_GROUPS = ["Kelompok 1", "Kelompok 2", "Kelompok 3", "Kelompok 4", "Bangunan permanen", "Bangunan tidak permanen"];
 
 // ── Reconciliation ──────────────────────────────────────────────────────
 // Largest gap To match treats as a bank fee rather than a mismatch.

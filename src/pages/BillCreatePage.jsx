@@ -20,8 +20,10 @@ import "./bill-detail.css";
 // the bills seed actually uses, so the Tier 1/2 suggestion engine never
 // surfaces an account that isn't in the dropdown.
 const EXPENSE_ACCOUNTS = [
-  { code: "1-3100", name: "Raw Materials" },
-  { code: "1-3300", name: "Finished Goods" },
+  { code: "1-1300", name: "Raw Materials" },
+  { code: "1-1310", name: "Finished Goods" },
+  { code: "1-1320", name: "Supplies Inventory" },
+  { code: "1-1330", name: "Packaging Inventory" },
   { code: "1-6300", name: "Office Equipment" },
   { code: "6-4000", name: "Miscellaneous Office Expense" },
   { code: "6-1200", name: "Marketing & Advertising" },
@@ -47,7 +49,7 @@ const ACCOUNT_NAME_BY_CODE = Object.fromEntries(EXPENSE_ACCOUNTS.map((a) => [a.c
 const DESCRIPTION_RULES = [
   { match: ["konsultasi", "konsultan", "audit", "jasa hukum", "legal", "strategis"],                acct: "6-2700" },
   { match: ["sewa", "rent", "ruang kantor", "biaya sewa"],                                          acct: "6-2300" },
-  { match: ["panel", "lcd", "monitor 27", "komponen elektronik", "bahan baku", "kayu", "tekstil"],  acct: "1-3100" },
+  { match: ["panel", "lcd", "monitor 27", "komponen elektronik", "bahan baku", "kayu", "tekstil"],  acct: "1-1300" },
   { match: ["meja", "kursi", "furnitur", "furniture", "printer", "scanner", "komputer", "peripheral", "ac ", "pendingin", "telepon"], acct: "1-6300" },
   { match: ["logistik", "kirim", "ekspedisi", "pengiriman", "courier", "postage", "paket"],         acct: "6-3100" },
   { match: ["iklan", "marketing", "endorsement", "brosur", "banner", "event"],                       acct: "6-1200" },
@@ -58,7 +60,7 @@ const DESCRIPTION_RULES = [
 ];
 
 const CATEGORY_RANGES = {
-  inventory: { codes: ["1-3100", "1-3300", "1-6300"],            label: "1-3xxx to 1-6xxx (inventory & assets)" },
+  inventory: { codes: ["1-1300", "1-1310", "1-1320", "1-1330", "1-6300"], label: "1-13xx to 1-6xxx (inventory & assets)" },
   service:   { codes: ["6-2700", "6-3100", "6-1200"],            label: "6-1xxx to 6-3xxx (service expenses)" },
   expense:   { codes: ["6-2300", "6-2400", "6-2500", "6-2600", "6-3200"], label: "6-2xxx to 6-3xxx (operating expenses)" },
 };
@@ -479,7 +481,7 @@ export default function BillCreatePage() {
   const { vendorCategories } = useModuleSettings();
   // Where a line starts when the vendor has no history: its category's default
   // account (Settings → Payables → Vendor categories), else the company's
-  // (Settings → Accounting → Default accounts).
+  // (seed/defaultAccounts.js).
   const fallbackAcct = vendorCategories.find((c) => c.key === vendor?.category)?.defaultAccount || DEFAULT_ACCOUNTS.billExpense;
   // The picker offers the curated list plus the fallback, wherever Settings put it.
   const pickerAccounts = useMemo(() => (
@@ -564,7 +566,7 @@ export default function BillCreatePage() {
     setDue("2025-05-15");
     setDescription("Pengadaan komponen elektronik Q2 — sesuai PO.");
     setItems([
-      { desc: "Komponen Elektronik - Panel LCD 24 inch", qty: 50, price: 20000000, acct: "1-3100" },
+      { desc: "Komponen Elektronik - Panel LCD 24 inch", qty: 50, price: 20000000, acct: "1-1300" },
     ]);
     setEntryMode("detailed");           // OCR extracted a line item
     setPphChoice("none");

@@ -248,11 +248,11 @@ export default function CustomersPage() {
   const { hasLevel, hasCapability } = useCurrentUser();
   const canCreate = hasLevel("ar", "transact");
   // Onboarding a customer is a discrete capability (roles.js): AR Staff holds it.
-  const canCreateCustomer = hasCapability("customer.create");
+  const canCreateCustomer = hasCapability("ar.customer.create");
   // Approving a pending customer, placing/releasing a credit hold is an approver
-  // control action — SoD-separated from creating it. Gate on ar.post, which the
-  // Finance Manager and Accounting Manager hold (AR Staff / Finance Staff do not).
-  const canApprove = hasCapability("ar.post");
+  // control action — SoD-separated from creating it. Gate on ar.customer.approve,
+  // which the Finance Manager and CFO hold (AR Staff does not).
+  const canApprove = hasCapability("ar.customer.approve");
   const { customers, setCustomerStatus, setCustomerApproval, submitCustomer, setCustomerHold } = useCustomers();
 
   const [search, setSearch] = useState("");

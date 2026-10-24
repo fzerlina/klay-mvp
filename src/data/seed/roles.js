@@ -1,40 +1,47 @@
 // Roles, capability catalog, capability-level Segregation-of-Duties rules,
 // record-scope types, and sample users.
 //
-// Sourced from the Role & Permission Engine PRD (V1, June 2026). Prototype data
-// — no backend. The engine models CAPABILITIES: discrete verbs per module, held
-// in ANY combination — NOT a cumulative ladder. An approver is not automatically
-// a poster; a poster is not automatically an approver (PRD §4.1). A role is a
-// named bundle of (module, capability) grants. The old ordinal PERMISSION_MATRIX
-// is now DERIVED from capabilities as a back-compat shim (see legacyLevel) so the
-// pages that still ask hasLevel()/level() keep working while capabilities are the
-// source of truth.
+// The capability catalog and the role grants follow the backend's role
+// catalog (Oct 2026): every capability id is canonical "<module>.<capability>"
+// (ap.vendor.create, settings.coa.manage, gl.je.reverse…), and each role holds
+// exactly the backend's list — plus the GAP FILLS marked below: capabilities
+// the prototype gates screens on that no backend role holds yet, given to the
+// closest role so every screen still has someone who can use it. Prototype
+// data — no backend.
+//
+// Capabilities are discrete grants held in ANY combination — NOT a cumulative
+// ladder. An approver is not automatically a poster; a poster is not
+// automatically an approver. A role is a named bundle of (module, capability)
+// grants. The old ordinal PERMISSION_MATRIX is DERIVED from capabilities as a
+// back-compat shim (see legacyLevel) so pages that still ask hasLevel()/level()
+// keep working.
 
 // ── Modules ──────────────────────────────────────────────────────────────
-// PRD module ENUM: gl · ap · ar · purchasing · inventory · bank · reports ·
-// settings · migration. `migration` is KLAY-internal (IA migration tooling) —
-// flagged so the customer-facing role UI can skip it.
+// `internal` modules are Klay's own (back office) — the customer-facing role UI
+// skips them.
 export const MODULES = [
   { key: "gl", label: "General Ledger", desc: "Journals, ledger, trial balance" },
-  { key: "ap", label: "Accounts Payable", desc: "Bills, payment vouchers, vendors" },
+  { key: "ap", label: "Accounts Payable", desc: "Bills, payments, vendors" },
   { key: "ar", label: "Accounts Receivable", desc: "Invoices, cash receipts, customers" },
   { key: "purchasing", label: "Purchasing", desc: "Purchase orders & procurement" },
   { key: "inventory", label: "Inventory", desc: "Stock, goods receipts, adjustments" },
-  { key: "bank", label: "Bank", desc: "Bank statements & reconciliation" },
+  { key: "bank", label: "Bank", desc: "Bank accounts, statements & reconciliation" },
+  { key: "masterdata", label: "Master data", desc: "Counterparties, products, warehouses, fixed assets, opening stock" },
   { key: "reports", label: "Reports", desc: "Financial reports & analytics" },
-  { key: "settings", label: "Settings", desc: "System & user configuration" },
-  { key: "migration", label: "Migration", desc: "Data onboarding", internal: true },
+  { key: "settings", label: "Settings", desc: "Company, users, roles and accounting configuration" },
+  { key: "migration", label: "Migration", desc: "Data onboarding — upload, mapping, UAT, sign-off" },
+  { key: "other", label: "Other", desc: "Audit trail configuration and the user directory" },
+  { key: "bo", label: "Back office", desc: "Klay's own entity and provisioning tools", internal: true },
 ];
 
-// ── Capability catalog (PRD §4.1) ──────────────────────────────────────────
-// Transaction VERBS (per module, any combination) + named master-data /
-// reconciliation / configuration capabilities. `full` is the settings/reports
-// "everything" grant and, on a financial module, expands to every verb.
+// ── Capability catalog ─────────────────────────────────────────────────────
+// Transaction VERBS (per module, any combination) + named capabilities. `full`
+// is the reports "everything" grant and, on a financial module, expands to
+// every verb.
 export const VERBS = ["view", "transact", "approve", "post", "full"];
 
-// Which verbs the role editor offers per module — the ones the app actually
-// gates on. Settings is named-capability only; Bank's real power is the named
-// bank.reconcile. Named capabilities attach to their `home` module below.
+// Which verbs the role editor offers per module. Named capabilities attach to
+// their `home` module below.
 export const MODULE_VERBS = {
   gl: ["view", "transact", "approve", "post"],
   ap: ["view", "transact", "approve", "post"],
@@ -42,10 +49,15 @@ export const MODULE_VERBS = {
   purchasing: ["view", "transact", "approve"],
   inventory: ["view", "transact"],
   bank: ["view"],
+  masterdata: [],
   reports: ["view", "full"],
   settings: [],
-  migration: [],
+  migration: ["view"],
+  other: [],
+  bo: [],
 };
+
+const named = (home, label, desc, extra = {}) => ({ label, kind: "named", home, desc, ...extra });
 
 export const CAPABILITIES = {
   // Verbs
@@ -54,119 +66,295 @@ export const CAPABILITIES = {
   approve: { label: "Approve", kind: "verb", desc: "Approve items routed to the approval pool" },
   post: { label: "Post", kind: "verb", desc: "Commit to the ledger (final; correctable only by a compensating entry)" },
   full: { label: "Full", kind: "verb", desc: "All verbs in the module, including configuration" },
-  // Master-data & reconciliation (first-class — the SoD matrix points at these)
-  "vendor.create": { label: "Create vendors", kind: "named", home: "ap", desc: "Onboard vendor master records" },
-  "customer.create": { label: "Create customers", kind: "named", home: "ar", desc: "Onboard customer master records" },
-  "vendor.classify": { label: "Classify vendors", kind: "named", home: "ap", desc: "Set a vendor's relationship tier (strategic / standard / at-risk)" },
-  "vendor.edit_bank": { label: "Change vendor bank/payee", kind: "named", home: "ap", desc: "Propose a change to a vendor's bank/payee details. Safe for staff to hold — the change always routes for approval (proposer ≠ approver)." },
-  "customer.classify": { label: "Classify customers", kind: "named", home: "ar", desc: "Set a customer's relationship tier (strategic / standard / at-risk)" },
-  // Payment lifecycle (AP Aging) — request → approve → execute, one per role
-  "payment.request": { label: "Request payment", kind: "named", home: "ap", desc: "Request payment for a posted bill (AP Staff)" },
-  "payment.approve": { label: "Approve payment", kind: "named", home: "ap", desc: "Approve a payment request (Finance Manager)" },
-  "payment.execute": { label: "Execute payment", kind: "named", home: "ap", desc: "Execute the transfer off-system and mark the bill paid; upload the bank statement (Finance Staff)" },
-  "bank.reconcile": { label: "Reconcile bank", kind: "named", home: "bank", noDefaultHome: true, desc: "Reconcile bank statements against the ledger, and post the journals reconciliation writes (bank charges, interest, differences, quick drafts)." }, // granted deliberately — see NOTE below
-  // Named settings / configuration capabilities (split so each grants independently)
-  "coa.manage": { label: "Manage Chart of Accounts", kind: "named", home: "settings", desc: "Edit the Chart of Accounts (high-sensitivity changes route through approval)" },
-  "dimensions.manage": { label: "Manage dimensions", kind: "named", home: "settings", desc: "Edit dimensions (branch, cost center, project)" },
-  "posting_rules.manage": { label: "Manage posting rules", kind: "named", home: "settings", desc: "Edit posting rules and vendor overrides" },
-  "period.lock": { label: "Lock period", kind: "named", home: "settings", desc: "Declare an accounting period closed" },
-  "period.reopen": { label: "Reopen period", kind: "named", home: "settings", desc: "Reopen a closed period (a control point — routes through approval)" },
-  "users.manage": { label: "Manage users", kind: "named", home: "settings", desc: "Invite, deactivate, assign roles to users" },
-  "roles.manage": { label: "Manage roles", kind: "named", home: "settings", desc: "Define and edit roles" },
-  "scope.assign": { label: "Assign scope", kind: "named", home: "settings", desc: "Assign record scope to a user" },
-  // Forbidden single-capability — never grantable to any role (PRD §8.2 #4)
+
+  // General Ledger
+  "gl.je.reverse": named("gl", "Reverse journals", "Reverse a posted journal entry, and delete posted journals where Klay has turned deletion on."),
+  "gl.posting.dry_run": named("gl", "Preview postings", "Run a posting as a dry run to see the journal it would write."),
+  "gl.recommendations.dismiss": named("gl", "Dismiss recommendations", "Dismiss Klay's suggestions and insights."),
+
+  // Accounts Payable
+  "ap.reverse": named("ap", "Reverse bills", "Reverse a posted bill with a compensating entry."),
+  "ap.vendor.create": named("ap", "Create vendors", "Onboard vendor master records."),
+  "ap.vendor.edit": named("ap", "Edit vendors", "Change vendor details, including the relationship tier."),
+  "ap.vendor.edit_bank": named("ap", "Change vendor bank/payee", "Propose a change to a vendor's bank or payee details. Safe for staff to hold — the change always routes for approval."),
+  "ap.vendor.approve": named("ap", "Approve vendors", "Confirm a new or changed vendor so it can be posted to and paid."),
+  "ap.payment.authorize": named("ap", "Authorize payments", "Approve a payment request before the money leaves."),
+  "ap.payment.void": named("ap", "Void payments", "Void a recorded payment."),
+  "ap.credit_note.transact": named("ap", "Vendor credit notes", "Record credit notes from vendors."),
+
+  // Accounts Receivable
+  "ar.customer.create": named("ar", "Create customers", "Onboard customer master records."),
+  "ar.customer.edit": named("ar", "Edit customers", "Change customer details, including the relationship tier."),
+  "ar.customer.edit_bank": named("ar", "Change customer bank", "Change a customer's bank details."),
+  "ar.customer.approve": named("ar", "Approve customers", "Confirm a new or changed customer so it can be posted to."),
+  "ar.write_off": named("ar", "Write off receivables", "Write off a customer balance as uncollectible."),
+
+  // Inventory
+  "inventory.adjust": named("inventory", "Adjust stock", "Record stock count increases and decreases."),
+
+  // Bank
+  "bank.account.create": named("bank", "Add bank accounts", "Add a company bank account in Settings."),
+  "bank.account.manage": named("bank", "Manage bank accounts", "Edit a company bank account and its GL link."),
+  "bank.account.delete": named("bank", "Archive bank accounts", "Archive a company bank account."),
+  "bank.statement.import": named("bank", "Import statements", "Upload bank statements."),
+  "bank.reconcile": named("bank", "Reconcile bank", "Reconcile bank statements against the ledger, and post the journals reconciliation writes (bank charges, interest, differences, quick drafts)."),
+
+  // Master data
+  "masterdata.counterparty.manage": named("masterdata", "Manage counterparty lists", "Payment terms, vendor categories and payment methods."),
+  "masterdata.counterparty.delete": named("masterdata", "Delete counterparty list items", "Remove payment terms, vendor categories and payment methods."),
+  "masterdata.product.manage": named("masterdata", "Manage products", "Item categories and units of measure."),
+  "masterdata.product.delete": named("masterdata", "Delete products", "Remove item categories and units."),
+  "masterdata.warehouse.manage": named("masterdata", "Manage warehouses", "Locations and sub-locations."),
+  "masterdata.warehouse.delete": named("masterdata", "Delete warehouses", "Remove locations and sub-locations."),
+  "masterdata.fixed_asset.create": named("masterdata", "Create fixed assets", "Register new fixed assets."),
+  "masterdata.fixed_asset.manage": named("masterdata", "Manage fixed assets", "Asset categories and their accounts."),
+  "masterdata.fixed_asset.delete": named("masterdata", "Delete fixed assets", "Remove asset categories and assets."),
+  "masterdata.inventory_ob.manage": named("masterdata", "Manage opening stock", "Enter opening inventory balances."),
+  "masterdata.inventory_ob.delete": named("masterdata", "Delete opening stock", "Remove opening inventory balances."),
+
+  // Reports
+  "reports.export": named("reports", "Export reports", "Download reports as CSV or PDF."),
+
+  // Settings
+  "settings.entity.view": named("settings", "View company", "See the company profile."),
+  "settings.entity.manage": named("settings", "Manage company", "Edit the company profile, logo and accounting basics."),
+  "settings.users.view": named("settings", "View users", "See who has access and their roles."),
+  "settings.users.manage": named("settings", "Manage users", "Invite, deactivate, and assign roles to users."),
+  "settings.users.limits.manage": named("settings", "Manage approval limits", "Set the payment approval workflow and each approver's ceiling."),
+  "settings.roles.manage": named("settings", "Manage roles", "Define and edit roles."),
+  "settings.scope.assign": named("settings", "Assign scope", "Assign record scope to a user."),
+  "settings.sod.mode": named("settings", "Set SoD mode", "Choose whether segregation of duties is Enforced or Relaxed."),
+  "settings.access.override.grant": named("settings", "Grant access overrides", "Give a user temporary access outside their roles."),
+  "settings.coa.create": named("settings", "Create accounts", "Add accounts to the Chart of Accounts."),
+  "settings.coa.manage": named("settings", "Manage Chart of Accounts", "Rename accounts and choose which settle through Payment."),
+  "settings.coa.code.unlock": named("settings", "Unlock account codes", "Change the code of a locked tax or control account."),
+  "settings.dimensions.manage": named("settings", "Manage dimensions", "Add dimensions and values; rename those no journal uses yet."),
+  "settings.dimensions.delete": named("settings", "Delete dimensions", "Delete a dimension no posted journal uses."),
+  "settings.dimensions.values.delete": named("settings", "Delete dimension values", "Remove a value no posted journal uses."),
+  "settings.fx.manage": named("settings", "Manage FX rates", "Enter and edit exchange rates."),
+  "settings.fx.delete": named("settings", "Delete FX rates", "Remove exchange rates."),
+  "settings.fx.currency.manage": named("settings", "Manage currencies", "Add and switch on currencies."),
+  "settings.posting_rules.manage": named("settings", "Manage posting rules", "Stock movement and book status accounts, journal templates, posting preferences and reconciliation tolerances."),
+  "settings.tax.manage": named("settings", "Manage tax codes", "Add tax codes and change their rate and what they apply to."),
+  "settings.period.lock": named("settings", "Lock period", "Declare an accounting period closed, and set the monthly closing cut-off."),
+  "settings.period.reopen": named("settings", "Reopen period", "Reopen a closed period (a control point — routes through approval)."),
+  "settings.autoclear.toggle": named("settings", "Toggle auto-clear", "Turn automatic clearing on or off."),
+
+  // Migration
+  "migration.execute": named("migration", "Run migration", "Run the data migration."),
+  "migration.file.upload": named("migration", "Upload files", "Upload migration data files."),
+  "migration.file.confirm": named("migration", "Confirm files", "Confirm uploaded migration files."),
+  "migration.mapping.map": named("migration", "Map accounts", "Map the old chart of accounts to the new one."),
+  "migration.stage.lock": named("migration", "Lock stages", "Lock a migration stage once it's done."),
+  "migration.signoff.prepare": named("migration", "Prepare sign-off", "Prepare the migration sign-off."),
+  "migration.signoff.view": named("migration", "View sign-off", "See the migration sign-off."),
+  "migration.uat.attest": named("migration", "Attest UAT", "Confirm user-acceptance testing results."),
+  "migration.opening_balance.approve": named("migration", "Approve opening balances", "Approve the migrated opening balances."),
+  "migration.go_live.execute": named("migration", "Go live", "Switch the company live on Klay."),
+  "migration.coa_template.view": named("migration", "View CoA templates", "See the chart-of-accounts templates."),
+  "migration.overview.dismiss": named("migration", "Dismiss overview", "Dismiss the migration overview."),
+  "migration.cashback.dismiss": named("migration", "Dismiss cashback notice", "Dismiss the cashback notice."),
+
+  // Other
+  "audit.config.view": named("other", "View audit configuration", "See how the audit trail is configured."),
+  "identity.directory.view": named("other", "View user directory", "See the people in the company directory."),
+  "demo.admin": named("other", "Demo administration", "Reset and manage demo data."),
+
+  // Back office (Klay internal)
+  "bo.session": named("bo", "Back-office session", "Sign in to Klay's back office."),
+  "bo.entities.view": named("bo", "View entities", "See customer companies."),
+  "bo.entities.manage": named("bo", "Manage entities", "Create and edit customer companies."),
+  "bo.users.manage": named("bo", "Manage back-office users", "Manage Klay staff accounts."),
+  "bo.assignments.view": named("bo", "View assignments", "See staff assignments."),
+  "bo.assignments.view_own": named("bo", "View own assignments", "See your own assignments."),
+  "bo.assignments.manage": named("bo", "Manage assignments", "Assign staff to companies."),
+  "bo.coa.provision": named("bo", "Provision CoA", "Provision a chart of accounts for a company."),
+  "bo.migrations.view": named("bo", "View migrations", "See migrations across companies."),
+  "bo.migrations.execute": named("bo", "Run migrations", "Run migrations for a company."),
+  "bo.templates.view": named("bo", "View templates", "See CoA templates."),
+  "bo.templates.publish": named("bo", "Publish templates", "Publish CoA templates."),
+
+  // Forbidden single-capability — never grantable to any role
   "user.edit_own_approval_limit": { label: "Edit own approval limit", kind: "forbidden", desc: "Structurally forbidden: raising your own ceiling defeats every amount-based control." },
 };
 
-// The named config capabilities that make up the Finance Manager's `settings`
-// footprint vs. the Admin's — used by legacyLevel to map settings → a legacy level.
-const ADMIN_SETTINGS_CAPS = ["users.manage", "roles.manage", "scope.assign"];
+// Named settings capabilities that make a module read as "full" on the legacy
+// ladder (user & access administration).
+const ADMIN_SETTINGS_CAPS = ["settings.users.manage", "settings.roles.manage", "settings.scope.assign"];
 
-// ── Role capability grants (PRD §4.3, Table 602) ────────────────────────────
-// roleKey → { moduleKey: [capability, …] }. Absent module = `none`.
+// ── Role capability grants (backend role catalog, Oct 2026) ────────────────
+// roleKey → { moduleKey: [capability, …] }. Absent module = `none`. Verbs are
+// bare ("view"); named capabilities are canonical ids.
+//
+// GAP FILLS — capabilities the prototype gates screens on that no backend role
+// holds. Each is marked `// gap` where it is granted:
+//   • ap.payment.authorize → Finance Manager (approves payment requests)
+//   • reports.full → Finance Manager, CFO, View Only; reports.view → AP Staff,
+//     AR Staff, Warehouse Staff, Purchasing Staff
+//   • bank.view / bank.statement.import / bank.reconcile → AP Staff (no
+//     approve or post, so no SoD conflict)
+//   • settings.period.lock / settings.period.reopen → Finance Manager
+// The payment pipeline stays three seats: AP Staff requests (ap.transact),
+// Finance Manager authorizes (ap.payment.authorize), CFO records the payment
+// (ap.post without authorize) — see lib/paymentStage.js.
 export const ROLE_CAPS = {
-  // Finance Manager — the anchor. Holds BOTH approve and post on gl/ap/ar (two
-  // separate grants: in the approver pool AND can post). NOT vendor.create /
-  // bank.reconcile (either would create a HARD self-conflict), NOT users/roles.
-  finance_manager: {
-    gl: ["approve", "post"],
-    ap: ["approve", "post", "payment.approve", "vendor.classify", "vendor.edit_bank"],
-    ar: ["approve", "post", "customer.classify"],
-    purchasing: ["approve"],
-    inventory: ["view"],
-    reports: ["full"],
-    settings: ["coa.manage", "dimensions.manage", "posting_rules.manage", "period.lock", "period.reopen"],
-  },
-  // AP Staff — highest-volume daily role. Enters & submits vendor bills; onboards
-  // vendors. Cannot approve or pay, so vendor.create is safe here.
-  ap_staff: {
-    ap: ["transact", "vendor.create", "payment.request", "vendor.classify", "vendor.edit_bank"],
-    reports: ["view"],
-  },
-  // Admin — user & access administration; deliberately powerless over money.
   admin: {
-    settings: ["users.manage", "roles.manage", "scope.assign"],
+    ap: ["view", "ap.vendor.create", "ap.vendor.edit", "ap.vendor.edit_bank"],
+    ar: ["view", "ar.customer.create", "ar.customer.edit"],
+    bank: ["bank.account.create", "bank.account.manage", "bank.account.delete"],
+    gl: ["view", "gl.posting.dry_run", "gl.recommendations.dismiss"],
+    inventory: ["transact"],
+    masterdata: [
+      "masterdata.counterparty.manage", "masterdata.counterparty.delete",
+      "masterdata.fixed_asset.create", "masterdata.fixed_asset.manage", "masterdata.fixed_asset.delete",
+      "masterdata.inventory_ob.manage", "masterdata.inventory_ob.delete",
+      "masterdata.product.manage", "masterdata.product.delete",
+      "masterdata.warehouse.manage", "masterdata.warehouse.delete",
+    ],
+    migration: [
+      "view", "migration.execute", "migration.file.upload", "migration.file.confirm", "migration.mapping.map",
+      "migration.stage.lock", "migration.signoff.prepare", "migration.signoff.view", "migration.uat.attest",
+      "migration.coa_template.view", "migration.overview.dismiss", "migration.cashback.dismiss",
+    ],
+    settings: [
+      "settings.entity.view", "settings.entity.manage", "settings.users.view", "settings.users.manage",
+      "settings.users.limits.manage", "settings.roles.manage", "settings.scope.assign", "settings.sod.mode",
+      "settings.access.override.grant", "settings.coa.create", "settings.coa.manage", "settings.coa.code.unlock",
+      "settings.dimensions.manage", "settings.dimensions.delete", "settings.dimensions.values.delete",
+      "settings.fx.manage", "settings.fx.delete", "settings.fx.currency.manage", "settings.posting_rules.manage",
+      "settings.tax.manage",
+    ],
+    other: ["audit.config.view", "identity.directory.view", "demo.admin"],
   },
-  // View-Only (Pemantau) — read-only oversight (owner / auditor / investor).
-  view_only: {
-    gl: ["view"], ap: ["view"], ar: ["view"], purchasing: ["view"], inventory: ["view"],
-    reports: ["full"],
+  finance_manager: {
+    ap: ["view", "transact", "approve", "post", "ap.reverse", "ap.vendor.approve", "ap.vendor.edit",
+      "ap.payment.authorize"], // gap
+    ar: ["view", "transact", "approve", "post", "ar.customer.approve", "ar.customer.edit"],
+    bank: ["bank.account.create", "bank.account.manage"],
+    gl: ["view", "transact", "approve", "post", "gl.je.reverse", "gl.posting.dry_run", "gl.recommendations.dismiss"],
+    inventory: ["transact", "inventory.adjust"],
+    masterdata: [
+      "masterdata.counterparty.manage", "masterdata.counterparty.delete", "masterdata.fixed_asset.create",
+      "masterdata.fixed_asset.manage", "masterdata.inventory_ob.manage", "masterdata.product.manage",
+      "masterdata.product.delete", "masterdata.warehouse.manage",
+    ],
+    migration: [
+      "view", "migration.file.upload", "migration.file.confirm", "migration.mapping.map", "migration.stage.lock",
+      "migration.opening_balance.approve", "migration.signoff.view", "migration.uat.attest", "migration.cashback.dismiss",
+    ],
+    settings: [
+      "settings.entity.view", "settings.users.view", "settings.coa.create", "settings.coa.manage",
+      "settings.dimensions.manage", "settings.dimensions.values.delete", "settings.fx.manage",
+      "settings.posting_rules.manage", "settings.tax.manage",
+      "settings.period.lock", "settings.period.reopen", // gap
+    ],
+    reports: ["full"], // gap
+    other: ["audit.config.view", "identity.directory.view"],
   },
-  // AR Staff — the AP Staff mirror on receivables.
+  ia: {
+    ap: ["view"],
+    ar: ["view"],
+    bank: ["bank.account.create"],
+    gl: ["view", "gl.posting.dry_run", "gl.recommendations.dismiss"],
+    inventory: ["transact"],
+    masterdata: [
+      "masterdata.counterparty.manage", "masterdata.fixed_asset.create", "masterdata.inventory_ob.manage",
+      "masterdata.product.manage", "masterdata.warehouse.manage",
+    ],
+    migration: [
+      "view", "migration.execute", "migration.file.upload", "migration.file.confirm", "migration.mapping.map",
+      "migration.stage.lock", "migration.signoff.prepare", "migration.signoff.view", "migration.go_live.execute",
+      "migration.coa_template.view", "migration.cashback.dismiss",
+    ],
+    settings: [
+      "settings.coa.create", "settings.dimensions.manage", "settings.fx.manage", "settings.fx.currency.manage",
+      "settings.posting_rules.manage", "settings.tax.manage",
+    ],
+    other: ["audit.config.view", "identity.directory.view"],
+  },
+  cfo: {
+    ap: ["view", "approve", "post", "ap.reverse", "ap.vendor.approve"],
+    ar: ["view", "approve", "post", "ar.customer.approve"],
+    gl: ["view", "gl.recommendations.dismiss"],
+    migration: ["view", "migration.file.confirm", "migration.opening_balance.approve", "migration.signoff.view", "migration.cashback.dismiss"],
+    reports: ["full"], // gap
+    other: ["audit.config.view", "identity.directory.view"],
+  },
+  ap_staff: {
+    ap: ["view", "transact", "ap.vendor.create", "ap.vendor.edit", "ap.vendor.edit_bank"],
+    gl: ["view", "transact", "gl.posting.dry_run", "gl.recommendations.dismiss"],
+    inventory: ["transact", "inventory.adjust"],
+    masterdata: ["masterdata.counterparty.manage", "masterdata.product.manage"],
+    migration: ["view", "migration.uat.attest", "migration.cashback.dismiss"],
+    bank: ["view", "bank.statement.import", "bank.reconcile"], // gap
+    reports: ["view"], // gap
+    other: ["audit.config.view", "identity.directory.view"],
+  },
   ar_staff: {
-    ar: ["transact", "customer.create", "customer.classify"],
-    reports: ["view"],
+    ar: ["view", "transact", "ar.customer.create", "ar.customer.edit"],
+    gl: ["view", "transact", "gl.posting.dry_run", "gl.recommendations.dismiss"],
+    inventory: ["transact", "inventory.adjust"],
+    masterdata: ["masterdata.counterparty.manage", "masterdata.product.manage"],
+    migration: ["view", "migration.uat.attest", "migration.cashback.dismiss"],
+    reports: ["view"], // gap
+    other: ["audit.config.view", "identity.directory.view"],
   },
-  // Purchasing Staff — raises purchase orders and requests.
-  purchasing_staff: {
-    purchasing: ["transact"],
-    reports: ["view"],
+  view_only: {
+    ap: ["view"],
+    ar: ["view"],
+    gl: ["view", "gl.recommendations.dismiss"],
+    migration: ["view", "migration.cashback.dismiss"],
+    reports: ["full"], // gap
+    other: ["identity.directory.view"],
   },
-  // Warehouse Staff — goods receipt and stock operations.
   warehouse_staff: {
     inventory: ["transact"],
-    reports: ["view"],
+    gl: ["view", "gl.recommendations.dismiss"],
+    migration: ["view", "migration.cashback.dismiss"],
+    reports: ["view"], // gap
+    other: ["identity.directory.view"],
   },
-
-  // ── Added per request (2026-07-11 MoM roles) — these DIVERGE from the PRD's
-  // 7 seeded templates. They split the AP payment pipeline into distinct seats.
-  // Accounting Manager — the recorder. Posts journals (GL approve+post) and
-  // commits bills/invoices to the ledger (ap/ar post). NOT the payment approver
-  // (that stays the Finance Manager's `approve`); no vendor.create / reconcile.
-  accounting_manager: {
-    gl: ["approve", "post"],
-    ap: ["post", "vendor.classify", "vendor.edit_bank"],
-    ar: ["post", "customer.classify"],
-    reports: ["view"],
-  },
-  // Finance Staff — executes the actual bank transfer (off-system, not modelled)
-  // and uploads the daily bank statement to reconcile. Holds bank.reconcile with
-  // NO post/approve, so it raises no SoD conflict — the dedicated reconciler seat
-  // the PRD describes (§4.1). Read-only on GL/AP so they can see what they pay.
-  finance_staff: {
-    gl: ["view"],
-    ap: ["view", "payment.execute"],
-    bank: ["bank.reconcile"],
-    reports: ["view"],
+  purchasing_staff: {
+    gl: ["view", "gl.recommendations.dismiss"],
+    migration: ["view", "migration.cashback.dismiss"],
+    reports: ["view"], // gap
+    other: ["identity.directory.view"],
   },
 };
 
-// ── Roles (7 seeded customer templates, PRD build order) ────────────────────
+// ── Roles (seeded customer templates) ──────────────────────────────────────
 // The starting set every company is provisioned with — after that they are
-// ordinary, editable roles (is_system only records provenance). approval_limit is the max Rupiah a role may approve.
+// ordinary, editable roles (is_system only records provenance).
+// approval_limit is the max Rupiah a role may approve.
 export const ROLES = [
+  {
+    key: "admin",
+    name: "Admin",
+    description: "Company and access administration — users, roles, scope and SoD mode — plus the company's setup: chart of accounts, tax, dimensions, FX, posting rules, bank accounts and master data. Runs the migration. No approval or posting on any financial module.",
+    is_system: true,
+    is_internal: false,
+    approval_limit: null,
+  },
   {
     key: "finance_manager",
     name: "Finance Manager",
-    description: "The senior control and the approver pool. Approves and posts across GL/AP/AR, holds accounting configuration (CoA, dimensions, posting rules, period lock/reopen). In a lean team this is often the owner's own seat. Deliberately NOT user administration, vendor creation, or bank reconciliation.",
+    description: "The senior control. Approves and posts across GL, AP and AR, reverses entries, approves vendors and customers, and authorizes payments. Holds accounting configuration (chart of accounts, dimensions, FX, posting rules, tax) and period close. No user administration, vendor creation or bank reconciliation.",
     is_system: true,
     is_internal: false,
     approval_limit: 100000000,
   },
   {
-    key: "accounting_manager",
-    name: "Accounting Manager",
-    description: "The recorder. Posts journals to the general ledger and commits approved bills/invoices to the ledger, and reviews non-tax posting exceptions. Distinct from the Finance Manager, who authorises payment. Added for the AP payment pipeline (diverges from the PRD's 7 templates).",
+    key: "ia",
+    name: "IA",
+    description: "Runs the data migration end to end — uploads, mapping, staging, sign-off preparation and go-live — and sets up the chart of accounts, tax, dimensions, FX and posting rules alongside it. Views AP, AR and GL; no approval or posting.",
+    is_system: true,
+    is_internal: false,
+    approval_limit: null,
+  },
+  {
+    key: "cfo",
+    name: "CFO",
+    description: "Approves and posts bills and invoices, reverses bills, approves vendors and customers, records payments once authorized, and approves the migrated opening balances. Reads the general ledger and full reports; no journal posting or configuration.",
     is_system: true,
     is_internal: false,
     approval_limit: null,
@@ -174,31 +362,7 @@ export const ROLES = [
   {
     key: "ap_staff",
     name: "AP Staff",
-    description: "Enters vendor bills and submits them for approval, and onboards vendor master records. Cannot approve or pay — so holding vendor.create is safe. The highest-volume daily role.",
-    is_system: true,
-    is_internal: false,
-    approval_limit: null,
-  },
-  {
-    key: "finance_staff",
-    name: "Finance Staff",
-    description: "Executes the actual bank transfer (done off-system) and uploads the daily bank statement to reconcile against the ledger. Holds bank reconciliation but no posting or approval authority. Added for the AP payment pipeline (diverges from the PRD's 7 templates).",
-    is_system: true,
-    is_internal: false,
-    approval_limit: null,
-  },
-  {
-    key: "admin",
-    name: "Admin",
-    description: "User and access administration — invites users, assigns roles and scope, toggles SoD enforcement. Deliberately powerless over money: no posting or approval on any financial module.",
-    is_system: true,
-    is_internal: false,
-    approval_limit: null,
-  },
-  {
-    key: "view_only",
-    name: "View Only",
-    description: "Read-only oversight — owner, CFO/director, external auditor, investor. Sees the modules and full reports; writes nothing. The productized form of the owner-reviews-the-books control; can be given a sensitivity scope to hide payroll / owner's-draw accounts.",
+    description: "Enters vendor bills and journals and submits them, requests payments, onboards and edits vendors, adjusts stock, and reconciles the bank. Cannot approve or post — so holding vendor creation and bank reconciliation is safe.",
     is_system: true,
     is_internal: false,
     approval_limit: null,
@@ -206,15 +370,15 @@ export const ROLES = [
   {
     key: "ar_staff",
     name: "AR Staff",
-    description: "The AP Staff mirror on the receivables side. Enters and submits customer invoices, and onboards customer master records.",
+    description: "The AP Staff mirror on the receivables side. Enters invoices and journals and submits them, onboards and edits customers, and adjusts stock.",
     is_system: true,
     is_internal: false,
     approval_limit: null,
   },
   {
-    key: "purchasing_staff",
-    name: "Purchasing Staff",
-    description: "Raises purchase orders and procurement requests. No access to financial records.",
+    key: "view_only",
+    name: "View Only",
+    description: "Read-only oversight — owner, director, external auditor, investor. Sees AP, AR, the general ledger and full reports; writes nothing.",
     is_system: true,
     is_internal: false,
     approval_limit: null,
@@ -222,20 +386,26 @@ export const ROLES = [
   {
     key: "warehouse_staff",
     name: "Warehouse Staff",
-    description: "Goods receipt and stock operations (GRN, stock opname). No access to the finance modules.",
+    description: "Goods receipt and stock operations. Reads the general ledger; no access to bills, invoices or payments.",
+    is_system: true,
+    is_internal: false,
+    approval_limit: null,
+  },
+  {
+    key: "purchasing_staff",
+    name: "Purchasing Staff",
+    description: "Raises purchase orders and procurement requests. Reads the general ledger.",
     is_system: true,
     is_internal: false,
     approval_limit: null,
   },
 ];
 
-// NOTE — bank.reconcile HARD-conflicts with both gl.post and approving payments
-// (SoD #2, #3). The PRD gives it no default role home; here the dedicated
-// Finance Staff role carries it safely (it holds NO post/approve), which is the
-// PRD's "separate reconciler seat" made into a template. Giving it to a poster
-// or payment approver as temporary access (user.tempAccess → extraCaps) is
-// blocked when the company is Enforced, and needs an accepted risk when it is
-// Relaxed. See CAPABILITIES["bank.reconcile"].
+// NOTE — bank.reconcile HARD-conflicts with posting to the ledger and with
+// approving payments (SoD #2, #3). No backend role holds it yet; here AP Staff
+// carries it (gap fill) because AP Staff holds no approve or post. Giving it
+// to a poster or approver as temporary access is blocked when the company is
+// Enforced, and needs an accepted risk when it is Relaxed.
 
 // ── Record scope types (PRD §5.2) ──────────────────────────────────────────
 // Scope rides on the assignment (user_entity_roles), never on the role. All
@@ -289,8 +459,8 @@ export const PERMISSION_MATRIX = Object.fromEntries(
 // canonical capability ids used for SoD checks and authorize():
 //   • verbs        → "<module>.<verb>"   (e.g. "ap.approve", "gl.post")
 //   • "full"       → expands to every verb on that module
-//   • named caps   → the cap string as-is (e.g. "vendor.create", "bank.reconcile",
-//                    "users.manage", "coa.manage")
+//   • named caps   → the canonical id as-is (e.g. "ap.vendor.create",
+//                    "bank.reconcile", "settings.coa.manage")
 //
 // `override` ({ key, caps }) swaps one role's grants for a draft — the Roles
 // editor uses it to ask "what would each holder end up with if I saved this?".
@@ -337,8 +507,8 @@ export const SOD_RULES = [
     id: 1,
     type: "HARD",
     relaxable: true,
-    a: ["vendor.create"],
-    b: ["ap.approve", "ap.post"],
+    a: ["ap.vendor.create"],
+    b: ["ap.approve", "ap.post", "ap.payment.authorize"],
     label: "Create vendor + pay vendor",
     reason: "One person onboarding a vendor and paying it is the classic fake-vendor fraud.",
   },
@@ -346,7 +516,7 @@ export const SOD_RULES = [
     id: 2,
     type: "HARD",
     relaxable: true,
-    a: ["ap.approve"],
+    a: ["ap.approve", "ap.payment.authorize"],
     b: ["bank.reconcile"],
     label: "Approve payment + reconcile bank",
     reason: "Approving a payment and reconciling the bank lets one person both move money and hide the movement.",
@@ -372,7 +542,7 @@ export const SOD_RULES = [
   {
     id: 5,
     type: "SOFT",
-    a: ["users.manage", "roles.manage"],
+    a: ["settings.users.manage", "settings.roles.manage"],
     b: ["ap.approve", "gl.post"],
     label: "Access administration + financial approval",
     reason: "One person controlling who-has-access and financial approval concentrates power — allowed in a small shop, but logged with a justification.",
@@ -458,9 +628,9 @@ const ANCHOR_USERS = [
   { id: "U005", name: "Dimas Prasetyo", email: "dimas.prasetyo@klay.id", roleKeys: ["purchasing_staff"], status: "Active", approval_limit: null, lastActive: "2026-06-04", invitedOn: "2025-03-18" },
   { id: "U006", name: "Maya Lestari", email: "maya.lestari@klay.id", roleKeys: ["warehouse_staff", "purchasing_staff"], status: "Active", approval_limit: null, lastActive: "2026-06-03", invitedOn: "2025-03-18" },
   { id: "U007", name: "Eko Nugroho", email: "eko.nugroho@klay.id", roleKeys: ["view_only"], status: "Active", approval_limit: null, lastActive: "2026-05-28", invitedOn: "2025-04-22" },
-  { id: "U008", name: "Putri Handayani", email: "putri.handayani@klay.id", roleKeys: ["finance_staff"], status: "Active", approval_limit: null, lastActive: "2026-06-06", invitedOn: "2025-06-02" },
+  { id: "U008", name: "Putri Handayani", email: "putri.handayani@klay.id", roleKeys: ["ia"], status: "Active", approval_limit: null, lastActive: "2026-06-06", invitedOn: "2025-06-02" },
   { id: "U009", name: "Galih Ramadhan", email: "galih.ramadhan@klay.id", roleKeys: ["ar_staff"], status: "Inactive", approval_limit: null, lastActive: "2025-11-14", invitedOn: "2025-05-09" },
-  { id: "U010", name: "Lutfi Hakim", email: "lutfi.hakim@klay.id", roleKeys: ["accounting_manager"], status: "Active", approval_limit: null, lastActive: "2026-06-06", invitedOn: "2025-05-09" },
+  { id: "U010", name: "Lutfi Hakim", email: "lutfi.hakim@klay.id", roleKeys: ["cfo"], status: "Active", approval_limit: null, lastActive: "2026-06-06", invitedOn: "2025-05-09" },
   // Bookkeeper role was dropped in the V1 PRD (its GL posting folds into Finance
   // Manager). Hana is re-cast as AP Staff — she handles the AP close queue.
   { id: "U011", name: "Hana Wijoyo", email: "hana.wijoyo@klay.id", roleKeys: ["ap_staff"], status: "Active", approval_limit: null, lastActive: "2026-06-06", invitedOn: "2025-02-20" },
@@ -503,19 +673,14 @@ function buildGeneratedUsers() {
     const email = `${first}.${sur}${seq}@klay.id`.toLowerCase();
 
     const roleKeys = [primary];
-    let justification = null;
+    const justification = null;
     // A few clean operational multi-role holders. Operational roles carry no
     // approval authority, so these combinations raise no SoD flag — they show
     // that AP+AR and Purchasing+Warehouse are freely combinable.
     if (primary === "warehouse_staff" && idx % 11 === 3) roleKeys.push("purchasing_staff");
     if (primary === "ap_staff" && idx % 9 === 4) roleKeys.push("ar_staff");
-    // The single generated Admin also holds Finance Manager — the one SOFT pair
-    // (SoD #5: access administration + financial approval). A SOFT combination
-    // cannot be saved without a recorded justification, so this holder carries one.
-    if (primary === "admin") {
-      roleKeys.push("finance_manager");
-      justification = "Owner-operator on a lean team holds both access administration and financial approval; every posting is reviewed during the monthly close.";
-    }
+    // No Admin + Finance Manager holder: Admin creates vendors, so with Finance
+    // Manager approval it is a HARD conflict (SoD #1), refused under Enforced.
 
     // Deterministic status spread: mostly Active, a few Invited / Inactive.
     let status = "Active";

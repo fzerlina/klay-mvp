@@ -32,8 +32,8 @@ export const COMPANY_TABS = [
 export const ACCOUNTING_TABS = [
   { label: "Chart of accounts", to: "/chart-of-accounts", match: (l) => under(l.pathname, "/chart-of-accounts") },
   { label: "Dimensions", to: "/dimensions", match: (l) => under(l.pathname, "/dimensions") },
+  { label: "Locations", to: "/locations", match: (l) => under(l.pathname, "/locations") },
   { label: "Tax", to: "/tax", match: (l) => under(l.pathname, "/tax") },
-  { label: "Bank accounts", to: "/bank-accounts", match: (l) => under(l.pathname, "/bank-accounts") },
   { label: "Journal templates", to: "/journal-templates", match: (l) => under(l.pathname, "/journal-templates") },
   { label: "Preferences", to: "/accounting-preferences", match: (l) => under(l.pathname, "/accounting-preferences") },
 ];
@@ -43,26 +43,21 @@ export const ACCOUNTING_TABS = [
 const exact = (to) => (l) => l.pathname === to;
 const moduleTabs = (tabs) => tabs.map(([label, to]) => ({ label, to, match: exact(to) }));
 
-export const PAYABLES_TABS = moduleTabs([
-  ["Payment terms", "/settings/payables"],
-  ["Vendor categories", "/settings/payables/vendor-categories"],
-  ["Payment methods", "/settings/payables/payment-methods"],
+export const ITEMS_TABS = moduleTabs([
+  ["Default accounts", "/settings/items"],
+  ["Stock movement", "/settings/items/stock-movement"],
 ]);
-export const RECEIVABLES_TABS = moduleTabs([
-  ["Payment terms", "/settings/receivables"],
-  ["Invoices", "/settings/receivables/invoices"],
+export const FIXED_ASSETS_TABS = moduleTabs([
+  ["Asset", "/settings/fixed-assets"],
+  ["Prepaid", "/settings/fixed-assets/prepaid"],
+  ["Intangible", "/settings/fixed-assets/intangible"],
+  ["Preferences", "/settings/fixed-assets/preferences"],
 ]);
-export const INVENTORY_TABS = moduleTabs([
-  ["Item categories", "/settings/inventory"],
-  ["Units", "/settings/inventory/units"],
-  ["Sites & locations", "/settings/inventory/sites"],
-  ["Costing", "/settings/inventory/costing"],
+export const RECONCILIATION_TABS = moduleTabs([
+  ["Reconciliation", "/settings/reconciliation"],
+  ["Bank accounts", "/settings/reconciliation/bank-accounts"],
 ]);
-// Single-page modules still get a tab set of one, so the sidebar can light up.
-export const FIXED_ASSETS_TABS = moduleTabs([["Asset categories", "/settings/fixed-assets"]]);
-export const RECONCILIATION_TABS = moduleTabs([["Reconciliation", "/settings/reconciliation"]]);
 // Its own menu item, no tabs on the page — a set of one for the sidebar.
-export const DEFAULT_ACCOUNTS_TABS = moduleTabs([["Default accounts", "/settings/default-accounts"]]);
 
 // True when `pathname` is anywhere under a tab set (for the sidebar).
 export function inTabs(tabs, pathname) {

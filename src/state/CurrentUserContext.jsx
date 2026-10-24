@@ -39,7 +39,7 @@ export function capabilitiesByModule(roleKeys = [], extraCaps = []) {
         if (VERBS.includes(c)) addVerb(m, c);
         else {
           // Named capability — record it on its module bucket too so the module
-          // reads as reachable (e.g. AP Staff's vendor.create keeps `ap` non-none).
+          // reads as reachable (e.g. AP Staff's ap.vendor.create keeps `ap` non-none).
           if (!acc[m]) acc[m] = new Set();
           acc[m].add(c);
         }
@@ -158,7 +158,7 @@ export function CurrentUserProvider({ children }) {
       (LANDING_CANDIDATES.find(([, m]) => can(m)) || ["/trial-balance"])[0];
     // Point check — the PRD's authorize(user, action, resource). `action` is a
     // capability id: "<module>.<verb>" (e.g. "ap.approve") or a named cap
-    // ("vendor.create", "bank.reconcile", "coa.manage"). resource is accepted
+    // ("ap.vendor.create", "bank.reconcile", "settings.coa.manage"). resource is accepted
     // for forward-compat (record scope) but not yet enforced in the prototype.
     const hasCapability = (action) => {
       if (!action) return true;

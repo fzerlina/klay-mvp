@@ -20,7 +20,7 @@ export const COA = [
   { id: 'g-cash',           type: 'group', level: 2, parent: 'g-current-asset',   label: 'Cash and Cash Equivalents' },
   { id: '1-1100', code: '1-1100', name: 'Cash on Hand',                  type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-cash',  level: 3, is_active: true },
   { id: '1-1200', code: '1-1200', name: 'Petty Cash',                    type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-cash',  level: 3, is_active: true },
-  { id: '1-1300', code: '1-1300', name: 'Bank — BCA Operating',          type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-cash',  level: 3, is_active: true },
+  { id: '1-1500', code: '1-1500', name: 'Bank — BCA Operating',          type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-cash',  level: 3, is_active: true },
   { id: '1-1400', code: '1-1400', name: 'Bank — Mandiri Operating',      type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-cash',  level: 3, is_active: true },
   // One account per company bank account in Settings → Bank accounts (seed/bankAccounts.js
   // points each at its code here), so a payment or bank journal posts to a real
@@ -50,9 +50,18 @@ export const COA = [
   { id: '1-2300', code: '1-2300', name: 'Other Receivables',             type: 'asset',         normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-ar', level: 3, is_active: true },
 
   { id: 'g-inventory',      type: 'group', level: 2, parent: 'g-current-asset',   label: 'Inventory' },
-  { id: '1-3100', code: '1-3100', name: 'Raw Materials',                 type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-inventory', level: 3, is_active: true },
+  // One stock account per item category (items.js), numbered 1-13xx as in the
+  // Item Master PRD. Bank — BCA Operating moved from 1-1300 to 1-1500 to make room.
+  { id: '1-1300', code: '1-1300', name: 'Raw Materials',                 type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-inventory', level: 3, is_active: true },
+  { id: '1-1310', code: '1-1310', name: 'Finished Goods',                type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-inventory', level: 3, is_active: true },
+  { id: '1-1320', code: '1-1320', name: 'Supplies Inventory',            type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-inventory', level: 3, is_active: true },
+  { id: '1-1330', code: '1-1330', name: 'Packaging Inventory',           type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-inventory', level: 3, is_active: true },
+  // Stock delivered to a customer but not yet invoiced.
+  { id: '1-1390', code: '1-1390', name: 'Goods Delivered Not Invoiced',  type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-inventory', level: 3, is_active: true },
   { id: '1-3200', code: '1-3200', name: 'Work in Progress',              type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-inventory', level: 3, is_active: true },
-  { id: '1-3300', code: '1-3300', name: 'Finished Goods',                type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-inventory', level: 3, is_active: true },
+  // Stock on its way between locations — the other side of Transfer out and
+  // Transfer in. Code from the Mapping Account spec.
+  { id: '11450', code: '11450', name: 'Goods In Transit',                type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-inventory', level: 3, is_active: true },
 
   { id: 'g-prepaid',        type: 'group', level: 2, parent: 'g-current-asset',   label: 'Prepaid Expenses' },
   { id: '1-4100', code: '1-4100', name: 'Prepaid Rent',                  type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-prepaid', level: 3, is_active: true },
@@ -108,6 +117,9 @@ export const COA = [
   // control account fed only by bills, so it always ties to the AP aging.
   { id: '2-1150', code: '2-1150', name: 'Other Payables',                type: 'liability', normal_balance: 'credit', fs: 'BS', section: 'Current Liability', parent: 'g-trade-payable', level: 3, is_active: true },
   { id: '2-1200', code: '2-1200', name: 'Accrued Expenses',              type: 'liability', normal_balance: 'credit', fs: 'BS', section: 'Current Liability', parent: 'g-trade-payable', level: 3, is_active: true },
+  // Goods received before the vendor's bill — cleared when the bill posts.
+  // Code from the Mapping Account spec.
+  { id: '21500', code: '21500', name: 'Accrued Receipts (GRNI)',         type: 'liability', normal_balance: 'credit', fs: 'BS', section: 'Current Liability', parent: 'g-trade-payable', level: 3, is_active: true },
 
   { id: 'g-tax-payable',    type: 'group', level: 2, parent: 'g-current-liab',    label: 'Tax Payables' },
   { id: '2-2100', code: '2-2100', name: 'VAT Output (PPN Keluaran)',     type: 'liability', normal_balance: 'credit', fs: 'BS', section: 'Current Liability', parent: 'g-tax-payable', level: 3, is_active: true },
@@ -172,6 +184,13 @@ export const COA = [
   { id: '5-1800', code: '5-1800', name: 'Quality Control & Testing',     type: 'expense', normal_balance: 'debit', fs: 'PL', section: 'COGS', parent: 'g-cogs', level: 1, is_active: true },
   { id: '5-1900', code: '5-1900', name: 'Packaging Materials',           type: 'expense', normal_balance: 'debit', fs: 'PL', section: 'COGS', parent: 'g-cogs', level: 1, is_active: true },
   { id: '5-2000', code: '5-2000', name: 'Production Wages',              type: 'expense', normal_balance: 'debit', fs: 'PL', section: 'COGS', parent: 'g-cogs', level: 1, is_active: true },
+  // Per item category (items.js). 51100 is the code the Mapping Account spec
+  // gives for COGS. Purchase Returns nets cost of goods down, so it carries a
+  // credit balance.
+  { id: '51100', code: '51100', name: 'Cost of Goods Sold',              type: 'expense', normal_balance: 'debit', fs: 'PL', section: 'COGS', parent: 'g-cogs', level: 1, is_active: true },
+  { id: '5-2100', code: '5-2100', name: 'Purchase Returns',              type: 'expense', normal_balance: 'credit', fs: 'PL', section: 'COGS', parent: 'g-cogs', level: 1, is_active: true },
+  { id: '5-2200', code: '5-2200', name: 'Inventory Damage Expense',      type: 'expense', normal_balance: 'debit', fs: 'PL', section: 'COGS', parent: 'g-cogs', level: 1, is_active: true },
+  { id: '5-2300', code: '5-2300', name: 'Inventory Loss Expense',        type: 'expense', normal_balance: 'debit', fs: 'PL', section: 'COGS', parent: 'g-cogs', level: 1, is_active: true },
 
   // ─── OPERATING EXPENSES ────────────────────────────────────────────────────
   { id: 'g-opex',           type: 'group', level: 0,                              label: 'Operating Expenses' },
@@ -206,6 +225,9 @@ export const COA = [
   { id: '6-3800', code: '6-3800', name: 'Subscriptions & Memberships',   type: 'expense', normal_balance: 'debit', fs: 'PL', section: 'OpEx', parent: 'g-ga', level: 2, is_active: true },
   { id: '6-3900', code: '6-3900', name: 'Legal Fees',                    type: 'expense', normal_balance: 'debit', fs: 'PL', section: 'OpEx', parent: 'g-ga', level: 2, is_active: true },
   { id: '6-4000', code: '6-4000', name: 'Miscellaneous Office Expense',  type: 'expense', normal_balance: 'debit', fs: 'PL', section: 'OpEx', parent: 'g-ga', level: 2, is_active: true },
+  // Stock used up inside the company — the Expense account of an item category
+  // (items.js). Code from the Mapping Account spec.
+  { id: '62100', code: '62100', name: 'Factory Supplies Expense',        type: 'expense', normal_balance: 'debit', fs: 'PL', section: 'OpEx', parent: 'g-ga', level: 2, is_active: true },
 
   // ─── OTHER INCOME / EXPENSE ────────────────────────────────────────────────
   { id: 'g-other-exp',      type: 'group', level: 0,                              label: 'Other Expenses' },

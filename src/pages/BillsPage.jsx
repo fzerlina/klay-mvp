@@ -513,10 +513,10 @@ export default function BillsPage() {
   const canCreate = hasLevel("ap", "transact");
   const canApprove = hasLevel("ap", "approve+post");
   // Capability-accurate task gating (roles.js): AP Staff drafts, FM approves,
-  // Accounting Manager + FM post. Used by the Your-Tasks band.
+  // CFO + FM post. Used by the Your-Tasks band.
   const canDraftBills = hasCapability("ap.transact");   // AP Staff
   const canApproveBills = hasCapability("ap.approve");   // Finance Manager
-  const canPostBills = hasCapability("ap.post");         // Accounting Manager + FM
+  const canPostBills = hasCapability("ap.post");         // CFO + FM
   const { bills } = useBills();
   const { closedThrough, autoAssignLateBills } = useClosePeriod();
 

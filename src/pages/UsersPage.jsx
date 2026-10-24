@@ -414,6 +414,9 @@ export default function UsersPage() {
   // Users are shared (PeopleContext) with the Roles tab.
   const { users, setUsers } = usePeople();
   const { log } = useSettingsAudit();
+  // Seeing the list is settings.users.view; inviting and changing roles is
+  // settings.users.manage (Admin).
+  const canManageUsers = useCurrentUser().hasCapability("settings.users.manage");
   const { acceptRisks } = useRoles();
   const { sodMode } = useAccountingSettings();
   const { user: me } = useCurrentUser();
@@ -514,12 +517,12 @@ export default function UsersPage() {
             segregation-of-duties rules — click any role chip to see what it can do. To give one person
             extra access for a while, add <b>temporary access</b> on their user.
           </>}
-          actions={
+          actions={canManageUsers && (
             <button type="button" className="lg-btn-brand" onClick={() => setDrawer({ mode: "invite" })}>
               <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
               Invite user
             </button>
-          }
+          )}
         />
 
         <div className="lg-table-wrap">
@@ -582,7 +585,7 @@ export default function UsersPage() {
                 <div
                   key={u.id}
                   className={`lg-row ru-users-cols${i % 2 === 1 ? " alt" : ""}`}
-                  onClick={() => setDrawer({ mode: "edit", user: u })}
+                  onClick={() => canManageUsers && setDrawer({ mode: "edit", user: u })}
                 >
                   <div className="ru-user-cell">
                     <span className="ru-user-av">{initials(u.name)}</span>

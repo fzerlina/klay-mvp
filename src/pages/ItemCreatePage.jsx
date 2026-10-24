@@ -6,7 +6,7 @@ import { useInventorySubledger } from "../state/InventorySubledgerContext";
 import { useStockJournal } from "../components/RecordMovementModal";
 import { formatRupiahExact } from "../lib/format";
 import {
-  ITEM_CAT_LABELS, ITEM_TYPES, ITEM_TYPE_ORDER, ITEM_UOM_LABELS,
+  ITEM_CAT_LABELS, ITEM_CATEGORY_TAXES, ITEM_TYPES, ITEM_TYPE_ORDER, ITEM_UOM_LABELS,
   PRIMARY_UNITS, UNIT_DEFAULTS, UNIT_KIND_LABELS,
 } from "../data/seed/items";
 import { DEFTAX_LABELS } from "../data/labels";
@@ -43,6 +43,13 @@ export default function ItemCreatePage() {
   const [salesPrice, setSalesPrice] = useState("");
   const [purchasePrice, setPurchasePrice] = useState("");
   const [taxCode, setTaxCode] = useState("ppn_masukan");
+  // A category's purchase VAT (Settings → Items → Default accounts) is where
+  // the item's tax treatment starts; the item can still change it.
+  const pickCategory = (key) => {
+    setCategory(key);
+    const vat = ITEM_CATEGORY_TAXES[key]?.purchase_vat;
+    if (vat) setTaxCode(vat);
+  };
   const [openLines, setOpenLines] = useState([{ loc: "", qty: "", unit_cost: "" }]);
   const { recordOpening } = useInventorySubledger();
   const draftJournal = useStockJournal();
@@ -151,7 +158,7 @@ export default function ItemCreatePage() {
               </div>
               <div className="form-fld">
                 <label>Category <span className="vc-req">*</span></label>
-                <select value={category} onChange={(e) => setCategory(e.target.value)}>
+                <select value={category} onChange={(e) => pickCategory(e.target.value)}>
                   <option value="">Pick a category…</option>
                   {Object.entries(ITEM_CAT_LABELS).map(([v, label]) => <option key={v} value={v}>{label}</option>)}
                 </select>
@@ -263,7 +270,7 @@ export default function ItemCreatePage() {
                 ))}
               </div>
             )}
-            <span className="vc-hint" style={{ marginTop: 10, display: "block" }}>Set per category in Item Category Settings, never per item.</span>
+            <span className="vc-hint" style={{ marginTop: 10, display: "block" }}>Set per category in Settings → Items → Default accounts, never per item.</span>
           </div>
 
           {/* 5 — Locations and opening stock (stocked items only) */}

@@ -26,7 +26,7 @@ import { DEFAULT_ACCOUNTS } from "../data/seed/defaultAccounts";
 import { taxAccount } from "../data/seed/taxCodes";
 
 // The payable is the company's default AP account and the input VAT is the
-// PPN Masukan tax code's account (Settings → Accounting → Default accounts,
+// PPN Masukan tax code's account (seed/defaultAccounts.js,
 // and → Tax), both read at call time so a settings change reaches the next
 // bill.
 const acct = (code) => ({ code, name: COA_BY_CODE[code]?.name || code });

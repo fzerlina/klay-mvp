@@ -27,7 +27,7 @@ const inCoa = (code) => COA.some((a) => a.type !== "group" && a.code === code);
 // to. If someone configures a code the chart does not contain, it is still
 // used — nobody chose a substitute — but the line is flagged, so the mismatch
 // shows up on screen instead of in a reconciliation three weeks later. An
-// account with no code at all falls back to Default accounts → Petty cash or
+// account with no code at all falls back to the default Petty cash or
 // Cash on hand, by its group, and is flagged too.
 function creditAccountFor(account) {
   if (!account) {

@@ -89,7 +89,7 @@ export default function JournalTemplatesPage() {
   const { journalTemplates, saveJournalTemplate, deleteJournalTemplate } = useAccountingSettings();
   const { hasCapability } = useCurrentUser();
   const { log } = useSettingsAudit();
-  const canEdit = hasCapability("coa.manage");
+  const canEdit = hasCapability("settings.posting_rules.manage");
   const [editing, setEditing] = useState(null); // null | "new" | template
   const [deleting, setDeleting] = useState(null);
 
@@ -140,7 +140,7 @@ export default function JournalTemplatesPage() {
               <TemplateLines lines={t.lines} />
             </section>
           ))}
-          {!canEdit && <p className="mr-ro" style={{ marginLeft: 0 }}>Read only — changing templates needs the <em>Manage Chart of Accounts</em> capability.</p>}
+          {!canEdit && <p className="mr-ro" style={{ marginLeft: 0 }}>Read only — changing templates needs the <em>Manage posting rules</em> capability.</p>}
         </div>
       </div>
 

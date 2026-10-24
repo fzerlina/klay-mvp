@@ -3,6 +3,21 @@ import { COMPANY } from "../data/seed/company";
 import { ACCOUNTING_SETTINGS } from "../data/seed/accountingSettings";
 import { DEFAULT_ACCOUNTS } from "../data/seed/defaultAccounts";
 import { JOURNAL_TEMPLATES } from "../data/seed/journalTemplates";
+import { MOVEMENT_ACCOUNTS } from "../lib/inventorySubledger";
+import { BOOK_STATUS_JOURNALS, DEPRECIATION_JOURNALS } from "../lib/fixedAssets";
+
+const cloneBookJournals = () => Object.fromEntries(
+  Object.entries(BOOK_STATUS_JOURNALS).map(([type, byStatus]) => [type, Object.fromEntries(
+    Object.entries(byStatus).map(([k, lines]) => [k, lines.map((l) => ({ ...l }))]),
+  )]),
+);
+const cloneDepreciation = () => Object.fromEntries(
+  Object.entries(DEPRECIATION_JOURNALS).map(([k, j]) => [k, { ...j }]),
+);
+const cloneMovements = () => ({
+  in: MOVEMENT_ACCOUNTS.in.map((m) => ({ ...m })),
+  out: MOVEMENT_ACCOUNTS.out.map((m) => ({ ...m })),
+});
 
 // Company-wide accounting policy that pages read at runtime. Seeded from
 // data/seed/accountingSettings.js; the Inventory and Bank reconciliation
@@ -14,6 +29,10 @@ const AccountingSettingsContext = createContext(null);
 export function AccountingSettingsProvider({ children }) {
   const [inventoryCostingMethod, setInventoryCostingMethod] = useState(
     ACCOUNTING_SETTINGS.inventory_costing_method,
+  );
+  // The method a new asset starts on (Settings → Fixed Assets → Preferences).
+  const [assetDepreciationMethod, setAssetDepreciationMethod] = useState(
+    ACCOUNTING_SETTINGS.asset_depreciation_method,
   );
   // Account codes To match may book a difference to.
   const [reconDifferenceAccounts, setReconDifferenceAccounts] = useState(
@@ -46,11 +65,34 @@ export function AccountingSettingsProvider({ children }) {
   // Accounting basics (Accounting → Preferences), set at company creation.
   const [fiscalYearStart, setFiscalYearStart] = useState(COMPANY.fiscalYearStart);
   const [timezone, setTimezone] = useState(COMPANY.timezone);
-  // Each module's fallback / pre-fill account (Accounting → Default accounts).
+  // Each module's fallback / pre-fill account (seed/defaultAccounts.js). Only
+  // Opening stock is edited in the app, on Settings → Items → Stock movement.
   const [defaultAccounts, setDefaultAccounts] = useState(() => ({ ...DEFAULT_ACCOUNTS }));
   const setDefaultAccount = useCallback((key, code) => {
     DEFAULT_ACCOUNTS[key] = code;
     setDefaultAccounts((d) => ({ ...d, [key]: code }));
+  }, []);
+  // Which of the item category's accounts each stock-movement reason posts
+  // against (Settings → Inventory → Stock movement), written through to MOVEMENT_ACCOUNTS.
+  const [movementAccounts, setMovementAccounts] = useState(() => cloneMovements());
+  const setMovementAccount = useCallback((dir, reason, role) => {
+    const row = MOVEMENT_ACCOUNTS[dir].find((m) => m.reason === reason);
+    if (row) row.other = role;
+    setMovementAccounts(cloneMovements());
+  }, []);
+  // Which asset-category account each book-status journal line uses, and the
+  // periodic charge per asset type (Settings → Fixed Assets → Book status),
+  // written through to BOOK_STATUS_JOURNALS / DEPRECIATION_JOURNALS.
+  const [bookJournals, setBookJournals] = useState(() => cloneBookJournals());
+  const setBookJournalRole = useCallback((type, status, lineId, role) => {
+    const line = BOOK_STATUS_JOURNALS[type]?.[status]?.find((l) => l.id === lineId);
+    if (line) line.role = role;
+    setBookJournals(cloneBookJournals());
+  }, []);
+  const [depreciationJournals, setDepreciationJournals] = useState(() => cloneDepreciation());
+  const setDepreciationRole = useCallback((type, side, role) => {
+    if (DEPRECIATION_JOURNALS[type]) DEPRECIATION_JOURNALS[type][side] = role;
+    setDepreciationJournals(cloneDepreciation());
   }, []);
   const toggleReconcilable = useCallback((code) => setReconcilableAccounts((prev) => (
     prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]
@@ -58,17 +100,21 @@ export function AccountingSettingsProvider({ children }) {
   const value = useMemo(
     () => ({
       inventoryCostingMethod, setInventoryCostingMethod,
+      assetDepreciationMethod, setAssetDepreciationMethod,
       reconDifferenceAccounts, setReconDifferenceAccounts,
       reconcilableAccounts, toggleReconcilable,
       defaultAccounts, setDefaultAccount,
+      movementAccounts, setMovementAccount,
+      bookJournals, setBookJournalRole, depreciationJournals, setDepreciationRole,
       sodMode, setSodMode,
       journalDeletion,
       closeCutoffDay, setCloseCutoffDay,
       journalTemplates, saveJournalTemplate, deleteJournalTemplate,
       baseCurrency: COMPANY.baseCurrency, fiscalYearStart, setFiscalYearStart, timezone, setTimezone,
     }),
-    [inventoryCostingMethod, reconDifferenceAccounts, reconcilableAccounts, toggleReconcilable, defaultAccounts,
-      setDefaultAccount, sodMode,
+    [inventoryCostingMethod, assetDepreciationMethod, reconDifferenceAccounts, reconcilableAccounts, toggleReconcilable, defaultAccounts,
+      setDefaultAccount, movementAccounts, setMovementAccount,
+      bookJournals, setBookJournalRole, depreciationJournals, setDepreciationRole, sodMode,
       journalDeletion, closeCutoffDay, journalTemplates, saveJournalTemplate, deleteJournalTemplate, fiscalYearStart, timezone],
   );
   return (

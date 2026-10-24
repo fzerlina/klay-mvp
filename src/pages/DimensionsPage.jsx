@@ -3,6 +3,7 @@ import { paletteFor } from "../data/seed/dimensions";
 import { useDimensions } from "../state/DimensionsContext";
 import { useJournalEntries } from "../state/JournalEntriesContext";
 import { useSettingsAudit } from "../state/SettingsAuditContext";
+import { useCurrentUser } from "../state/CurrentUserContext";
 import { dimensionUsage } from "../lib/dimensionUsage";
 import SettingsHeader, { ACCOUNTING_TABS } from "../components/SettingsHeader";
 import "./invoices-ledger.css";
@@ -17,6 +18,12 @@ const plural = (n, w) => `${n.toLocaleString("id-ID")} ${w}${n === 1 ? "" : "s"}
 export default function DimensionsPage() {
   // Configured dimensions (seed + any added manually), shared app-wide.
   const { dimensions, setDimensions } = useDimensions();
+  // Add and rename: dimensions.manage. Deleting a dimension, or one of its
+  // values, are their own capabilities.
+  const { hasCapability } = useCurrentUser();
+  const canManage = hasCapability("settings.dimensions.manage");
+  const canDelete = hasCapability("settings.dimensions.delete");
+  const canDeleteValues = hasCapability("settings.dimensions.values.delete");
   const { entries } = useJournalEntries();
   const { log } = useSettingsAudit();
   const usage = useMemo(() => dimensionUsage(entries), [entries]);
@@ -116,10 +123,7 @@ export default function DimensionsPage() {
         {dimensions.length === 0 && editingId !== "__new__" ? (
           <div className="s2-dim-tbl-empty">
             No dimensions yet.{" "}
-            <button className="s2-dim-empty-link" onClick={startNewDim}>
-              Add a custom dimension
-            </button>
-            .
+            {canManage && <><button className="s2-dim-empty-link" onClick={startNewDim}>Add a custom dimension</button>.</>}
           </div>
         ) : (
           <table className="s2-dim-tbl">
@@ -170,7 +174,7 @@ export default function DimensionsPage() {
                             style={{ background: pal.bg, color: pal.fg }}
                           >
                             {v}
-                            {!valueLines(dim.key, v) && (
+                            {canDeleteValues && !valueLines(dim.key, v) && (
                               <span
                                 className="s2-dim-val-chip-x"
                                 title="Remove value"
@@ -181,7 +185,7 @@ export default function DimensionsPage() {
                             )}
                           </span>
                         ))}
-                        {isAddingValue ? (
+                        {!canManage ? null : isAddingValue ? (
                           <>
                             <input
                               className="s2-dim-edit-input"
@@ -213,8 +217,8 @@ export default function DimensionsPage() {
                         </>
                       ) : (
                         <>
-                          <button className="s2-dim-card-act" disabled={!!usedLines(dim.key)} title={usedLines(dim.key) ? lockedTitle(dim.key) : undefined} onClick={() => startRename(dim)}>Rename</button>{" "}
-                          <button className="s2-dim-card-act s2-dim-card-act-danger" disabled={!!usedLines(dim.key)} title={usedLines(dim.key) ? lockedTitle(dim.key) : undefined} onClick={() => deleteDimension(dim.key)}>Delete</button>
+                          {canManage && <><button className="s2-dim-card-act" disabled={!!usedLines(dim.key)} title={usedLines(dim.key) ? lockedTitle(dim.key) : undefined} onClick={() => startRename(dim)}>Rename</button>{" "}</>}
+                          {canDelete && <button className="s2-dim-card-act s2-dim-card-act-danger" disabled={!!usedLines(dim.key)} title={usedLines(dim.key) ? lockedTitle(dim.key) : undefined} onClick={() => deleteDimension(dim.key)}>Delete</button>}
                         </>
                       )}
                     </td>
@@ -250,7 +254,7 @@ export default function DimensionsPage() {
           </table>
         )}
 
-        {editingId !== "__new__" && (
+        {canManage && editingId !== "__new__" && (
           <button className="s2-dim-add-card" onClick={startNewDim}>
             + Add custom dimension
           </button>

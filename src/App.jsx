@@ -8,6 +8,7 @@ import ReportsPage from "./pages/ReportsPage";
 import JournalEntryPage from "./pages/JournalEntryPage";
 import ChartOfAccountsPage from "./pages/ChartOfAccountsPage";
 import DimensionsPage from "./pages/DimensionsPage";
+import LocationsPage from "./pages/LocationsPage";
 import BillsPage from "./pages/BillsPage";
 import BillCreatePage from "./pages/BillCreatePage";
 import BillDetailPage from "./pages/BillDetailPage";
@@ -40,7 +41,6 @@ import CompanyProfilePage from "./pages/CompanyProfilePage";
 import RoleDetailPage from "./pages/RoleDetailPage";
 import ApprovalSettingsPage from "./pages/ApprovalSettingsPage";
 import AccountingPreferencesPage from "./pages/AccountingPreferencesPage";
-import DefaultAccountsPage from "./pages/DefaultAccountsPage";
 import JournalTemplatesPage from "./pages/JournalTemplatesPage";
 import { SettingsAuditProvider } from "./state/SettingsAuditContext";
 import TaxSettingsPage from "./pages/TaxSettingsPage";
@@ -57,7 +57,6 @@ import { AccountingSettingsProvider } from "./state/AccountingSettingsContext";
 import { DimensionsProvider } from "./state/DimensionsContext";
 import { PeopleProvider } from "./state/PeopleContext";
 import { ModuleSettingsProvider } from "./state/ModuleSettingsContext";
-import PayablesSettingsPage, { ReceivablesSettingsPage } from "./pages/PayablesSettingsPage";
 import InventorySettingsPage, { FixedAssetsSettingsPage } from "./pages/InventorySettingsPage";
 import ReconciliationSettingsPage from "./pages/ReconciliationSettingsPage";
 import { JournalEntriesProvider } from "./state/JournalEntriesContext";
@@ -150,6 +149,7 @@ export default function App() {
                 <Route path="/journal-entry" element={<JournalEntryPage />} />
                 <Route path="/chart-of-accounts" element={<ChartOfAccountsPage />} />
                 <Route path="/dimensions" element={<DimensionsPage />} />
+                <Route path="/locations" element={<LocationsPage />} />
                 <Route path="/bills" element={<BillsPage />} />
                 <Route path="/bills/new" element={<RequireLevel module="ap" level="transact" action="create bills"><BillCreatePage /></RequireLevel>} />
                 <Route path="/bills/:id" element={<BillDetailPage />} />
@@ -185,7 +185,8 @@ export default function App() {
                 <Route path="/trial-balance" element={<TrialBalancePage />} />
                 <Route path="/close" element={<ApCloseCommandCenterPage />} />
                 <Route path="/bank-reconciliation" element={<BankReconciliationPage />} />
-                <Route path="/bank-accounts" element={<BankAccountsSettingsPage />} />
+                <Route path="/bank-accounts" element={<Navigate to="/settings/reconciliation/bank-accounts" replace />} />
+                <Route path="/settings/reconciliation/bank-accounts" element={<BankAccountsSettingsPage />} />
                 <Route path="/company-settings" element={<CompanyProfilePage />} />
                 <Route path="/departments" element={<Navigate to="/company-settings" replace />} />
                 <Route path="/users" element={<UsersPage />} />
@@ -194,23 +195,21 @@ export default function App() {
                 <Route path="/access-policy" element={<Navigate to="/roles" replace />} />
                 <Route path="/approval" element={<ApprovalSettingsPage />} />
                 <Route path="/tax" element={<TaxSettingsPage />} />
-                <Route path="/default-accounts" element={<Navigate to="/settings/default-accounts" replace />} />
                 <Route path="/journal-templates" element={<JournalTemplatesPage />} />
                 <Route path="/accounting-preferences" element={<AccountingPreferencesPage />} />
                 {/* Old one-setting pages now live as sections of Preferences. */}
                 <Route path="/posting-periods" element={<Navigate to="/accounting-preferences#posting" replace />} />
-                <Route path="/inventory-settings" element={<Navigate to="/settings/inventory/costing" replace />} />
+                <Route path="/inventory-settings" element={<Navigate to="/settings/items" replace />} />
                 <Route path="/bank-recon-settings" element={<Navigate to="/settings/reconciliation" replace />} />
                 {/* Module settings — one page per module, a route per tab. */}
-                <Route path="/settings/payables" element={<PayablesSettingsPage />} />
-                <Route path="/settings/payables/:tab" element={<PayablesSettingsPage />} />
-                <Route path="/settings/receivables" element={<ReceivablesSettingsPage />} />
-                <Route path="/settings/receivables/:tab" element={<ReceivablesSettingsPage />} />
-                <Route path="/settings/inventory" element={<InventorySettingsPage />} />
-                <Route path="/settings/inventory/:tab" element={<InventorySettingsPage />} />
+                <Route path="/settings/items" element={<InventorySettingsPage />} />
+                <Route path="/settings/items/:tab" element={<InventorySettingsPage />} />
+                <Route path="/settings/inventory" element={<Navigate to="/settings/items" replace />} />
+                <Route path="/settings/inventory/stock-movement" element={<Navigate to="/settings/items/stock-movement" replace />} />
+                <Route path="/settings/inventory/locations" element={<Navigate to="/locations" replace />} />
                 <Route path="/settings/fixed-assets" element={<FixedAssetsSettingsPage />} />
+                <Route path="/settings/fixed-assets/:tab" element={<FixedAssetsSettingsPage />} />
                 <Route path="/settings/reconciliation" element={<ReconciliationSettingsPage />} />
-                <Route path="/settings/default-accounts" element={<DefaultAccountsPage />} />
                 <Route path="*" element={<RoleLanding />} />
               </Route>
             </Routes>

@@ -1,6 +1,6 @@
 // Bulk-transfer files for internet banking.
 //
-// Finance Staff select approved bills, export one file, and upload it to the
+// Whoever records payments (the CFO) selects approved bills, export one file, and upload it to the
 // bank's bulk-transfer screen instead of keying each transfer by hand.
 // Exporting changes nothing in Klay: no payment is recorded and no status
 // moves. The payments are recorded the usual way once the bank has executed

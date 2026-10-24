@@ -95,7 +95,7 @@ function RoleEditor({ role, showToast }) {
   const { user, hasCapability } = useCurrentUser();
   const { sodMode } = useAccountingSettings();
   const navigate = useNavigate();
-  const canManage = ROLE_EDITING && hasCapability("roles.manage");
+  const canManage = ROLE_EDITING && hasCapability("settings.roles.manage");
 
   const saved = useMemo(() => ({ meta: { ...role }, caps: capsOf(role.key) }), [role, capsOf]);
   const [meta, setMeta] = useState(saved.meta);

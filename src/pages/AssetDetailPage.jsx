@@ -131,7 +131,7 @@ export default function AssetDetailPage() {
   const navigate = useNavigate();
   const {
     assetById, updateAsset, read, reviseValue, previewValueRevision, setOperationalStatus,
-    capitaliseAsset, placeInService, holdForSale, returnToService,
+    placeInService, holdForSale, returnToService,
     deactivateAsset, reactivateAsset, disposeAsset,
     scheduleLocked, deactivateGuard, operationalEditable, bookStatusTransitions,
     categoryChangeGuard, closedThrough, changeLog, versionsOf,
@@ -200,6 +200,7 @@ export default function AssetDetailPage() {
       book_note: "",
       proceeds: "",
       customer: "",
+      fair_value: "",
     });
     setEditOpen(true);
   }
@@ -237,9 +238,8 @@ export default function AssetDetailPage() {
 
     if (form.book_to) {
       const fns = {
-        capitalise: () => capitaliseAsset(asset.id, { note: form.book_note, actor: user.name }),
         service: () => placeInService(asset.id, { date: form.book_date, note: form.book_note, actor: user.name }),
-        hold: () => holdForSale(asset.id, { reason: form.book_reason, note: form.book_note, actor: user.name }),
+        hold: () => holdForSale(asset.id, { reason: form.book_reason, note: form.book_note, fairValue: form.fair_value, actor: user.name }),
         return: () => returnToService(asset.id, { note: form.book_note, actor: user.name }),
         dispose: () => disposeAsset(asset.id, {
           date: form.book_date, reason: form.book_reason,
@@ -451,8 +451,9 @@ export default function AssetDetailPage() {
               <div className="vd-card span2">
                 <div className="vd-card-title">Book Events</div>
                 <p className="vd-ver-intro">
-                  Every change of book status, with the journal it moved. Placing in service and stopping a
-                  schedule move nothing on the day — they change what the next period charges.
+                  Every change of book status, with the journal it moved — the accounts set in Settings → Fixed
+                  Assets → Book status. Placing in service moves cost out of construction in progress; from then on
+                  the schedule posts each period's charge.
                 </p>
                 <div className="fa-scroll">
                   <table className="vd-tx-table">
@@ -468,8 +469,8 @@ export default function AssetDetailPage() {
                               {lines.length === 0
                                 ? <span className="fa-none">No journal</span>
                                 : lines.map((l, j) => (
-                                    <div key={j}>
-                                      Dr {l.debit?.name || "—"} · Cr {l.credit?.name || "—"} · {formatRupiahExact(l.amount)}
+                                    <div key={j} style={l.side === "credit" ? { paddingLeft: 14 } : undefined}>
+                                      {l.side === "debit" ? "Dr" : "Cr"} {l.account.code} {l.account.name} · {formatRupiahExact(l.amount)}
                                     </div>
                                   ))}
                             </td>
@@ -708,6 +709,12 @@ export default function AssetDetailPage() {
                       <select className="fa-edit-input" value={form.book_reason || HOLD_REASONS[0]} onChange={(e) => setF("book_reason", e.target.value)}>
                         {HOLD_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
                       </select>
+                      <label>Fair value less costs to sell (Rp)</label>
+                      <input type="number" min="0" value={form.fair_value} onChange={(e) => setF("fair_value", e.target.value)}
+                        placeholder={r.book_value != null ? String(Math.round(r.book_value)) : ""} />
+                      <div className="fac-note">
+                        Carrying amount {formatRupiahExact(r.book_value)}. Held at whichever is lower; a lower fair value is booked as a loss, a higher one books nothing until the sale.
+                      </div>
                     </>
                   )}
                   {t.action === "dispose" && (

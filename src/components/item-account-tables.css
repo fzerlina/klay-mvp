@@ -1,0 +1,30 @@
+/* Settings → Inventory: the item category account grid and the stock movement
+   table (ItemAccountTables.jsx). Built on the module-settings list (.mr-*,
+   company-settings.css). */
+
+.ia-matrix{align-items:center}
+.ia-matrix>:first-child{position:sticky;left:0;z-index:1;background:var(--color-surface-raised);box-shadow:-16px 0 0 var(--color-surface-raised)}
+.ia-matrix.mr-th>:first-child{background:var(--color-surface-sunken);box-shadow:-16px 0 0 var(--color-surface-sunken)}
+
+.ia-mv{grid-template-columns:minmax(200px,1fr) minmax(240px,1.1fr) minmax(240px,1.1fr)}
+.ia-warn{margin:0 0 10px}
+.ia-select{width:100%;margin-bottom:2px;font-family:var(--font-sans);font-size:12.5px;color:var(--color-text-primary);background:var(--color-surface-raised);border:1px solid var(--color-border-default);border-radius:var(--radius-sm);padding:7px 8px;outline:none}
+.ia-select:focus{border-color:var(--color-action)}
+.ia-none{color:var(--warning-text,#8A5A00)}
+.ia-changed{color:var(--warning-text,#8A5A00);font-weight:500}
+
+/* Settings → Fixed Assets → Book status (AssetJournalTables.jsx). */
+.ia-bs{grid-template-columns:minmax(150px,.8fr) minmax(150px,.9fr) minmax(300px,1.8fr) minmax(110px,.6fr)}
+.ia-dep{grid-template-columns:minmax(150px,.8fr) minmax(240px,1fr) minmax(240px,1fr)}
+.ia-jline{display:grid;grid-template-columns:24px minmax(0,1fr);gap:6px;align-items:start}
+.ia-jline+.ia-jline{margin-top:8px}
+.ia-side{padding-top:8px;font-size:11px;font-weight:700;color:var(--color-text-tertiary)}
+.ia-jacct{min-width:0}
+.ia-jnote{margin-top:8px}
+.ia-period{background:var(--color-surface-sunken)}
+.ia-period .ia-select{background:var(--color-surface-raised)}
+
+/* Posting accounts: a category's column header opens it. */
+.ia-colbtn{all:unset;cursor:pointer;color:var(--color-action);font:inherit;letter-spacing:inherit;text-transform:inherit}
+.ia-colbtn:hover{text-decoration:underline}
+.ia-colbtn:focus-visible{outline:2px solid var(--color-action);outline-offset:2px;border-radius:2px}

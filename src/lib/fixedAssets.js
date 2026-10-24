@@ -19,6 +19,7 @@
 // null.
 
 import { COA_BY_CODE } from "../data/seed/coa";
+import { DEFAULT_ACCOUNTS } from "../data/seed/defaultAccounts";
 import { ASSET_CATEGORIES, ASSET_ACCOUNT_ROWS } from "../data/seed/fixedAssets";
 
 // ── Labels ───────────────────────────────────────────────────────────────────
@@ -74,7 +75,7 @@ export const COMPUTATION_ORDER = ["constant_period", "no_prorata", "days_in_peri
 // One pill used to do three jobs and did none of them honestly. Split:
 //
 //   lifecycle           does this record exist at all?      draft / active / void
-//   book_status         what the ledger is doing            6 states, one journal each
+//   book_status         what the ledger is doing            5 states, one journal each
 //   operational_status  what is happening on the ground     6 states, ZERO ledger effect
 //
 // The split closes a real bug. The old pause reasons included "Under repair"
@@ -98,16 +99,21 @@ export const LIFECYCLE_META = {
 };
 export const LIFECYCLE_ORDER = ["draft", "active", "inactive"];
 
-// Michael's five, exactly. There is deliberately no "schedule stopped" state:
-// under PSAK 16 / IAS 16 an asset depreciates until it is derecognised or
-// reclassified as held for sale, so "on the books, never charging again" is
-// not a position the standard recognises. A discontinued asset that has not
-// been sold or scrapped keeps depreciating and is IDLE on the operational
-// axis — which is the whole reason that axis exists.
+// The five of the Journal Assets Register spec (Book Status Journal), exactly.
+// There is deliberately no "schedule stopped" state: under PSAK 16 / IAS 16 an
+// asset depreciates until it is derecognised or reclassified as held for sale,
+// so "on the books, never charging again" is not a position the standard
+// recognises. A discontinued asset that has not been sold or scrapped keeps
+// depreciating and is IDLE on the operational axis — which is the whole reason
+// that axis exists.
+//
+// Fully depreciated is the one state no event enters. It is DERIVED: an
+// in-service asset whose schedule has charged its whole depreciable value
+// reads as fully depreciated (withDerivedStatus), and posts no journal.
 export const BOOK_STATUS_ORDER = [
   "under_construction",
-  "capitalized_not_in_service",
   "in_service",
+  "fully_depreciated",
   "held_for_sale",
   "disposed",
 ];
@@ -115,8 +121,8 @@ export const BOOK_STATUS_ORDER = [
 // The tone drives the pill colour.
 export const BOOK_STATUS_TONE = {
   under_construction: "draft",
-  capitalized_not_in_service: "draft",
   in_service: "active",
+  fully_depreciated: "closed",
   held_for_sale: "paused",
   disposed: "closed",
 };
@@ -124,37 +130,33 @@ export const BOOK_STATUS_TONE = {
 // Generic labels — used for the register's tabs, which span all three types.
 export const BOOK_STATUS_LABELS = {
   under_construction: "Under construction",
-  capitalized_not_in_service: "Capitalized, not in service",
   in_service: "In service",
+  fully_depreciated: "Fully depreciated",
   held_for_sale: "Held for sale",
   disposed: "Disposed",
 };
 
 // A prepaid is never built and never marketed; an intangible is developed
 // rather than constructed and is derecognised rather than disposed of. Same
-// six states underneath — the vocabulary is what changes, so the dropdown
+// five states underneath — the vocabulary is what changes, so the dropdown
 // never offers a row an option that makes no sense for it.
 export const BOOK_STATUS_BY_TYPE = {
   fixed_asset: BOOK_STATUS_LABELS,
   prepaid: {
-    capitalized_not_in_service: "Not yet releasing",
     in_service: "Releasing",
+    fully_depreciated: "Fully released",
     disposed: "Written off",
   },
   intangible: {
     under_construction: "In development",
-    capitalized_not_in_service: "Not yet in use",
     in_service: "In use",
+    fully_depreciated: "Fully amortised",
     disposed: "Derecognised",
   },
 };
 
-// The display form. Only one state is long enough to matter — Michael's
-// "Capitalized, not in service" — and it was setting the width of every
-// control that shows a book status. The full wording is what the tooltip, the
-// Status card and the PRD use; this is what the pill and the dropdown show.
-// Nothing is renamed: one label has a short form.
-export const BOOK_STATUS_SHORT = { ...BOOK_STATUS_LABELS, capitalized_not_in_service: "Capitalized" };
+// The display form — the pill and the dropdown. Every label is already short.
+export const BOOK_STATUS_SHORT = { ...BOOK_STATUS_LABELS };
 
 export function bookStatusShort(asset) {
   // The prepaid and intangible wordings are already short, so only the
@@ -178,8 +180,8 @@ export function bookStatusLabel(asset) {
 // the screen says which ledger movement it means.
 export const BOOK_STATUS_LEDGER = {
   under_construction: "Cost accumulates in Construction in Progress. No depreciation.",
-  capitalized_not_in_service: "Cost sits in the asset account. Still no depreciation — the asset is not yet available for use.",
   in_service: "Depreciating. This is the only state that posts a periodic charge.",
+  fully_depreciated: "Fully charged. Still on the books at its salvage value; nothing more posts until it is held for sale or disposed of.",
   held_for_sale: "Reclassified out of PPE to a current-asset line. Depreciation stops; the duration extends by the length of the hold.",
   disposed: "Derecognised. Off the balance sheet, with a gain or loss against book value.",
 };
@@ -243,7 +245,6 @@ export const DISPOSAL_REASONS = ["Sold", "Scrapped", "Traded in", "Written off �
 
 export const BOOK_EVENT_LABELS = {
   created: "Created",
-  capitalized: "Capitalized",
   placed_in_service: "Placed in service",
   held_for_sale: "Reclassified — held for sale",
   returned_to_service: "Returned to service",
@@ -266,7 +267,7 @@ export function statusConflicts(asset) {
   const physical = asset.type === "fixed_asset";
   const charging = physical ? "depreciating" : "amortising";
 
-  if (op === "in_use" && (bs === "under_construction" || bs === "capitalized_not_in_service")) {
+  if (op === "in_use" && bs === "under_construction") {
     out.push({
       key: "in_use_not_in_service",
       tier: "review",
@@ -418,8 +419,8 @@ const GUARD = 2400;
 // own value (PRD §4, §A4.3): the final period always takes the exact
 // remainder, whichever method produced it.
 //
-// NO SERVICE DATE, NO SCHEDULE. An asset that is under construction or
-// capitalized-but-not-in-service has no rows at all, and the caller is told so
+// NO SERVICE DATE, NO SCHEDULE. An asset that is under construction has no
+// rows at all, and the caller is told so
 // explicitly (`not_in_service`) rather than being handed a column of zeroes —
 // §A4's "never a guess, never a bare zero" applied to a whole table.
 export function buildSchedule(asset, { closedThrough } = {}) {
@@ -577,6 +578,15 @@ export function summarizeSchedule(rows, { closedThrough } = {}) {
   };
 }
 
+// Fully depreciated is never stored: an in-service asset reads as fully
+// depreciated once its schedule has charged everything above salvage. What a
+// screen shows; events still act on the stored status.
+export function withDerivedStatus(asset, summary) {
+  return asset?.book_status === "in_service" && summary?.fully_depreciated
+    ? { ...asset, book_status: "fully_depreciated" }
+    : asset;
+}
+
 // The effective period for any bounded mutation (§6.1) — the first row the
 // close hasn't reached, never typed. Schedule-aware rather than a naive
 // calendar-month increment, since a yearly asset's next row may be many
@@ -622,23 +632,13 @@ export function scheduleLocked(asset, summary) {
   return { locked: false, reason: null };
 }
 
-// under_construction → capitalized_not_in_service. Cost moves out of CIP into
-// the category's own asset account. Still no depreciation.
-export function capitaliseGuard(asset) {
-  if (!asset) return { blocked: true, reason: "Asset not found." };
-  if (asset.lifecycle !== "active") return { blocked: true, reason: "Only an active record can be capitalized." };
-  if (asset.book_status !== "under_construction") {
-    return { blocked: true, reason: "Only an asset under construction can be capitalized — this one already carries its cost in the asset account." };
-  }
-  return { blocked: false, reason: null };
-}
-
-// → in_service. THE event: it sets the service date, and the service date is
-// what builds the schedule. Nothing depreciates before it.
+// under_construction → in_service. THE event: cost moves out of CIP into the
+// category's own asset account, and the service date it sets is what builds
+// the schedule. Nothing depreciates before it.
 export function placeInServiceGuard(asset, { targetPeriod, closedThrough } = {}) {
   if (!asset) return { blocked: true, reason: "Asset not found." };
   if (asset.lifecycle !== "active") return { blocked: true, reason: "Only an active record can be placed in service." };
-  if (!["under_construction", "capitalized_not_in_service"].includes(asset.book_status)) {
+  if (asset.book_status !== "under_construction") {
     return { blocked: true, reason: "This asset is already in service, or its life has ended." };
   }
   const reason = openPeriodReason(targetPeriod, closedThrough, "An in-service date");
@@ -646,13 +646,13 @@ export function placeInServiceGuard(asset, { targetPeriod, closedThrough } = {})
   return { blocked: false, reason: null };
 }
 
-// in_service → held_for_sale. The reclass out of PPE, and the only thing
-// short of disposal that stops a charge.
+// in_service (or fully_depreciated) → held_for_sale. The reclass out of PPE,
+// and the only thing short of disposal that stops a charge.
 export function holdForSaleGuard(asset) {
   if (!asset) return { blocked: true, reason: "Asset not found." };
   if (asset.lifecycle !== "active") return { blocked: true, reason: "Only an active record can be reclassified." };
-  if (asset.book_status !== "in_service") {
-    return { blocked: true, reason: "Only an in-service asset can be reclassified to held for sale — nothing else has a charge to stop." };
+  if (!["in_service", "fully_depreciated"].includes(asset.book_status)) {
+    return { blocked: true, reason: "Only an asset in service or fully depreciated can be reclassified to held for sale." };
   }
   if (!ASSET_CATEGORIES[asset.category]?.accounts?.held_for_sale) {
     return { blocked: true, reason: "This category has no held-for-sale account, so there is nowhere to reclassify the cost to." };
@@ -718,9 +718,9 @@ export function disposalGuard(asset, { targetPeriod, closedThrough } = {}) {
 // derived-status design is the one that matters: no book status changes
 // without an event, and no event lands in a closed period.
 //
-// Note what is absent. Nothing returns to `under_construction`, and nothing walks
-// back from `in_service` to `capitalized_not_in_service`. Un-starting depreciation
-// is not a status change, it is a reversal.
+// Note what is absent. Nothing returns to `under_construction` — un-starting
+// depreciation is not a status change, it is a reversal — and nothing moves an
+// asset into `fully_depreciated`: the schedule does that by running out.
 export function bookStatusTransitions(asset, { closedThrough } = {}) {
   if (!asset) return [];
   if (asset.lifecycle !== "active") return [];
@@ -729,7 +729,6 @@ export function bookStatusTransitions(asset, { closedThrough } = {}) {
   const backToService = asset.book_status === "held_for_sale";
 
   const defs = [
-    { to: "capitalized_not_in_service", action: "capitalise", guard: capitaliseGuard(asset) },
     {
       to: "in_service",
       action: backToService ? "return" : "service",
@@ -742,7 +741,8 @@ export function bookStatusTransitions(asset, { closedThrough } = {}) {
   ];
 
   return defs
-    .filter((d) => labels[d.to] && d.to !== asset.book_status)
+    .filter((d) => labels[d.to] && d.to !== asset.book_status
+      && !(d.to === "in_service" && asset.book_status === "fully_depreciated"))
     .map((d) => ({ to: d.to, action: d.action, label: labels[d.to], blocked: d.guard.blocked, reason: d.guard.reason }));
 }
 
@@ -771,16 +771,14 @@ export function disposalGainLoss(summary, proceeds) {
 // ── Journal detail (§7.2) — derived from the posted rows, never re-read from
 // the live asset record at reporting time (same discipline as the schedule
 // itself). Prepaid posts on a 2-account shape (§1/OQ6, no accumulated contra);
-// fixed_asset and intangible post the normal 3-account shape.
+// fixed_asset and intangible post the normal 3-account shape — both read from
+// DEPRECIATION_JOURNALS below.
 export function journalLines(asset, row) {
   const accts = Object.fromEntries(assetAccounts(asset).map((a) => [a.key, a]));
   const lines = [];
   if (row.charge) {
-    lines.push(
-      asset.type === "prepaid"
-        ? { debit: accts.expense, credit: accts.asset, amount: row.charge, note: "Periodic release" }
-        : { debit: accts.expense, credit: accts.accumulated, amount: row.charge, note: "Periodic charge" },
-    );
+    const j = DEPRECIATION_JOURNALS[asset.type] || DEPRECIATION_JOURNALS.fixed_asset;
+    lines.push({ debit: accts[j.debit], credit: accts[j.credit], amount: row.charge, note: asset.type === "prepaid" ? "Periodic release" : "Periodic charge" });
   }
   if (row.valueAdjustment) {
     // The correction is its own journal line, distinct from the periodic
@@ -795,33 +793,168 @@ export function journalLines(asset, row) {
   return lines;
 }
 
+// ── Book status journals (Journal Assets Register spec) ─────────────────────
+// What entering each book status posts, line by line, PER TYPE — a type only
+// lists the statuses it can reach (BOOK_STATUS_BY_TYPE), and each type's lines
+// are set apart, so changing an Asset line leaves Intangible's alone. A `role`
+// is one of the asset category's accounts (ASSET_ACCOUNT_ROWS) and is what
+// Settings → Fixed Assets → Book status lets someone change; a `source` is an
+// account the category doesn't hold (the bill's payable, the disposal's cash or
+// receivable) and is fixed. `amount` names the figure the line carries, from
+// the event's own `amounts`; `when` limits a line to one case.
+//
+// This is the LIVE registry, like MOVEMENT_ACCOUNTS: the settings page rewrites
+// a line's `role` through AccountingSettingsContext.setBookJournalRole, and
+// bookEventLines reads it at call time, so a change reaches the next event and
+// nothing already booked.
+//
+// The second In service pair (Dr Accumulated / Cr Expense) is in the spec with
+// no amount defined, so it is listed here and posts nothing until it has one.
+const capitalLines = () => ({
+  under_construction: [
+    { id: "uc-cip", side: "debit", role: "cip", amount: "cost" },
+    { id: "uc-bill", side: "credit", source: "bill", amount: "cost" },
+  ],
+  in_service: [
+    { id: "is-asset", side: "debit", role: "asset", amount: "cost", when: "from_cip" },
+    { id: "is-cip", side: "credit", role: "cip", amount: "cost", when: "from_cip" },
+    { id: "is-acc", side: "debit", role: "accumulated", amount: null },
+    { id: "is-exp", side: "credit", role: "expense", amount: null },
+  ],
+  fully_depreciated: [],
+  held_for_sale: [
+    { id: "hfs-hfs", side: "debit", role: "held_for_sale", amount: "held" },
+    { id: "hfs-acc", side: "debit", role: "accumulated", amount: "accumulated" },
+    { id: "hfs-loss", side: "debit", role: "loss", amount: "write_down", when: "loss" },
+    { id: "hfs-asset", side: "credit", role: "asset", amount: "cost" },
+  ],
+  disposed: [
+    { id: "d-cash", side: "debit", source: "proceeds", amount: "proceeds" },
+    { id: "d-acc", side: "debit", role: "accumulated", amount: "accumulated" },
+    { id: "d-loss", side: "debit", role: "loss", amount: "loss", when: "loss" },
+    { id: "d-asset", side: "credit", role: "asset", amount: "cost" },
+    { id: "d-gain", side: "credit", role: "gain", amount: "gain", when: "gain" },
+  ],
+});
+const intangibleLines = () => {
+  // Never held for sale — derecognised directly.
+  const { held_for_sale: _, ...rest } = capitalLines();
+  return rest;
+};
+export const BOOK_STATUS_JOURNALS = {
+  fixed_asset: capitalLines(),
+  intangible: intangibleLines(),
+  // A prepaid's cost reaches its own account from the bill and releases from
+  // there each period, so starting and running out post nothing. Writing it off
+  // expenses what is left, less any refund.
+  prepaid: {
+    in_service: [],
+    fully_depreciated: [],
+    disposed: [
+      { id: "p-cash", side: "debit", source: "proceeds", amount: "proceeds" },
+      { id: "p-exp", side: "debit", role: "expense", amount: "loss" },
+      { id: "p-asset", side: "credit", role: "asset", amount: "carrying" },
+    ],
+  },
+};
+
+// The periodic charge, per type — the spec's Depre/Amortization Journal.
+export const DEPRECIATION_JOURNALS = {
+  fixed_asset: { debit: "expense", credit: "accumulated" },
+  intangible: { debit: "expense", credit: "accumulated" },
+  prepaid: { debit: "expense", credit: "asset" },
+};
+
+// The rest of the spec's table: which accounts carry the asset in each status.
+export const BOOK_STATUS_ACCOUNTS_IN_USE = {
+  under_construction: ["cip"],
+  in_service: ["asset", "accumulated", "expense"],
+  fully_depreciated: ["asset", "accumulated"],
+  held_for_sale: ["held_for_sale"],
+  disposed: [],
+};
+export const JOURNAL_SOURCES = {
+  bill: { label: "AP / Cash", hint: "From the bill that carries the cost." },
+  proceeds: { label: "Cash / AR", hint: "Accounts receivable when the disposal names a customer, otherwise cash." },
+};
+export const JOURNAL_WHEN = {
+  from_cip: "If moved from Construction in Progress",
+  loss: "If a loss",
+  gain: "If a gain",
+};
+
+const lineAccount = (accts, line, amounts) => {
+  if (line.role) return accts[line.role] || null;
+  const code = line.source === "proceeds" ? (amounts.customer ? DEFAULT_ACCOUNTS.ar : DEFAULT_ACCOUNTS.cash) : null;
+  return code ? { key: line.source, code, name: COA_BY_CODE[code]?.name || code } : null;
+};
+const lineOf = (accts, line, amounts, amount, note) => ({ side: line.side, account: lineAccount(accts, line, amounts), amount, note });
+
 // ── Book-event journals ─────────────────────────────────────────────────────
 // Michael's rule for the axes is that a book-status change moves the ledger
 // and an operational one does not. That rule is only checkable if the screen
 // shows which movement each event means, so every book event carries its own
-// lines. Placing in service and stopping a schedule move nothing — they change
-// what the NEXT period charges — and returning an empty list is the honest
-// answer for them.
+// lines — one per debit or credit, from BOOK_STATUS_JOURNALS. The figures come
+// from the event (`amounts`, recorded when it was booked); a seed event that
+// predates them falls back to the summary passed in.
 export function bookEventLines(asset, event, summary) {
   const accts = Object.fromEntries(assetAccounts(asset).map((a) => [a.key, a]));
-  const value = summary?.current_value ?? asset.first_value ?? 0;
-  const accumulated = summary?.accumulated || 0;
+  const cost = event?.amounts?.cost ?? summary?.current_value ?? asset.first_value ?? 0;
+  const accumulated = event?.amounts?.accumulated ?? summary?.accumulated ?? 0;
+  const carrying = event?.amounts?.carrying ?? cost - accumulated;
+  const out = (lines) => lines.filter((l) => l.amount > 0 && l.account);
+  const reg = BOOK_STATUS_JOURNALS[asset.type] || BOOK_STATUS_JOURNALS.fixed_asset;
+  const pick = (status, id) => (reg[status] || []).find((l) => l.id === id);
 
   switch (event?.event) {
-    case "capitalized":
-      if (!accts.cip?.code) return [];
-      return [{ debit: accts.asset, credit: accts.cip, amount: value, note: "Cost moves out of construction in progress" }];
-    case "held_for_sale":
-      if (!accts.held_for_sale?.code) return [];
-      return [
-        { debit: accts.held_for_sale, credit: accts.asset, amount: value, note: "Reclassified out of PPE at cost" },
-        accumulated
-          ? { debit: accts.accumulated, credit: accts.held_for_sale, amount: accumulated, note: "Accumulated depreciation follows the reclass" }
-          : null,
-      ].filter(Boolean);
-    case "returned_to_service":
-      if (!accts.held_for_sale?.code) return [];
-      return [{ debit: accts.asset, credit: accts.held_for_sale, amount: value, note: "Reclassified back into PPE" }];
+    case "placed_in_service": {
+      if (event.from !== "under_construction") return [];
+      return out((reg.in_service || []).filter((l) => l.when === "from_cip" && l.amount)
+        .map((l) => lineOf(accts, l, {}, cost, "Cost moves out of construction in progress")));
+    }
+    case "held_for_sale": {
+      if (!reg.held_for_sale) return [];
+      const held = event.amounts?.held ?? carrying;
+      const amounts = { held, accumulated, write_down: event.amounts?.write_down ?? 0, cost };
+      const notes = { held: "Reclassified at the lower of carrying amount and fair value less costs to sell", accumulated: "Accumulated depreciation is cleared", write_down: "Written down to fair value less costs to sell", cost: "Out of PPE at cost" };
+      return out(reg.held_for_sale.map((l) => lineOf(accts, l, amounts, amounts[l.amount], notes[l.amount])));
+    }
+    case "returned_to_service": {
+      if (!reg.held_for_sale) return [];
+      // The reclass undone: cost back into PPE, accumulated depreciation (and
+      // any write-down, now carried as part of it) restored, Held for Sale cleared.
+      const held = event.amounts?.held ?? carrying;
+      const writeDown = event.amounts?.write_down ?? 0;
+      return out([
+        lineOf(accts, { side: "debit", role: pick("held_for_sale", "hfs-asset").role }, {}, cost, "Back into PPE at cost"),
+        lineOf(accts, { side: "credit", role: pick("held_for_sale", "hfs-acc").role }, {}, accumulated + writeDown, "Accumulated depreciation restored"),
+        lineOf(accts, { side: "credit", role: pick("held_for_sale", "hfs-hfs").role }, {}, held, "Held for sale cleared"),
+      ]);
+    }
+    case "disposed": {
+      const a = event.amounts || {};
+      const proceeds = a.proceeds ?? asset.disposal?.proceeds ?? 0;
+      const amounts = { customer: a.customer ?? asset.disposal?.customer ?? null };
+      const gl = proceeds - carrying;
+      const fromHeld = event.from === "held_for_sale";
+      const gain = Math.max(0, gl);
+      const loss = Math.max(0, -gl);
+      if (fromHeld && reg.held_for_sale) {
+        // Out of Held for Sale the cost and its depreciation already left PPE:
+        // what goes is the held amount, credited to Held for Sale.
+        return out([
+          lineOf(accts, pick("disposed", "d-cash"), amounts, proceeds, "Proceeds"),
+          lineOf(accts, pick("disposed", "d-loss"), amounts, loss, "Loss on disposal"),
+          lineOf(accts, { side: "credit", role: pick("held_for_sale", "hfs-hfs").role }, amounts, carrying, "Held for sale derecognised"),
+          lineOf(accts, pick("disposed", "d-gain"), amounts, gain, "Gain on disposal"),
+        ]);
+      }
+      const figures = { proceeds, accumulated, loss, cost, gain, carrying };
+      const notes = asset.type === "prepaid"
+        ? { proceeds: "Refund", loss: "What is left is expensed", carrying: "Prepaid written off" }
+        : { proceeds: "Proceeds", accumulated: "Accumulated depreciation is cleared", loss: "Loss on disposal", cost: "Derecognised at cost", gain: "Gain on disposal" };
+      return out((reg.disposed || []).map((l) => lineOf(accts, l, amounts, figures[l.amount], notes[l.amount])));
+    }
     default:
       return [];
   }

@@ -2,7 +2,6 @@ import "./modules.css";
 import "./invoices-ledger.css";
 import "./settings-pages.css";
 import "./roles-users.css";
-import { Link } from "react-router-dom";
 import SettingsHeader, { RECONCILIATION_TABS } from "../components/SettingsHeader";
 import { ReconciliationSection } from "./AccountingPreferencesPage";
 import { useModuleSettings } from "../state/ModuleSettingsContext";
@@ -11,8 +10,8 @@ import { useCurrentUser } from "../state/CurrentUserContext";
 
 // Settings → Reconciliation. How big a gap To match may treat as a bank fee,
 // and the accounts a manual reconciliation may book a difference to. Where
-// reconciliation books bank charges, interest and the tax on interest is set
-// in Accounting → Default accounts, the one place for company-wide defaults.
+// reconciliation books bank charges, interest and the tax on interest is a
+// company-wide default (seed/defaultAccounts.js), with no settings page.
 
 const BANK_NAMES = { BCA: "BCA", MDR: "Mandiri", BNI: "BNI", CIMB: "CIMB Niaga", BRI: "BRI", PERMATA: "Permata" };
 const fmtRp = (n) => `Rp ${Number(n || 0).toLocaleString("id-ID")}`;
@@ -21,7 +20,7 @@ export default function ReconciliationSettingsPage() {
   const { feeTolerance, setFeeTolerance } = useModuleSettings();
   const track = useFieldAudit("Reconciliation", "Reconciliation");
   const { hasCapability } = useCurrentUser();
-  const canEdit = hasCapability("coa.manage");
+  const canEdit = hasCapability("settings.posting_rules.manage");
   const setBank = (bank, v) => setFeeTolerance({ ...feeTolerance, byBank: { ...feeTolerance.byBank, [bank]: Number(v.replace(/\D/g, "")) || 0 } });
 
   return (
@@ -30,11 +29,7 @@ export default function ReconciliationSettingsPage() {
         <SettingsHeader
           title="Reconciliation"
           tabs={RECONCILIATION_TABS}
-          intro={<>
-            How much difference bank reconciliation tolerates, and where a manual match may book it. The accounts
-            it drafts bank charges and interest to are in{" "}
-            <Link to="/settings/default-accounts#reconciliation" className="ru-inline-link">Default accounts</Link>.
-          </>}
+          intro="How much difference bank reconciliation tolerates, and where a manual match may book it."
         />
 
         <section className="ap-section">
@@ -66,7 +61,7 @@ export default function ReconciliationSettingsPage() {
         </section>
 
         <ReconciliationSection />
-        {!canEdit && <p className="mr-ro">Read only — changing these needs the <em>Manage Chart of Accounts</em> capability.</p>}
+        {!canEdit && <p className="mr-ro">Read only — changing these needs the <em>Manage posting rules</em> capability.</p>}
         <div style={{ height: 40 }} />
       </div>
     </div>

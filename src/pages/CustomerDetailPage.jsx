@@ -13,8 +13,8 @@ import "./vendor-detail.css";
 // independent credit-hold flag, a section grid, an Invoices tab, version history,
 // and an Audit log. Lifecycle/approval/hold actions are capability-gated:
 // Submit is the maker action (ar transact); Approve / Reject / Deactivate /
-// Reactivate / Credit hold / Release are the approver control (ar.post — Finance
-// Manager + Accounting Manager). SoD: the AR Staff who onboards can't approve.
+// Reactivate / Credit hold / Release are the approver control (ar.customer.approve
+// — Finance Manager and CFO). SoD: the AR Staff who onboards can't approve.
 
 // Two independent axes: lifecycle (draft/active/inactive) and approval.
 const STATUS = {
@@ -66,8 +66,8 @@ export default function CustomerDetailPage() {
 
   const customer = customerById(id);
 
-  // Approver control (ar.post = Finance Manager + Accounting Manager).
-  const canApprove = hasCapability("ar.post");
+  // Approver control (ar.customer.approve = Finance Manager + CFO).
+  const canApprove = hasCapability("ar.customer.approve");
   const canInvoice = hasLevel("ar", "transact");
 
   const [tab, setTab] = useState("overview");
@@ -232,7 +232,7 @@ export default function CustomerDetailPage() {
         {awaitingApproval && (
           <div className="vd-alert info">
             <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></svg>
-            <div><strong>Pending approval.</strong> This customer is usable to create invoices, but stays blocking at posting until approved. {canApprove ? "Review the details, then Approve — or Reject to send it back." : "An approver (Finance Manager or Accounting Manager) signs it off."}</div>
+            <div><strong>Pending approval.</strong> This customer is usable to create invoices, but stays blocking at posting until approved. {canApprove ? "Review the details, then Approve — or Reject to send it back." : "An approver (Finance Manager or CFO) signs it off."}</div>
           </div>
         )}
         {customer.on_hold && (

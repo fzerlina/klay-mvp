@@ -129,29 +129,72 @@ export const ITEMS = [
 ];
 
 // ── Accounting reference (read-only in Item Master) ──────────────────────────
-// The eight-account set per category, configured once in settings and shown
+// The thirteen-account set per category, configured once in settings and shown
 // read-only on the item. Values are Chart-of-Accounts codes (seed/coa.js); the
 // detail page resolves each to its account name. `null` means the account does
-// not apply to the category — a Service holds no inventory and none in transit.
+// not apply to the category — a Service holds no stock, so none of the stock
+// accounts (transit, receipts, returns to vendor, counts) apply to it.
+//
+// Each stocked category holds its stock in its own Inventory account. The rest
+// follow the Mapping Account spec, which is also what a stock movement posts to
+// (inventorySubledger.js, MOVEMENT_ACCOUNTS): 21500 GRNI, 11450 Goods In
+// Transit, 51100 COGS, 62100 Factory Supplies Expense for stock used inside the
+// company. A Service keeps its own revenue and cost accounts.
 //
 // This is also why a category change is governed: it moves the item's Inventory
 // GL account, and stock already posted to the old one has to be reclassified —
 // a journal entry, which belongs to the Inventory Sub-Ledger, not here.
+const stockAccounts = (inventory) => ({
+  inventory, goods_in_transit:"11450", gdni:"1-1390", grni:"21500",
+  purchase_return:"5-2100", inventory_adjustment:"5-1500", inventory_damage:"5-2200", inventory_loss:"5-2300",
+  cogs:"51100", expense:"62100",
+});
+const NO_STOCK = {
+  inventory:null, goods_in_transit:null, gdni:null, grni:null,
+  purchase_return:null, inventory_adjustment:null, inventory_damage:null, inventory_loss:null,
+};
+const SALES_OFFSETS = { sales_return:"4-3100", sales_discount:"4-3200" };
+
 export const ITEM_CATEGORY_ACCOUNTS = {
-  raw_material:   { inventory:"1-3100", sales:"4-1200", sales_return:"4-3100", sales_discount:"4-3200", goods_in_transit:"1-5200", cogs:"5-1100", purchase_return:"5-1500", grni:"2-1200" },
-  finished_goods: { inventory:"1-3300", sales:"4-1100", sales_return:"4-3100", sales_discount:"4-3200", goods_in_transit:"1-5200", cogs:"5-1100", purchase_return:"5-1500", grni:"2-1200" },
-  supplies:       { inventory:"1-3100", sales:"4-2300", sales_return:"4-3100", sales_discount:"4-3200", goods_in_transit:"1-5200", cogs:"5-1100", purchase_return:"5-1500", grni:"2-1200" },
-  packaging:      { inventory:"1-3100", sales:"4-1300", sales_return:"4-3100", sales_discount:"4-3200", goods_in_transit:"1-5200", cogs:"5-1900", purchase_return:"5-1500", grni:"2-1200" },
-  service:        { inventory:null,     sales:"4-1500", sales_return:"4-3100", sales_discount:"4-3200", goods_in_transit:null,     cogs:"5-1700", purchase_return:null,     grni:null     },
+  raw_material:   { ...stockAccounts("1-1300"), sales:"4-1200", ...SALES_OFFSETS },
+  finished_goods: { ...stockAccounts("1-1310"), sales:"4-1100", ...SALES_OFFSETS },
+  supplies:       { ...stockAccounts("1-1320"), sales:"4-2300", ...SALES_OFFSETS },
+  packaging:      { ...stockAccounts("1-1330"), sales:"4-1300", ...SALES_OFFSETS },
+  service:        { ...NO_STOCK,                sales:"4-1500", ...SALES_OFFSETS, cogs:"5-1700", expense:"5-1700" },
 };
 
+// The taxes a line for an item in the category starts with — on a bill
+// (purchase VAT, withholding) or an invoice (sales VAT). Tax codes from
+// seed/taxCodes.js, each booking to its own account. `null` withholding means
+// none. A Service is where PPh 23 is withheld.
+const GOODS_TAXES = { purchase_vat: "ppn_masukan", sales_vat: "ppn_keluaran", withholding: null };
+export const ITEM_CATEGORY_TAXES = {
+  raw_material:   { ...GOODS_TAXES },
+  finished_goods: { ...GOODS_TAXES },
+  supplies:       { ...GOODS_TAXES },
+  packaging:      { ...GOODS_TAXES },
+  service:        { ...GOODS_TAXES, withholding: "pph23" },
+};
+export const ITEM_TAX_ROWS = [
+  ["purchase_vat", "Purchase VAT"],
+  ["sales_vat",    "Sales VAT"],
+  ["withholding",  "Withholding"],
+];
+
+// In the order they're shown — on the item and in Settings → Items → Default
+// accounts.
 export const ITEM_ACCOUNT_ROWS = [
-  ["inventory",        "Inventory"],
-  ["sales",            "Sales"],
-  ["sales_return",     "Sales Return"],
-  ["sales_discount",   "Sales Discount"],
-  ["goods_in_transit", "Goods In Transit"],
-  ["cogs",             "COGS Account"],
-  ["purchase_return",  "Purchase Return"],
-  ["grni",             "Goods Received Not Invoiced"],
+  ["inventory",            "Inventory"],
+  ["goods_in_transit",     "Goods In Transit"],
+  ["gdni",                 "Goods Delivered Not Invoiced"],
+  ["grni",                 "Goods Received Not Invoiced"],
+  ["sales",                "Sales"],
+  ["sales_return",         "Sales Return"],
+  ["sales_discount",       "Sales Discount"],
+  ["cogs",                 "COGS Account"],
+  ["purchase_return",      "Purchase Return"],
+  ["inventory_adjustment", "Inventory Adjustment"],
+  ["inventory_damage",     "Inventory Damage Expense"],
+  ["inventory_loss",       "Inventory Loss Expense"],
+  ["expense",              "Expense"],
 ];

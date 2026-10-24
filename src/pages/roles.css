@@ -226,3 +226,7 @@
 .rl-vlist li > div > span:last-child{font-size:11px;color:var(--color-text-tertiary)}
 
 
+
+/* A Delete inside an edit dialog sits apart, on the left. */
+.rl-modal-actions .rl-modal-delete{margin-right:auto;color:var(--danger-text)}
+.rl-modal-actions .rl-modal-delete[disabled]{opacity:.45;cursor:not-allowed}

@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
-  ACCOUNTING_TABS, COMPANY_TABS, USERS_TABS, PAYABLES_TABS, RECEIVABLES_TABS,
-  INVENTORY_TABS, FIXED_ASSETS_TABS, RECONCILIATION_TABS, DEFAULT_ACCOUNTS_TABS, inTabs,
+  ACCOUNTING_TABS, COMPANY_TABS, USERS_TABS,
+  ITEMS_TABS, FIXED_ASSETS_TABS, RECONCILIATION_TABS, inTabs,
 } from "./SettingsHeader";
 import { useCurrentUser, PERSONAS } from "../state/CurrentUserContext";
 import { ROLES } from "../data/seed/roles";
@@ -260,13 +260,12 @@ const navSections = [
 // Settings. Company, Users & Roles and Approval are company-wide links. The
 // rest is one foldable Accounting group: the General Ledger setup (chart of
 // accounts, dimensions, tax, bank accounts, preferences), one page per
-// module in the order of the main menu, and Default accounts — the accounts
-// every module pre-fills, across all of them. Each entry is a tabbed page, lit on
+// module in the order of the main menu. Each entry is a tabbed page, lit on
 // any of its tabs; the group opens by itself on any of its pages.
 const SECTION_TABS = {
   company: COMPANY_TABS, users: USERS_TABS, ledger: ACCOUNTING_TABS,
-  payables: PAYABLES_TABS, receivables: RECEIVABLES_TABS, fixedAssets: FIXED_ASSETS_TABS,
-  inventory: INVENTORY_TABS, reconciliation: RECONCILIATION_TABS, defaultAccounts: DEFAULT_ACCOUNTS_TABS,
+  fixedAssets: FIXED_ASSETS_TABS,
+  itemSettings: ITEMS_TABS, reconciliation: RECONCILIATION_TABS,
 };
 const settingsSections = [
   {
@@ -297,12 +296,9 @@ const settingsSections = [
     icon: <svg viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>,
     items: [
       { key: "ledger", label: "General Ledger", to: "/chart-of-accounts" },
-      { key: "payables", label: "Payables", to: "/settings/payables" },
-      { key: "receivables", label: "Receivables", to: "/settings/receivables" },
       { key: "fixedAssets", label: "Fixed Assets", to: "/settings/fixed-assets" },
-      { key: "inventory", label: "Inventory", to: "/settings/inventory" },
+      { key: "itemSettings", label: "Items", to: "/settings/items" },
       { key: "reconciliation", label: "Reconciliation", to: "/settings/reconciliation" },
-      { key: "defaultAccounts", label: "Default accounts", to: "/settings/default-accounts" },
     ],
   },
 ];

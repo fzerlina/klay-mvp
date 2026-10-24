@@ -1,0 +1,23 @@
+/* Settings → General Ledger → Locations (LocationCards.jsx): one card per
+   top-level location, its sub-locations nested inside. Section frame and
+   modal come from company-settings.css and roles.css. */
+
+.loc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+.loc-card{display:flex;flex-direction:column;gap:8px;padding:14px 16px;background:var(--color-surface-raised);border:1px solid var(--color-border-default);border-radius:var(--radius-md);min-width:0}
+.loc-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.loc-name{font-size:14px;font-weight:600;color:var(--color-text-primary)}
+.loc-addr{margin-top:2px;font-size:12px;line-height:1.45;color:var(--color-text-tertiary)}
+.loc-count{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--color-text-tertiary)}
+
+/* Each level indents under a rule, so a deeper level reads as nested. */
+.loc-children{list-style:none;margin:0;padding:0 0 0 10px;border-left:2px solid var(--color-border-subtle);display:flex;flex-direction:column}
+.loc-node .loc-children{margin:2px 0 4px 6px}
+.loc-sub{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 0;font-size:12.5px;color:var(--color-text-primary);min-width:0}
+.loc-sub>span:first-child{overflow-wrap:anywhere}
+
+.loc-acts{display:flex;gap:10px;flex-shrink:0}
+.loc-act{background:none;border:0;padding:0;font-family:var(--font-sans);font-size:12px;font-weight:600;color:var(--color-action);cursor:pointer}
+.loc-act:hover{text-decoration:underline}
+.loc-act.danger{color:var(--danger-text)}
+.loc-act[disabled]{opacity:.4;cursor:not-allowed;text-decoration:none}
+.loc-add{align-self:flex-start;margin-top:2px}

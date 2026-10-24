@@ -385,8 +385,8 @@ export default function ItemDetailPage() {
                   </div>
                 ))}
                 <div className="imd-ro-note">
-                  Resolved from the item’s category, not set per item — editable in Item Category
-                  Settings. Changing the category moves the Inventory account, and stock already posted
+                  Resolved from the item’s category, not set per item — editable in Settings → Items →
+                  Default accounts. Changing the category moves the Inventory account, and stock already posted
                   to the old one has to be reclassified: that reclassification is a journal entry owned
                   by the Inventory Sub-Ledger.
                 </div>
@@ -397,7 +397,7 @@ export default function ItemDetailPage() {
                 <div className="imd-ro-note">
                   Shown here for reference only — <strong>applied by the Inventory Sub-Ledger, not by this
                   page</strong>. It decides how a movement OUT is valued and nothing else. Company-wide
-                  policy, set in <Link to="/settings/inventory/costing" className="imd-je">Settings › Inventory</Link>.
+                  policy.
                 </div>
               </div>
             </div>

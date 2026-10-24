@@ -3,7 +3,8 @@ import { useInventorySubledger, todayIso } from "../state/InventorySubledgerCont
 import { useJournalEntries } from "../state/JournalEntriesContext";
 import { useAccountingSettings } from "../state/AccountingSettingsContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
-import { MOVEMENT_REASONS, movementJournalLines } from "../lib/inventorySubledger";
+import { MOVEMENT_REASONS, movementAccounts, movementJournalLines } from "../lib/inventorySubledger";
+import { COA } from "../data/seed/coa";
 import { itemUnits } from "../lib/itemMaster";
 import { formatRupiahExact } from "../lib/format";
 import "./record-movement.css";
@@ -31,6 +32,7 @@ export function useStockJournal() {
 }
 
 const NEW_LOC = "__new__";
+const ACCOUNTS = COA.filter((a) => a.code && a.is_active).sort((a, b) => a.code.localeCompare(b.code));
 
 // ── Record movement ─────────────────────────────────────────────────────────
 // The only way stock changes. Pick a location the item already has (or name a
@@ -55,6 +57,7 @@ export default function RecordMovementModal({ item: fixedItem, items = [], onClo
   const [date, setDate] = useState(todayIso());
   const [reason, setReason] = useState(MOVEMENT_REASONS.in[0]);
   const [unitCost, setUnitCost] = useState("");
+  const [account, setAccount] = useState("");   // the other side, for Other
   const [note, setNote] = useState("");
   const [tried, setTried] = useState(false);
 
@@ -79,14 +82,17 @@ export default function RecordMovementModal({ item: fixedItem, items = [], onClo
 
   const before = st?.by_location.find((l) => l.loc === loc.trim())?.qty || 0;
   const after = before + (preview.row?.unit || 0);
-  const lines = preview.row && item ? movementJournalLines(item, preview.row) : [];
+  // Where the books go — from the item's category, or the account picked for Other.
+  const posting = item ? movementAccounts(item, { unit: direction === "in" ? 1 : -1, reason, account }) : null;
+  const blocked = posting?.missing.length > 0;
+  const lines = preview.row && item ? movementJournalLines(item, { ...preview.row, reason, account }) : [];
   const currentCost = st?.current_unit_cost != null ? Math.round(st.current_unit_cost) : null;
 
   function submit() {
     setTried(true);
-    if (!preview.ok) return;
+    if (!preview.ok || blocked) return;
     const verb = direction === "in" ? "Increase" : "Decrease";
-    const je = draftJournal(item, [preview.row], `Stock ${verb.toLowerCase()} — ${item.name}, ${loc.trim()} (${reason})`);
+    const je = draftJournal(item, [{ ...preview.row, reason, account }], `Stock ${verb.toLowerCase()} — ${item.name}, ${loc.trim()} (${reason})`);
     const res = recordMovement(item, {
       loc, direction, qty, date, unit_cost: unitCost, method: inventoryCostingMethod,
       reason, note, by: user.name, je_number: je,
@@ -146,7 +152,7 @@ export default function RecordMovementModal({ item: fixedItem, items = [], onClo
         <div className="rm-row2">
           <div className="rm-fld">
             <label>Reason</label>
-            <select value={reason} onChange={(e) => setReason(e.target.value)}>
+            <select value={reason} onChange={(e) => { setReason(e.target.value); setAccount(""); }}>
               {MOVEMENT_REASONS[direction].map((r) => <option key={r}>{r}</option>)}
             </select>
           </div>
@@ -164,6 +170,17 @@ export default function RecordMovementModal({ item: fixedItem, items = [], onClo
             </span>
           </div>
         </div>
+
+        {reason === "Other" && (
+          <div className="rm-fld">
+            <label>{direction === "in" ? "Credit account" : "Debit account"}</label>
+            <select value={account} onChange={(e) => setAccount(e.target.value)}>
+              <option value="">Pick the account…</option>
+              {ACCOUNTS.map((a) => <option key={a.code} value={a.code}>{a.code} · {a.name}</option>)}
+            </select>
+            <span className="rm-hint">The other side of Inventory — Other has no account of its own.</span>
+          </div>
+        )}
 
         <textarea className="vd-modal-reason" placeholder="Note (optional) — e.g. count sheet #14, pallet water damage" value={note} onChange={(e) => setNote(e.target.value)} />
 
@@ -196,10 +213,16 @@ export default function RecordMovementModal({ item: fixedItem, items = [], onClo
         {(tried || preview.row) && !preview.ok && (
           <div className="rm-error">{preview.error}</div>
         )}
+        {(tried || preview.row) && preview.ok && blocked && (
+          <div className="rm-error">
+            {posting.missing.join(" ")}
+            {posting.missing.some((m) => m.includes(" has no ")) && " Set it in Settings → Inventory → Item categories."}
+          </div>
+        )}
 
         <div className="vd-modal-actions">
           <button className="vd-btn" onClick={onClose}>Cancel</button>
-          <button className="vd-btn primary" onClick={submit} disabled={tried && !preview.ok}>Record movement</button>
+          <button className="vd-btn primary" onClick={submit} disabled={tried && (!preview.ok || blocked)}>Record movement</button>
         </div>
       </div>
     </div>

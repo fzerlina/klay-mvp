@@ -238,7 +238,7 @@ export default function ApprovalSettingsPage() {
             <div>
               <h2 className="apv-sec-title">Who can approve</h2>
               <p className="apv-sec-sub">
-                Everyone holding <code className="apv-cap">payment.approve</code>, and the ceiling on what
+                Everyone holding <code className="apv-cap">ap.payment.authorize</code>, and the ceiling on what
                 each may authorise. A band says how many signatures; a limit says whose signature counts —
                 two approvals from two people who each stop at Rp 100 jt do not release Rp 2 miliar.
               </p>

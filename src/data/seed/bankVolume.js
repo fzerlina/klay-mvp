@@ -46,7 +46,7 @@ const HOLIDAYS = new Set(["2025-04-18"]);
 // seed's journals run to JE-2025-03xx, bill postings to JE-2025-12xx, and new
 // journals count up from there — so simulated records sit at 7xxx–9xxx.
 const PROFILES = {
-  "bca-op":     { gl: "1-1300", glName: "Bank — BCA Operating",     refBase: 7000, receipts: [12, 18], payments: [7, 11], payRange: [2e6, 150e6], qris: true,  bills: true },
+  "bca-op":     { gl: "1-1500", glName: "Bank — BCA Operating",     refBase: 7000, receipts: [12, 18], payments: [7, 11], payRange: [2e6, 150e6], qris: true,  bills: true },
   "mandiri-op": { gl: "1-1400", glName: "Bank — Mandiri Operating", refBase: 8000, receipts: [5, 8],   payments: [3, 6],  payRange: [2e6, 120e6], qris: false, bills: false },
   "bni-op":     { gl: "1-1410", glName: "Bank — BNI Operating",     refBase: 9000, receipts: [2, 4],   payments: [1, 3],  payRange: [2e6, 90e6],  qris: false, bills: false },
 };

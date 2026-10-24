@@ -29,6 +29,7 @@ import { flagSummary } from "./reviewWorkflow";
 import { buildAgingLines, isDecisionQueueRow } from "./apAging";
 import { computeApCloseSummary, computeBankRecon } from "../data/seed/apClose";
 import { TODAY } from "./clock";
+import { payModeFor } from "./paymentStage";
 
 const sum = (arr, f) => arr.reduce((s, x) => s + (f(x) || 0), 0);
 const todayKey = () => TODAY.toISOString().slice(0, 10);
@@ -44,7 +45,7 @@ function billsTasks(ctx) {
   const { bills, closedThrough, autoAssignLateBills, hasCapability } = ctx;
   const canDraft = hasCapability("ap.transact");   // AP Staff owns the data
   const canApprove = hasCapability("ap.approve");  // Finance Manager
-  const canPost = hasCapability("ap.post");         // Accounting Manager + FM
+  const canPost = hasCapability("ap.post");         // CFO + FM
   const g = { group: "bills", groupLabel: "Bills", groupTo: "/bills" };
   const out = [];
 
@@ -96,10 +97,7 @@ function billsTasks(ctx) {
 // off the AP Aging decision queue (POSTED-only). Mirrors ApAgingPage payMode.
 function paymentTasks(ctx) {
   const { agingLines, requestStatusOf, hasCapability, payments = {} } = ctx;
-  const payMode = hasCapability("payment.approve") ? "approve"
-    : hasCapability("payment.request") ? "request"
-    : hasCapability("payment.execute") ? "execute"
-    : "view";
+  const payMode = payModeFor(hasCapability);
   if (payMode === "view") return [];
   const g = { group: "payments", groupLabel: "Payments", groupTo: "/payments" };
   const out = [];
@@ -132,7 +130,7 @@ function paymentTasks(ctx) {
     }
   }
 
-  // Finance Staff — settle the overdue first.
+  // CFO — settle the overdue first.
   if (payMode === "execute") {
     const overdue = queue.filter((l) => l.daysOverdue > 0 && requestStatusOf(l.id) === "approved");
     if (overdue.length) {
@@ -182,7 +180,7 @@ function journalTasks(ctx) {
     severity: "action", to: "/journal-entry", cta: "Review" }];
 }
 
-// Bank · Reconciliation — statement lines still to reconcile (Finance Staff).
+// Bank · Reconciliation — statement lines still to reconcile (AP Staff).
 function bankTasks(ctx) {
   const { hasCapability, reconOverlay } = ctx;
   if (!hasCapability("bank.reconcile")) return [];

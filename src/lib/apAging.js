@@ -274,7 +274,7 @@ export function isAgingTableRow(line) {
 //   approve (Finance Mgr)  — being the bottleneck / rubber-stamping big
 //                            payments → OLDEST REQUEST first (time waiting on
 //                            me), then overdue depth, then balance.
-//   execute (Finance Staff)— an approved payment slipping past due → DUE/
+//   execute (CFO)— an approved payment slipping past due → DUE/
 //                            OVERDUE first, then time-since-approved.
 //   view (read-only)       — analytical → overdue depth, then balance.
 
