@@ -169,7 +169,9 @@ const JOURNAL_SECTIONS = [
 // One capability, bank.reconcile, covers the whole page: matching and
 // reconciling lines, and posting the journals reconciliation writes (bank
 // charges and interest, booked differences, quick drafts). It does not need
-// gl.post — those journals exist only to explain a bank line.
+// gl.post — those journals exist only to explain a bank line. Quick draft
+// alone is also open to bank.quick_draft (Finance Manager): it posts the
+// journal, but matching and reconciling it still needs bank.reconcile.
 // `postBlock(row)` says why this person can't post this particular journal, or
 // null: only the capability — Enforced and Relaxed segregation of duties treat
 // the page alike.
@@ -717,6 +719,7 @@ export default function BankReconciliationPage() {
   // bank.reconcile covers matching and posting alike (see Perm above).
   const canMatch = hasCapability("bank.reconcile");
   const canPost = canMatch;
+  const canQuickDraft = canMatch || hasCapability("bank.quick_draft");
   const { entries: jeEntries, addJournalEntry, peekNextJeNumber } = useJournalEntries();
   const { payments: allPayments, recordPayment } = usePayments();
   const { bills, updateBill } = useBills();
@@ -1179,7 +1182,9 @@ export default function BankReconciliationPage() {
     setSelLines(new Set([line.id]));
     setSelRecords(new Set([record.id]));
     setQuickFor(null);
-    showToast(`${record.ref} posted — it's ticked on the Klay side. Reconcile to finish.`);
+    showToast(canMatch
+      ? `${record.ref} posted — it's ticked on the Klay side. Reconcile to finish.`
+      : `${record.ref} posted — it's waiting on the Klay side for whoever reconciles the bank.`);
   }
 
   function onMatchLater() {
@@ -1404,7 +1409,7 @@ export default function BankReconciliationPage() {
                 onToggleLine={toggleIn(setSelLines)}
                 onToggleRecord={toggleIn(setSelRecords)}
                 onSetLines={(ids) => setSelLines(new Set(ids))}
-                canQuickDraft={perm.canMatch}
+                canQuickDraft={canQuickDraft}
                 onQuickDraft={(l) => setQuickFor(l)}
               />
             ) : (
@@ -1556,7 +1561,7 @@ export default function BankReconciliationPage() {
           bills={bills}
           invoices={invoices}
           paymentHistoryOf={(id) => allPayments[id]?.history || []}
-          canPost={perm.canPost}
+          canPost={canQuickDraft}
           onPost={onQuickPost}
           onClose={() => setQuickFor(null)}
         />
