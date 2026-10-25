@@ -357,23 +357,6 @@ RECONCILIATION["JE-2025-0230"] = "matched";
 RECONCILIATION["JE-2025-0256"] = "matched";
 RECONCILIATION["JE-2025-0257"] = "matched";
 
-// Anomaly flags for the AI to surface. One curated entry — the largest
-// payroll accrual gets flagged as unusually high.
-const ANOMALY_JE = "JE-2025-0137";
-export const ANOMALY_FLAGS = ANOMALY_JE ? { [ANOMALY_JE]: 1 } : {};
-export const ANOMALIES = ANOMALY_JE ? {
-  [ANOMALY_JE]: {
-    type: "warn",
-    flag: "Unusually high value",
-    detail: "Monthly payroll accrual exceeds the trailing 3-month average by more than 15%.",
-    grid: [
-      { label: "3-month average", val: "Rp 138.500.000" },
-      { label: "Current",          val: "Rp 162.000.000" },
-      { label: "Variance",         val: "+17.0%" },
-    ],
-  },
-} : {};
-
 // FX-rate metadata for entries booked against foreign-currency invoices.
 // Empty by default — re-run leaves this empty unless we curate it.
 export const KURS = {};

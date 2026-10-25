@@ -2,16 +2,11 @@
 // page reads as the list it is:
 //   • ReturnDialog     — send a pending entry back to its preparer, with why
 //   • ReverseDialog    — reverse a posted entry on a chosen date
-//   • RecurringDialog  — turn an entry's lines into a monthly template
-//   • TemplatesDrawer  — the templates that feed the Scheduled tab
 
 import { useState } from "react";
 import { firstOfNextMonth, reversalDateCheck } from "../lib/journalLifecycle";
 import { formatDate } from "../lib/format";
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const monthLabel = (ym) => (ym ? `${MONTHS[parseInt(ym.slice(5, 7), 10) - 1]} ${ym.slice(0, 4)}` : "");
-const fmtRp = (n) => (n ? Math.round(n).toLocaleString("id-ID") : "0");
 
 function Shell({ title, sub, children, onClose, onConfirm, confirmLabel, disabled, danger }) {
   return (
@@ -85,106 +80,5 @@ export function ReverseDialog({ je, closedThrough, onClose, onConfirm }) {
         ledger, marked as reversed — a posted entry is never edited or deleted.
       </p>
     </Shell>
-  );
-}
-
-export function RecurringDialog({ je, firstOpen, onClose, onConfirm }) {
-  const nextOf = (ym) => { const [y, m] = ym.split("-").map(Number); return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`; };
-  const [name, setName] = useState(je.memo.replace(/ — \w{3} \d{4}$/, ""));
-  const [day, setDay] = useState("last");
-  const [start, setStart] = useState(() => {
-    const after = nextOf(je.je_date.slice(0, 7));
-    return firstOpen && after < firstOpen ? firstOpen : after;
-  });
-  const [end, setEnd] = useState("");
-  const [autoReverse, setAutoReverse] = useState(!!je.auto_reverse);
-  const bad = !name.trim() || !start || (end && end < start);
-  return (
-    <Shell
-      title="Make recurring"
-      sub={`From ${je.je_number} · ${je.lines.length} lines`}
-      onClose={onClose}
-      onConfirm={() => onConfirm({ name: name.trim(), day, start, end: end || null, auto_reverse: autoReverse })}
-      confirmLabel="Create template"
-      disabled={bad}
-    >
-      <label className="dje-field">
-        <span className="dje-field-lbl">Template name</span>
-        <input className="dje-input" value={name} onChange={(e) => setName(e.target.value)} />
-      </label>
-      <div className="jad-row">
-        <label className="dje-field">
-          <span className="dje-field-lbl">Posts on</span>
-          <select className="dje-input" value={day} onChange={(e) => setDay(e.target.value)}>
-            <option value="last">Last day of the month</option>
-            {[1, 5, 10, 15, 20, 25].map((d) => <option key={d} value={String(d)}>Day {d}</option>)}
-          </select>
-        </label>
-        <label className="dje-field">
-          <span className="dje-field-lbl">First month</span>
-          <input type="month" className="dje-input" value={start} onChange={(e) => setStart(e.target.value)} />
-        </label>
-        <label className="dje-field">
-          <span className="dje-field-lbl">Last month (optional)</span>
-          <input type="month" className="dje-input" value={end} onChange={(e) => setEnd(e.target.value)} />
-        </label>
-      </div>
-      <label className="dje-check">
-        <input type="checkbox" checked={autoReverse} onChange={(e) => setAutoReverse(e.target.checked)} />
-        <span><strong>Reverse each one on the 1st of the next month</strong><span className="dje-hint">The usual shape of an accrual.</span></span>
-      </label>
-      <p className="jad-note">
-        Each month from {monthLabel(start) || "—"} gets a Scheduled entry with these lines. It posts without a second
-        approval — this template is the approval.
-      </p>
-    </Shell>
-  );
-}
-
-export function TemplatesDrawer({ templates, onClose, onToggle, onRemove }) {
-  return (
-    <>
-      <div className="drawer-overlay" onClick={onClose} />
-      <div className="drawer">
-        <div className="drawer-head">
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div className="drawer-title">Recurring templates</div>
-            <div className="drawer-sub">{templates.length} template{templates.length === 1 ? "" : "s"} · each drafts a Scheduled entry every month</div>
-          </div>
-          <button className="drawer-close" onClick={onClose} aria-label="Close">
-            <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-          </button>
-        </div>
-        <div className="drawer-body">
-          {templates.length === 0 && <div className="jad-note">No templates yet. Use “Make recurring” on an entry to create one.</div>}
-          {templates.map((t) => {
-            const amount = t.lines.reduce((s, l) => s + (l.debit || 0), 0);
-            return (
-              <div key={t.id} className={`jad-tpl${t.active ? "" : " paused"}`}>
-                <div className="jad-tpl-top">
-                  <div style={{ minWidth: 0 }}>
-                    <div className="jad-tpl-name">{t.name}</div>
-                    <div className="jad-tpl-meta">
-                      {t.day === "last" ? "Last day" : `Day ${t.day}`} · {monthLabel(t.start)} → {t.end ? monthLabel(t.end) : "no end"}
-                      {t.auto_reverse ? " · auto-reverses" : ""} · Rp {fmtRp(amount)}
-                    </div>
-                  </div>
-                  <span className={`badge ${t.active ? "badge-scheduled" : "badge-draft"}`}>{t.active ? "Active" : "Paused"}</span>
-                </div>
-                <div className="jad-tpl-lines">
-                  {t.lines.map((l, i) => (
-                    <div key={i}><span className="jad-code">{l.account_code}</span> {l.account_name} <span className="jad-amt">{l.debit ? `Dr ${fmtRp(l.debit)}` : `Cr ${fmtRp(l.credit)}`}</span></div>
-                  ))}
-                </div>
-                <div className="jad-tpl-actions">
-                  <button className="drawer-btn ghost" onClick={() => onToggle(t)}>{t.active ? "Pause" : "Resume"}</button>
-                  <button className="drawer-btn ghost" onClick={() => onRemove(t)}>Delete</button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </>
   );
 }

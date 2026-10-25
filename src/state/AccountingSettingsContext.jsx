@@ -52,6 +52,9 @@ export function AccountingSettingsProvider({ children }) {
   // for a company that asks (GKB, Oct 2026) — reversing is the standard
   // correction. Read-only here.
   const journalDeletion = !!COMPANY.journalDeletionEnabled;
+  // Whether an approver may post a manual journal they prepared, up to a limit
+  // (Accounting → Preferences → Self-posting). Off by default.
+  const [selfPost, setSelfPost] = useState(() => ({ ...COMPANY.selfPost }));
   // Day of the following month by which a month's books close (Accounting →
   // Preferences → Closing).
   const [closeCutoffDay, setCloseCutoffDay] = useState(COMPANY.closeCutoffDay);
@@ -108,6 +111,7 @@ export function AccountingSettingsProvider({ children }) {
       bookJournals, setBookJournalRole, depreciationJournals, setDepreciationRole,
       sodMode, setSodMode,
       journalDeletion,
+      selfPost, setSelfPost,
       closeCutoffDay, setCloseCutoffDay,
       journalTemplates, saveJournalTemplate, deleteJournalTemplate,
       baseCurrency: COMPANY.baseCurrency, fiscalYearStart, setFiscalYearStart, timezone, setTimezone,
@@ -115,7 +119,7 @@ export function AccountingSettingsProvider({ children }) {
     [inventoryCostingMethod, assetDepreciationMethod, reconDifferenceAccounts, reconcilableAccounts, toggleReconcilable, defaultAccounts,
       setDefaultAccount, movementAccounts, setMovementAccount,
       bookJournals, setBookJournalRole, depreciationJournals, setDepreciationRole, sodMode,
-      journalDeletion, closeCutoffDay, journalTemplates, saveJournalTemplate, deleteJournalTemplate, fiscalYearStart, timezone],
+      journalDeletion, selfPost, closeCutoffDay, journalTemplates, saveJournalTemplate, deleteJournalTemplate, fiscalYearStart, timezone],
   );
   return (
     <AccountingSettingsContext.Provider value={value}>

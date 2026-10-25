@@ -2,7 +2,6 @@ import { createContext, useContext, useMemo, useState, useCallback } from "react
 import { JOURNAL_ENTRIES as SEED_JES } from "../data/seed/journalEntries";
 import { PAYMENT_HISTORY_JES } from "../data/seed/paymentHistory";
 import { LEDGER_BACKFILL_JES } from "../data/seed/ledgerBackfill";
-import { RECURRING_TEMPLATES } from "../data/seed/recurringJournals";
 import { TODAY } from "../lib/clock";
 
 const JournalEntriesContext = createContext(null);
@@ -58,21 +57,12 @@ export function JournalEntriesProvider({ children }) {
   const stagePendingDraft = useCallback((draft) => setPendingDraft(draft), []);
   const clearPendingDraft = useCallback(() => setPendingDraft(null), []);
 
-  // Recurring templates (seed/recurringJournals.js). Each active one drafts a
-  // Scheduled entry per open month on the Journal Entry page.
-  const [templates, setTemplates] = useState(() => RECURRING_TEMPLATES);
-  const addTemplate = useCallback((tpl) => setTemplates((prev) => [...prev, tpl]), []);
-  const updateTemplate = useCallback((id, patch) => setTemplates((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t))), []);
-  const removeTemplate = useCallback((id) => setTemplates((prev) => prev.filter((t) => t.id !== id)), []);
-
   const value = useMemo(
     () => ({
       entries, addJournalEntry, updateJournalEntry, peekNextJeNumber,
       pendingDraft, stagePendingDraft, clearPendingDraft,
-      templates, addTemplate, updateTemplate, removeTemplate,
     }),
-    [entries, addJournalEntry, updateJournalEntry, peekNextJeNumber, pendingDraft, stagePendingDraft, clearPendingDraft,
-      templates, addTemplate, updateTemplate, removeTemplate],
+    [entries, addJournalEntry, updateJournalEntry, peekNextJeNumber, pendingDraft, stagePendingDraft, clearPendingDraft],
   );
 
   return <JournalEntriesContext.Provider value={value}>{children}</JournalEntriesContext.Provider>;

@@ -45,7 +45,9 @@ export const COA = [
   { id: '11120', code: '11120', name: 'Bank Foreign Currency',           type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-cash',  level: 3, is_active: true },
 
   { id: 'g-ar',             type: 'group', level: 2, parent: 'g-current-asset',   label: 'Trade Receivables' },
-  { id: '1-2100', code: '1-2100', name: 'Accounts Receivable — Trade',   type: 'asset',         normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-ar', level: 3, is_active: true },
+  // Control account fed only by invoices, so it always ties to the AR aging:
+  // a manual journal can't post here (lib/journalLifecycle.js manualPostBlock).
+  { id: '1-2100', code: '1-2100', name: 'Accounts Receivable — Trade',   type: 'asset',         normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-ar', level: 3, is_active: true, manual_post: false, posted_by_module: 'AR' },
   { id: '1-2200', code: '1-2200', name: 'Allowance for Doubtful Accounts', type: 'contra_asset', normal_balance: 'credit', fs: 'BS', section: 'Current Asset', parent: 'g-ar', level: 3, is_active: true },
   { id: '1-2300', code: '1-2300', name: 'Other Receivables',             type: 'asset',         normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-ar', level: 3, is_active: true },
 
@@ -111,7 +113,7 @@ export const COA = [
   { id: 'g-liab',           type: 'group', level: 0,                              label: 'Liabilities' },
   { id: 'g-current-liab',   type: 'group', level: 1, parent: 'g-liab',            label: 'Current Liabilities' },
   { id: 'g-trade-payable',  type: 'group', level: 2, parent: 'g-current-liab',    label: 'Trade Payables' },
-  { id: '2-1100', code: '2-1100', name: 'Accounts Payable — Trade',      type: 'liability', normal_balance: 'credit', fs: 'BS', section: 'Current Liability', parent: 'g-trade-payable', level: 3, is_active: true },
+  { id: '2-1100', code: '2-1100', name: 'Accounts Payable — Trade',      type: 'liability', normal_balance: 'credit', fs: 'BS', section: 'Current Liability', parent: 'g-trade-payable', level: 3, is_active: true, manual_post: false, posted_by_module: 'AP' },
   // Other Payables — what the company owes outside the Bills module (hand-
   // written journals, the previous system's carry-over). Trade AP above is a
   // control account fed only by bills, so it always ties to the AP aging.
@@ -258,6 +260,17 @@ export function getAccountGroups() {
 
 export function getActiveAccounts() {
   return COA.filter((node) => Boolean(node.code) && node.is_active !== false);
+}
+
+// An account's groups, top-down below the root ("Current Assets › Trade
+// Receivables"), so a picker can show where it sits in the chart. A top-level
+// account (Retained Earnings under Equity) shows its root.
+const GROUP_BY_ID = Object.fromEntries(COA.filter((n) => n.type === 'group').map((g) => [g.id, g]));
+export function accountPath(acct) {
+  const chain = [];
+  for (let g = GROUP_BY_ID[acct?.parent]; g; g = GROUP_BY_ID[g.parent]) chain.unshift(g);
+  const below = chain.filter((g) => g.level > 0);
+  return (below.length ? below : chain).map((g) => g.label);
 }
 
 // Map of code → account, for fast lookups by JE lines / Trial Balance.

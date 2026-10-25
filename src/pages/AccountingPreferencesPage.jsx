@@ -21,6 +21,7 @@ import "./roles.css";
 // rather than getting their own page.
 //   • Basics — base currency, fiscal year, time zone (set at company creation)
 //   • Posting — auto-assign late bills to the open period
+//   • Self-posting — whether an approver may post their own manual journal
 //   • Closing — the day of the next month each month's books close by
 //   • Delete journals — by JE number; only when Klay has turned it on
 // Costing method and reconciliation difference accounts moved to their module
@@ -310,6 +311,78 @@ function PostingSection() {
   );
 }
 
+// Whether whoever approves journals (the Finance Manager) may post a manual
+// journal they prepared, and up to what total (agreed 25 Oct 2026). Off by
+// default. Edited only with Set SoD mode (Admin), so an approver can't widen
+// their own limit — roles.js forbids raising your own ceiling.
+const parseRp = (s) => parseInt(String(s).replace(/[^\d]/g, ""), 10) || 0;
+
+function SelfPostingSection() {
+  const { selfPost, setSelfPost } = useAccountingSettings();
+  const { log } = useSettingsAudit();
+  const canEdit = useCurrentUser().hasCapability("settings.sod.mode");
+  const [limitText, setLimitText] = useState(selfPost.limit.toLocaleString("id-ID"));
+  const fmt = (n) => `Rp ${n.toLocaleString("id-ID")}`;
+
+  function toggle() {
+    log("General Ledger", "Preferences", `Self-posting of manual journals: ${selfPost.enabled ? "off" : `on, up to ${fmt(selfPost.limit)}`}`);
+    setSelfPost({ ...selfPost, enabled: !selfPost.enabled });
+  }
+  function commitLimit() {
+    const next = parseRp(limitText);
+    setLimitText(next.toLocaleString("id-ID"));
+    if (!next || next === selfPost.limit) { setLimitText(selfPost.limit.toLocaleString("id-ID")); return; }
+    log("General Ledger", "Preferences", `Self-posting limit: ${fmt(selfPost.limit)} → ${fmt(next)}`);
+    setSelfPost({ ...selfPost, limit: next });
+  }
+
+  return (
+    <Section id="self-posting" title="Self-posting">
+      <div className="pp-setting-card">
+        <div className="pp-setting-main">
+          <div className="pp-setting-text">
+            <div className="pp-setting-title">Let approvers post their own manual journals</div>
+            <p className="pp-setting-desc">
+              Normally whoever prepares a manual journal can&rsquo;t post it — someone else approves it. Turn this on for a
+              lean team where the Finance Manager has nobody to hand small entries to. Each self-posted journal is marked
+              <strong> Self-posted</strong> on Journal Entry and recorded in its audit trail.
+            </p>
+            <p className="pp-setting-note">
+              Applies to manual journals only, never to entries from bills, invoices, payments or bank reconciliation.
+              Only an Admin can change this.
+            </p>
+          </div>
+          <button type="button" role="switch" aria-checked={selfPost.enabled} aria-label="Self-posting"
+            className={`pp-switch${selfPost.enabled ? " on" : ""}`} disabled={!canEdit} onClick={toggle}>
+            <span className="pp-switch-knob" />
+          </button>
+        </div>
+        <div className="pp-setting-pad" style={{ paddingTop: 0 }}>
+          <div className="cp-grid ap-basics">
+            <label className="cp-field">
+              <span>Up to (entry total)</span>
+              <input
+                inputMode="numeric"
+                value={limitText}
+                disabled={!canEdit}
+                onChange={(e) => setLimitText(e.target.value.replace(/[^\d.]/g, ""))}
+                onBlur={commitLimit}
+                onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+              />
+              <em>In Rupiah. Larger entries still go to someone else.</em>
+            </label>
+          </div>
+        </div>
+        <div className={`pp-setting-status${selfPost.enabled ? " on" : ""}`}>
+          {selfPost.enabled
+            ? `On — an approver can post their own manual journal up to ${fmt(selfPost.limit)}.`
+            : "Off — preparer and approver are always two people."}
+        </div>
+      </div>
+    </Section>
+  );
+}
+
 // Shown on Settings → Inventory → Costing.
 export function InventorySection() {
   const { inventoryCostingMethod, setInventoryCostingMethod } = useAccountingSettings();
@@ -500,10 +573,11 @@ export default function AccountingPreferencesPage() {
         <SettingsHeader
           title="General Ledger"
           tabs={ACCOUNTING_TABS}
-          intro="Company-wide accounting choices: the basics set at company creation, how late bills post, and when each month's books close."
+          intro="Company-wide accounting choices: the basics set at company creation, how late bills post, who may post their own journals, and when each month's books close."
         />
         <BasicsSection />
         <PostingSection />
+        <SelfPostingSection />
         <ClosingSection />
         {journalDeletion && <DeleteJournalsSection />}
         <div style={{ height: 40 }} />

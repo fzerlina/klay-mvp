@@ -129,10 +129,10 @@ export function computeJournalInsights(entries) {
 }
 
 // ── "Your Tasks" rail (mirrors computeBillsInsights / computeInvoiceTasks) ──
-// `rows` are the derived JE rows (status may be auto/anomaly; debit/credit
+// `rows` are the derived JE rows (debit/credit
 // pre-summed). `role` scopes the queue, same contract as the other ledgers:
 //   "operator" — FM/Admin: approval + supervisory queue
-//   "preparer" — Bookkeeper: their prep queue (anomalies, AI drafts, drafts to post)
+//   "preparer" — Bookkeeper: their prep queue (drafts to post)
 //   "viewer"   — view-only roles: read-only GL analytics, no action framing
 // Each task: { id, node (JSX), cta (button label), question (chat seed) }.
 export function computeJournalTasks(rows, role = "operator") {
@@ -140,8 +140,6 @@ export function computeJournalTasks(rows, role = "operator") {
   const amtC = (r) => (r.credit != null ? r.credit : entryCredit(r));
   const sum = (list) => list.reduce((s, r) => s + amt(r), 0);
 
-  const anomalies = rows.filter((r) => r.status === "anomaly");
-  const autoDrafts = rows.filter((r) => r.status === "auto");
   const drafts = rows.filter((r) => r.status === "draft");
   const pending = rows.filter((r) => r.status === "pending");
   const posted = rows.filter((r) => r.status === "posted");
@@ -163,29 +161,6 @@ export function computeJournalTasks(rows, role = "operator") {
     .sort((a, b) => b.amount - a.amount)[0];
 
   // ── Reusable task/insight builders ──────────────────────────────────────
-  const anomalyTask = anomalies.length > 0 ? {
-    id: "anomaly",
-    node: (
-      <>
-        <strong className="lg-ai-strong">{anomalies.length} journal{anomalies.length === 1 ? "" : "s"}</strong>{" "}
-        flagged by Klay — <span className="lg-ai-danger">review before posting</span>.
-      </>
-    ),
-    cta: "Review",
-    question: "Which journals did Klay flag as anomalies?",
-  } : null;
-
-  const autoTask = autoDrafts.length > 0 ? {
-    id: "auto",
-    node: (
-      <>
-        <strong className="lg-ai-strong">{autoDrafts.length} journal{autoDrafts.length === 1 ? "" : "s"}</strong>{" "}
-        Klay auto-prepared — confirm &amp; post.
-      </>
-    ),
-    cta: "Review",
-    question: "Show me the journals Klay auto-prepared",
-  } : null;
 
   const draftTask = drafts.length > 0 ? {
     id: "drafts",
@@ -276,11 +251,11 @@ export function computeJournalTasks(rows, role = "operator") {
 
   // ── Bookkeeper (preparer): their prep queue ─────────────────────────────
   if (role === "preparer") {
-    const prep = [anomalyTask, autoTask, draftTask].filter(Boolean);
+    const prep = [draftTask].filter(Boolean);
     if (prep.length === 0) {
       prep.push({
         id: "empty",
-        node: <>Your journal queue is clear — no flags, AI drafts, or unposted drafts waiting.</>,
+        node: <>Your journal queue is clear — no unposted drafts waiting.</>,
         cta: "View",
         question: "What's in my journal queue right now?",
       });
@@ -305,8 +280,6 @@ export function computeJournalTasks(rows, role = "operator") {
   // ── FM/Admin (operator): approval + supervisory queue (default) ─────────
   const tasks = [
     pendingTask,
-    anomalyTask,
-    autoTask,
     draftTask,
     balanceInsight,
     largestPendingInsight,
@@ -477,8 +450,7 @@ export function makeJournalAiContext(entries) {
   function pickMatching(t) {
     const lower = t.toLowerCase();
     let list = entries;
-    if (/\bauto\b/.test(lower)) list = list.filter(e => e.status === "auto");
-    else if (/\bdrafts?\b/.test(lower)) list = list.filter(e => e.status === "draft");
+    if (/\bdrafts?\b/.test(lower)) list = list.filter(e => e.status === "draft");
     else if (/\bpending\b/.test(lower)) list = list.filter(e => e.status === "pending");
     else if (/\bposted\b/.test(lower)) list = list.filter(e => e.status === "posted");
     else if (/\bvoided?\b/.test(lower)) list = list.filter(e => e.status === "void");

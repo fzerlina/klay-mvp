@@ -33,6 +33,11 @@ export const COMPANY = {
   // Deleting posted journals — a backend switch Klay sets on request, never in
   // the app. On for this demo company so Preferences shows Delete journals.
   journalDeletionEnabled: true,
+  // Whether people who approve journals (the Finance Manager) may post a
+  // manual journal they prepared themselves, and up to what total (Settings →
+  // General Ledger → Preferences → Self-posting). Off by default: preparer and
+  // approver are two people. Agreed 25 Oct 2026.
+  selfPost: { enabled: false, limit: 10_000_000 },
 };
 
 export const MONTHS = [

@@ -167,7 +167,7 @@
 .lg-footer-draft-split{font-weight:400;font-size:11.5px;color:var(--color-text-tertiary);font-style:italic;margin-left:2px}
 /* Journal entry grid — balanced ledger columns */
 .lg-card.lg-table-je .lg-row,
-.lg-card.lg-table-je .lg-col-header{grid-template-columns:30px 100px 130px 1fr 50px 140px 140px 90px 30px}
+.lg-card.lg-table-je .lg-col-header{grid-template-columns:30px 100px 130px 1fr 96px 140px 140px 90px 30px}
 /* General Ledger grid — per-line ledger rows with rekon col */
 .lg-card.lg-table-gl .lg-row,
 .lg-card.lg-table-gl .lg-col-header{grid-template-columns:90px 110px 50px 1fr 120px 120px 130px 70px 30px}
@@ -454,6 +454,10 @@
 /* JE row description cell — 2-line variant for AI rows */
 .je-desc-cell{min-width:0;display:flex;flex-direction:column;gap:2px;justify-content:center;overflow:hidden}
 .je-desc-memo{font-size:12px;color:var(--color-text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.35}
+.je-sys-chip{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:9999px;background:var(--color-surface-sunken);border:1px solid var(--color-border-default);color:var(--color-text-secondary);font-size:10px;font-weight:700;vertical-align:1px}
+.je-title-row .je-sys-chip,.jed-title-row .je-sys-chip{margin-left:0}
+.je-stale-chip{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:9999px;background:#FBF0F0;border:1px solid #F0CFCF;color:#A02020;font-size:10px;font-weight:700;vertical-align:1px}
+.je-self-chip{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:9999px;background:#FFF3DC;border:1px solid #EED7A6;color:#8A5A12;font-size:10px;font-weight:700;vertical-align:1px}
 .je-desc-ai{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--color-brand);font-style:italic;overflow:hidden;line-height:1.3}
 .je-desc-ai svg{width:9px;height:9px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linejoin:round;stroke-linecap:round;flex-shrink:0}
 .je-desc-ai-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -774,8 +778,12 @@
 .je-audit-head{font-size:12.5px;color:var(--color-text-primary)}
 .je-audit-date{font-size:11px;color:var(--color-text-tertiary)}
 .je-audit-note{margin-top:3px;font-size:12px;color:var(--color-text-secondary);font-style:italic}
-.je-tpl-btn{margin-left:auto;align-self:center;display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:8px;border:1px solid var(--color-border-default);background:var(--color-surface-raised);font-family:var(--font-sans);font-size:11.5px;font-weight:600;color:var(--color-text-secondary);cursor:pointer}
-.je-tpl-btn:hover{border-color:var(--color-border-strong);color:var(--color-text-primary)}
-.je-tpl-btn svg{width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:2}
+/* Source column + the All sources / Manual quick view (Journal Entry list) */
+.je-src-cell{display:flex;align-items:center;min-width:0}
+.je-src{display:inline-block;padding:2px 8px;border-radius:9999px;font-size:10.5px;font-weight:600;white-space:nowrap;background:var(--color-surface-sunken);color:var(--color-text-secondary);border:1px solid var(--color-border-subtle)}
+.je-src-manual{background:var(--color-action-wash);color:var(--color-action);border-color:transparent}
+.je-srcview{margin-left:auto;align-self:center;display:inline-flex;padding:2px;border-radius:8px;border:1px solid var(--color-border-default);background:var(--color-surface-sunken)}
+.je-srcview-btn{border:none;background:transparent;padding:4px 10px;border-radius:6px;font-family:var(--font-sans);font-size:11.5px;font-weight:600;color:var(--color-text-secondary);cursor:pointer}
+.je-srcview-btn.on{background:var(--color-surface-raised);color:var(--color-text-primary);box-shadow:0 1px 2px rgba(8,7,6,.08)}
 
 /* Journal Entry: a posted entry waiting for its deletion to be approved */

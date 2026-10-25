@@ -1,84 +1,22 @@
 import { useState, useMemo, useEffect, useRef } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useJournalEntries } from "../state/JournalEntriesContext";
+import { useClosePeriod } from "../state/ClosePeriodContext";
+import { isClosedDate } from "../lib/journalLifecycle";
 import { useCurrentUser } from "../state/CurrentUserContext";
-import { useAssets } from "../state/AssetsContext";
-import { scheduledEntries } from "../lib/scheduledJournals";
-import { nextPeriod } from "../lib/fixedAssets";
 import {
-  canEdit, canSubmit, canApprove as canApproveEntry, canReturn, canVoid, canReverse,
-  isSystemEntry, reversibleHere, withEvent, buildReversal, isoOf,
-} from "../lib/journalLifecycle";
-import { ReturnDialog, ReverseDialog, RecurringDialog, TemplatesDrawer } from "./JeActionDialogs";
+  fmtRp, STATUS_LABEL, STATUS_BADGE_CLASS, ACTION_ICON, KlaySparkleIcon, useJournalRows, useJournalActions,
+  JE_SOURCES, JE_SOURCE_LABEL, entrySource,
+} from "./journalEntryShared";
 import { TODAY } from "../lib/clock";
 import { formatDate } from "../lib/format";
 import AiChatDrawer from "./AiChatDrawer";
 import SummaryDrawer from "./SummaryDrawer";
 import ReconReviewModal, { RECON_TOTAL, RECON_MATCHED, RECON_UNMATCHED } from "../components/ReconReviewModal";
 import { computeJournalTasks, makeJournalAiContext } from "./ai-journal-context";
-import DraftJournalModal from "./DraftJournalModal";
-import { DIM_BY_KEY, paletteFor, dimensionsForAccount, sampleDimensionValue } from "../data/seed/dimensions";
-import { COA_BY_CODE } from "../data/seed/coa";
 import "./modules.css";
 import "./invoices-ledger.css";
 import { useAccountingSettings } from "../state/AccountingSettingsContext";
-
-function fmtRp(n) {
-  if (n == null) return "—";
-  return n.toLocaleString("id-ID", { maximumFractionDigits: 0 });
-}
-
-function lineSums(je) {
-  let debit = 0, credit = 0;
-  for (const l of je.lines) {
-    debit += l.debit || 0;
-    credit += l.credit || 0;
-  }
-  return { debit, credit };
-}
-
-const STATUS_LABEL = { posted: "Posted", draft: "Draft", pending: "Pending", void: "Void", auto: "Auto", anomaly: "Anomaly", scheduled: "Scheduled", deleted: "Deleted" };
-const STATUS_BADGE_CLASS = { posted: "approved", draft: "draft", pending: "review", void: "rejected", auto: "auto", anomaly: "anomaly", scheduled: "scheduled", deleted: "rejected" };
-
-const AUTO_PROCESSED_COUNT = 8;
-const ANOMALY_COUNT = 4;
-
-function generateAnomaly(je, idx) {
-  const accountName = je.lines[0]?.account_name || "this account";
-  const amt = (je.lines[0]?.debit || je.lines[0]?.credit || 0) / 1e6;
-  const templates = [
-    `Unusual amount: Rp ${amt.toFixed(1)} jt is 3.2× typical for ${accountName} in this period.`,
-    `Possible duplicate — same memo + amount as a JE booked 2 days ago.`,
-    `PO total doesn't match the bill — Rp ${(amt * 0.86).toFixed(1)} jt vs Rp ${amt.toFixed(1)} jt (14% variance).`,
-    `Recurring pattern broken — no prior JE in ${accountName} in the last 90 days.`,
-  ];
-  return templates[idx % templates.length];
-}
-
-function generateAiSummary(je) {
-  const memo = (je.memo || "").toLowerCase();
-  const n = je.lines.length;
-  const conf = 90 + (parseInt(je.je_number.slice(-2), 10) % 9);
-  if (memo.includes("payroll")) {
-    return `Matched ${n} payroll lines to April register · Dr Salary Expense / Cr Bank · totals tie to Rp ${(je.lines[0]?.debit / 1e6 || 0).toFixed(1)} jt net pay. ${conf}% match to prior month.`;
-  }
-  if (memo.includes("inventory") || memo.includes("goods")) {
-    return `Reconciled GRN to PO + vendor bill · Dr Inventory / Cr AP · quantities and prices match the PO line items. ${conf}% confidence.`;
-  }
-  if (memo.includes("depreciation")) {
-    return `Straight-line depreciation across ${n} asset accounts per schedule · monthly amount unchanged from prior period. ${conf}% match to schedule.`;
-  }
-  if (memo.includes("interest") || memo.includes("loan")) {
-    return `Bank interest charge tied to loan schedule · period and rate match · Dr Interest Expense / Cr Bank.`;
-  }
-  if (memo.includes("bank") || memo.includes("service charge")) {
-    return `Bank service fee from statement · auto-classified to bank charges based on description pattern. ${conf}% match.`;
-  }
-  if (memo.includes("revenue") || memo.includes("sales") || memo.includes("invoice")) {
-    return `Revenue from customer invoice batch · Dr AR / Cr Revenue + Cr PPN Output · taxable line items reconciled to invoice totals.`;
-  }
-  return `Reconciled ${n} lines against source documents · debits tie to credits · ${conf}% match to historical pattern.`;
-}
 
 // ── Klay command bar: intent + filter parsing (mock; replace with LLM later) ──
 const JE_REF_RE = /^JE-\d{4}-\d{4}$/i;
@@ -126,41 +64,35 @@ function klayChipLabel(key, val) {
   return String(val);
 }
 
-function JeRow({ r, isChecked, onCheck, onClick, onKebab, isSelected, isAlt }) {
-  const isAuto = r.status === "auto";
-  const isAnomaly = r.status === "anomaly";
+function JeRow({ r, isChecked, onCheck, onClick, onKebab, isSelected, isAlt, closedThrough }) {
+  // A pending entry dated in a closed period can't be approved until it is
+  // re-dated (PRD §6) — say so on the row, not only in a tooltip.
+  const stale = r.status === "pending" && isClosedDate(r.je_date, closedThrough);
   return (
-    <div className={`lg-row${isSelected ? " selected" : ""}${isAlt ? " alt" : ""}${isAuto ? " auto" : ""}${isAnomaly ? " anomaly" : ""}`} onClick={onClick}>
+    <div className={`lg-row${isSelected ? " selected" : ""}${isAlt ? " alt" : ""}`} onClick={onClick}>
       <div onClick={(e) => e.stopPropagation()}>
         <input type="checkbox" className="lg-row-check" checked={isChecked} onChange={() => onCheck(r.je_number)} />
       </div>
       <div className="lg-cell-date">{formatDate(r.je_date)}</div>
       <div className="lg-cell-no">{r.je_number}</div>
       <div className="je-desc-cell">
-        <div className="je-desc-memo">{r.memo}</div>
-        {isAuto && r.ai_summary && (
-          <div className="je-desc-ai">
-            <KlaySparkleIcon />
-            <span className="je-desc-ai-text">{r.ai_summary}</span>
-          </div>
-        )}
+        <div className="je-desc-memo">
+          {r.memo}
+          {r.self_approved && <span className="je-self-chip" title="Prepared and posted by the same person (Self-posting)">Self-posted</span>}
+          {r.system_posted && <span className="je-sys-chip" title="Posted automatically on its scheduled date — nobody clicked Post">Auto-posted</span>}
+          {stale && <span className="je-stale-chip" title="Its posting date is in a closed period — send it back to be re-dated">Period closed — re-date to post</span>}
+        </div>
         {r.status === "scheduled" && r.schedule && (
           <div className={`je-desc-sched${r.schedule.due ? " due" : ""}`}>
             {r.schedule.due
               ? `Due — was to post on ${formatDate(r.schedule.postsOn)}`
-              : `Posts on ${formatDate(r.schedule.postsOn)}`}
+              : `Posts itself on ${formatDate(r.schedule.postsOn)}`}
             {" · "}{r.schedule.source}
           </div>
         )}
-        {isAnomaly && r.anomaly && (
-          <div className="je-desc-anomaly">
-            <svg viewBox="0 0 12 12"><path d="M6 1.5l5 8.5h-10z" fill="currentColor" stroke="none"/><line x1="6" y1="5" x2="6" y2="7.5" stroke="#fff" strokeWidth="1.4"/><circle cx="6" cy="8.8" r="0.6" fill="#fff" stroke="none"/></svg>
-            <span className="je-desc-ai-text">{r.anomaly}</span>
-          </div>
-        )}
       </div>
-      <div style={{ fontSize: 11, color: "var(--color-text-tertiary)", textAlign: "right", fontFamily: "var(--font-mono)" }}>
-        {r.lines.length}
+      <div className="je-src-cell">
+        <span className={`je-src je-src-${entrySource(r)}`}>{JE_SOURCE_LABEL[entrySource(r)]}</span>
       </div>
       <div className="lg-cell-total">
         {r.debit > 0 ? <><span className="lg-cell-total-rp">Rp</span>{fmtRp(r.debit)}</> : <span className="lg-cell-em-dash">—</span>}
@@ -170,8 +102,6 @@ function JeRow({ r, isChecked, onCheck, onClick, onKebab, isSelected, isAlt }) {
       </div>
       <div>
         <span className={`badge badge-${STATUS_BADGE_CLASS[r.status]}`}>
-          {isAuto && <KlaySparkleIcon />}
-          {isAnomaly && <svg viewBox="0 0 12 12"><path d="M6 1.5l5 8.5h-10z" fill="currentColor" stroke="none"/><line x1="6" y1="5" x2="6" y2="7.5" stroke="#fff" strokeWidth="1.4"/><circle cx="6" cy="8.8" r="0.6" fill="#fff" stroke="none"/></svg>}
           {STATUS_LABEL[r.status]}
         </span>
       </div>
@@ -183,22 +113,6 @@ function JeRow({ r, isChecked, onCheck, onClick, onKebab, isSelected, isAlt }) {
     </div>
   );
 }
-
-// The actions an entry offers, built once per entry by the page (actionsFor)
-// and shown here and in the drawer footer, so the two never disagree. A
-// blocked action stays visible, greyed, with the reason as its tooltip —
-// "you prepared this, someone else approves it" is worth seeing.
-const ACTION_ICON = {
-  check: <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>,
-  send: <svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>,
-  edit: <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>,
-  back: <svg viewBox="0 0 24 24"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>,
-  reverse: <svg viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>,
-  repeat: <svg viewBox="0 0 24 24"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>,
-  link: <svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>,
-  void: <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>,
-  trash: <svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>,
-};
 
 function RowMenu({ je, onClose, onAction, actions }) {
   const ref = useRef(null);
@@ -235,6 +149,9 @@ function RowMenu({ je, onClose, onAction, actions }) {
 }
 
 const SORT_LABELS = {
+  // The approval queue's default (PRD US-CL04): biggest financial risk first,
+  // then the longest-waiting — deliberately not chronological.
+  "risk":        "Largest first, then oldest",
   "date-desc":   "Newest date ↓",
   "date-asc":    "Date oldest ↑",
   "ref-asc":     "Reference A-Z",
@@ -296,27 +213,40 @@ function GroupPopover({ value, onPick, onClose }) {
   );
 }
 
-function FilterPopover({ values, onChange, onClose }) {
+function FilterPopover({ values, onChange, onClose, creators = [] }) {
   const ref = useRef(null);
   useClickOutside(ref, onClose);
   const [draft, setDraft] = useState(values);
 
   const update = (patch) => setDraft((d) => ({ ...d, ...patch }));
+  const toggleSource = (k) => setDraft((d) => {
+    const next = new Set(d.sources);
+    next.has(k) ? next.delete(k) : next.add(k);
+    return { ...d, sources: next };
+  });
   const toggleCreator = (c) => setDraft((d) => {
     const next = new Set(d.creators);
     next.has(c) ? next.delete(c) : next.add(c);
     return { ...d, creators: next };
   });
-  const reset = () => setDraft({ creators: new Set(), minAmt: "", maxAmt: "", dateFrom: "", dateTo: "" });
+  const reset = () => setDraft({ sources: new Set(), creators: new Set(), minAmt: "", maxAmt: "", dateFrom: "", dateTo: "" });
   const apply = () => { onChange(draft); onClose(); };
 
   return (
     <div className="lg-popover lg-filter-pop" ref={ref}>
       <div className="lg-filter-body">
         <div className="lg-filter-fld">
+          <div className="lg-filter-fld-lbl">Source ({draft.sources.size > 0 ? `${draft.sources.size} selected` : "all"})</div>
+          <div className="lg-toggle-row">
+            {JE_SOURCES.map((src) => (
+              <button key={src.key} className={`lg-toggle${draft.sources.has(src.key) ? " on" : ""}`} onClick={() => toggleSource(src.key)}>{src.label}</button>
+            ))}
+          </div>
+        </div>
+        <div className="lg-filter-fld">
           <div className="lg-filter-fld-lbl">Dibuat oleh ({draft.creators.size > 0 ? `${draft.creators.size} selected` : "semua"})</div>
           <div className="lg-toggle-row">
-            {["Sside Wijaya", "Rina Kusuma", "Budi Santoso", "Andi Prasetyo"].map((c) => (
+            {creators.map((c) => (
               <button key={c} className={`lg-toggle${draft.creators.has(c) ? " on" : ""}`} onClick={() => toggleCreator(c)}>{c}</button>
             ))}
           </div>
@@ -346,11 +276,6 @@ function FilterPopover({ values, onChange, onClose }) {
   );
 }
 
-function KlaySparkleIcon() {
-  return (
-    <svg viewBox="0 0 14 14"><path d="M7 1.5l1.3 3.2L11.5 6l-3.2 1L7 10.2 5.7 7 2.5 6l3.2-1.3L7 1.5z"/><path d="M11.5 10l.4 1.1L13 11.5l-1.1.4-.4 1.1-.4-1.1-1.1-.4 1.1-.4.4-1.1z"/></svg>
-  );
-}
 
 function KlayCommandBar({ inputRef, value, onChange, onSubmit, onClear, chips, onRemoveChip, onClearChips }) {
   return (
@@ -423,76 +348,47 @@ function KlayActionModal({ intent, onClose }) {
 
 export default function JournalEntryPage() {
   const {
-    entries: JOURNAL_ENTRIES, addJournalEntry, updateJournalEntry, peekNextJeNumber, pendingDraft, clearPendingDraft,
-    templates, addTemplate, updateTemplate, removeTemplate,
+    pendingDraft,
   } = useJournalEntries();
-  const { hasLevel, hasCapability, user } = useCurrentUser();
+  const { hasLevel } = useCurrentUser();
   const canApprove = hasLevel("gl", "approve+post");
   const canTransact = hasLevel("gl", "transact");
   const insightsRole = canApprove ? "operator" : canTransact ? "preparer" : "viewer";
-  const { assets, closedThrough } = useAssets();
   const { journalDeletion } = useAccountingSettings();
   const navigate = useNavigate();
-  const allRows = useMemo(() => {
-    // Mark the AUTO_PROCESSED_COUNT most-recent pending JEs as auto-processed by Klay AI
-    const pendingByDateDesc = JOURNAL_ENTRIES
-      // Seeded entries only (no history yet): an entry someone made or moved
-      // in-app is theirs, not a Klay draft, and must keep its real status.
-      .filter((je) => je.status === "pending" && !je.history)
-      .sort((a, b) => (b.je_date || "").localeCompare(a.je_date || ""))
-      .slice(0, AUTO_PROCESSED_COUNT);
-    const autoIds = new Set(pendingByDateDesc.map((je) => je.je_number));
-    // Pick ANOMALY_COUNT anomalies from posted/draft (so the alert is varied)
-    const anomalyCandidates = JOURNAL_ENTRIES
-      .filter((je) => !autoIds.has(je.je_number) && !je.history && (je.status === "posted" || je.status === "draft"))
-      .sort((a, b) => (b.je_date || "").localeCompare(a.je_date || ""));
-    const anomalyArr = anomalyCandidates.slice(0, ANOMALY_COUNT);
-    const anomalyIndex = new Map(anomalyArr.map((je, i) => [je.je_number, i]));
-    const stored = JOURNAL_ENTRIES.map((je) => {
-      const { debit, credit } = lineSums(je);
-      if (autoIds.has(je.je_number)) {
-        return { ...je, debit, credit, status: "auto", ai_summary: generateAiSummary(je) };
-      }
-      if (anomalyIndex.has(je.je_number)) {
-        return { ...je, debit, credit, status: "anomaly", anomaly: generateAnomaly(je, anomalyIndex.get(je.je_number)) };
-      }
-      return { ...je, debit, credit };
-    });
-    // Entries drafted from a schedule and waiting for their date. Derived
-    // from the asset register on every render, so they follow the assets;
-    // a month drops off once its posted entry exists (lib/scheduledJournals.js).
-    const scheduled = scheduledEntries(assets, { entries: JOURNAL_ENTRIES, templates, closedThrough, today: TODAY })
-      .map((je) => ({ ...je, ...lineSums(je) }));
-    return [...stored, ...scheduled];
-  }, [JOURNAL_ENTRIES, assets, closedThrough, templates]);
+  const allRows = useJournalRows();
+  const { closedThrough } = useClosePeriod();
+  // "Created by" choices: the people who actually prepared entries, most
+  // entries first — not a fixed list that drifts from the data.
+  const creatorOptions = useMemo(() => {
+    const n = new Map();
+    for (const r of allRows) if (r.created_by && r.status !== "scheduled") n.set(r.created_by, (n.get(r.created_by) || 0) + 1);
+    return [...n.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([name]) => name);
+  }, [allRows]);
 
   const [searchParams] = useSearchParams();
   const initialTab = (() => {
     const t = searchParams.get("tab");
-    const valid = ["semua", "anomaly", "auto", "scheduled", "pending", "draft", "posted", "void", "deleted"];
+    const valid = ["semua", "scheduled", "pending", "draft", "posted", "void", "deleted"];
     return t && valid.includes(t) ? t : "semua";
   })();
   const [filter, setFilter] = useState({ kind: "tab", value: initialTab });
 
-  // Respond to deep-link tab changes (e.g. navigating from Close → JE with ?tab=anomaly)
+  // Respond to deep-link tab changes (e.g. navigating from Close → JE with ?tab=pending)
   useEffect(() => {
     const t = searchParams.get("tab");
-    const valid = ["semua", "anomaly", "auto", "scheduled", "pending", "draft", "posted", "void", "deleted"];
+    const valid = ["semua", "scheduled", "pending", "draft", "posted", "void", "deleted"];
     if (t && valid.includes(t)) setFilter({ kind: "tab", value: t });
   }, [searchParams]);
   const [sortChoice, setSortChoice] = useState(null);
   const [groupChoice, setGroupChoice] = useState(null);
-  const emptyFilters = { creators: new Set(), minAmt: "", maxAmt: "", dateFrom: "", dateTo: "" };
+  const emptyFilters = { sources: new Set(), creators: new Set(), minAmt: "", maxAmt: "", dateFrom: "", dateTo: "" };
   const [filterValues, setFilterValues] = useState(emptyFilters);
 
   // Klay command bar state
   const [klayQuery, setKlayQuery] = useState("");
   const [klayFilters, setKlayFilters] = useState({});
   const [klayAction, setKlayAction] = useState(null); // { query } when action modal open
-  const [draftOpen, setDraftOpen] = useState(false);
-  const [draftSeedMemo, setDraftSeedMemo] = useState("");
-  const [draftInitialLines, setDraftInitialLines] = useState(null);
-  const [draftKey, setDraftKey] = useState(0); // remounts the modal so pre-filled state re-seeds
   const [highlightedRef, setHighlightedRef] = useState(null);
   const klayInputRef = useRef(null);
 
@@ -504,32 +400,14 @@ export default function JournalEntryPage() {
     else if (action === "skip") showToast(`${item.id} skipped for now`);
   }
 
-  const [selectedId, setSelectedId] = useState(null);
-  // Lifecycle dialogs (send back, reverse, make recurring) and the templates
-  // drawer; `editingJe` is the draft open in the editor, if any.
-  const [dialog, setDialog] = useState(null);
-  const [templatesOpen, setTemplatesOpen] = useState(false);
-  const [editingJe, setEditingJe] = useState(null);
-  const [drawerTab, setDrawerTab] = useState("detail");
-  // A line this page was sent to, as an index into the open entry's lines.
-  const [focusLine, setFocusLine] = useState(null);
-
-  // Deep link to one entry, and optionally to one line inside it: the Payment
-  // tab on a bill links each debit and credit it wrote straight to the line
-  // that carries it. Filters are cleared first, because a deep link that lands
-  // on a row the current tab filters out shows nothing and looks broken.
+  // Old deep links (?je=…&line=…, from a bill's Payment tab) open the entry's
+  // own page.
+  const { state: arrivedState } = useLocation();
   useEffect(() => {
     const je = searchParams.get("je");
     if (!je) return;
-    setFilter({ kind: "tab", value: "semua" });
-    setFilterValues(emptyFilters);
-    setKlayFilters({});
-    setSelectedId(je);
     const line = searchParams.get("line");
-    const idx = line == null ? null : parseInt(line, 10);
-    setFocusLine(Number.isInteger(idx) ? idx : null);
-    setDrawerTab(Number.isInteger(idx) ? "lines" : "detail");
-    setHighlightedRef(je);
+    navigate(`/journal-entry/${encodeURIComponent(je)}${line != null ? `?line=${line}` : ""}`, { replace: true, state: arrivedState });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
   const [checked, setChecked] = useState(() => new Set());
@@ -552,58 +430,28 @@ export default function JournalEntryPage() {
     toastTmr.current = setTimeout(() => setToast(""), 1800);
   }
 
+  // New and edit open the full-page form (pages/JournalEntryFormPage.jsx),
+  // which saves and comes back to the entry here with a toast.
   function openDraft(seedMemo = "") {
     setKlayAction(null);
-    setDraftSeedMemo(seedMemo);
-    setDraftInitialLines(null);
-    setDraftKey((k) => k + 1);
-    setDraftOpen(true);
+    navigate("/journal-entry/new", { state: { memo: seedMemo, fromTab: filter.kind === "tab" ? filter.value : null } });
   }
 
   // A stock adjustment (or other page) can stage a pre-filled draft, then route
-  // here — open the draft modal seeded with its lines for review + post.
+  // here — the form opens seeded with its lines for review + post.
   useEffect(() => {
-    if (!pendingDraft) return;
-    setDraftSeedMemo(pendingDraft.memo || "");
-    setDraftInitialLines(pendingDraft.lines || null);
-    setDraftKey((k) => k + 1);
-    setDraftOpen(true);
-    clearPendingDraft();
-  }, [pendingDraft, clearPendingDraft]);
-  function openEdit(je) {
-    const check = canEdit(je);
-    if (!check.ok) { showToast(check.reason); return; }
-    setKlayAction(null);
-    setEditingJe(je);
-    setDraftSeedMemo("");
-    setDraftInitialLines(null);
-    setDraftKey((k) => k + 1);
-    setDraftOpen(true);
-  }
-  function handleSaveDraft(je, { submit = false, editing = false } = {}) {
-    const by = user?.name || "You";
-    const saved = withEvent(je, editing ? "edited" : "created", by);
-    if (editing) updateJournalEntry(je.je_number, () => saved);
-    else addJournalEntry(saved);
-    setDraftOpen(false);
-    setEditingJe(null);
-    setDraftSeedMemo("");
-    if (submit) {
-      // The same checks as the Submit action; the entry stays a draft if one fails.
-      const check = canSubmit(saved, { closedThrough });
-      if (check.ok) {
-        updateJournalEntry(je.je_number, (cur) => withEvent({ ...cur, status: "pending" }, "submitted", by));
-        selectTab("pending");
-        showToast(`${je.je_number} submitted for approval`);
-        return;
-      }
-      showToast(`${je.je_number} saved as draft — ${check.reason}`);
-      selectTab("draft");
-      return;
-    }
-    selectTab("draft");
-    showToast(`${je.je_number} ${editing ? "updated" : "saved as draft"}`);
-  }
+    if (pendingDraft) navigate("/journal-entry/new");
+  }, [pendingDraft, navigate]);
+
+  // The form's result, carried back on navigation state, once.
+  const location = useLocation();
+  useEffect(() => {
+    const msg = location.state?.toast;
+    if (!msg) return;
+    showToast(msg);
+    navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state]);
 
   const tasks = useMemo(() => computeJournalTasks(allRows, insightsRole), [allRows, insightsRole]);
   const aiContext = useMemo(() => makeJournalAiContext(allRows), [allRows]);
@@ -621,8 +469,6 @@ export default function JournalEntryPage() {
     setKlayFilters({});
     setFilterValues(emptyFilters);
     switch (task.id) {
-      case "anomaly":        selectTab("anomaly"); break;
-      case "auto":           selectTab("auto"); break;
       case "drafts":         selectTab("draft"); break;
       case "pending":
       case "largestPending": selectTab("pending"); break;
@@ -636,7 +482,7 @@ export default function JournalEntryPage() {
 
   // ── KPIs ───────────────────────────────────────────────────────────────
   const counts = useMemo(() => {
-    const c = { posted: 0, draft: 0, pending: 0, void: 0, auto: 0, anomaly: 0, scheduled: 0, deleted: 0 };
+    const c = { posted: 0, draft: 0, pending: 0, void: 0, scheduled: 0, deleted: 0 };
     allRows.forEach((r) => { c[r.status] = (c[r.status] || 0) + 1; });
     return c;
   }, [allRows]);
@@ -649,8 +495,6 @@ export default function JournalEntryPage() {
 
   const tabCounts = useMemo(() => ({
     semua:   allRows.length,
-    anomaly: counts.anomaly,
-    auto:    counts.auto,
     scheduled: counts.scheduled,
     pending: counts.pending,
     draft:   counts.draft,
@@ -660,8 +504,6 @@ export default function JournalEntryPage() {
   }), [allRows, counts]);
   const tabs = [
     { k: "semua",   lbl: "All",     count: tabCounts.semua },
-    { k: "anomaly", lbl: "Anomaly", count: tabCounts.anomaly },
-    { k: "auto",    lbl: "Auto",    count: tabCounts.auto },
     { k: "scheduled", lbl: "Scheduled", count: tabCounts.scheduled },
     { k: "pending", lbl: "Pending", count: tabCounts.pending },
     { k: "draft",   lbl: "Draft",   count: tabCounts.draft },
@@ -681,6 +523,7 @@ export default function JournalEntryPage() {
   const klayFilterKeys = useMemo(() => Object.keys(klayFilters), [klayFilters]);
 
   const hasActiveFilters = useMemo(() => (
+    filterValues.sources.size > 0 ||
     filterValues.creators.size > 0 ||
     filterValues.minAmt !== "" ||
     filterValues.maxAmt !== "" ||
@@ -693,6 +536,7 @@ export default function JournalEntryPage() {
 
   const activeFilterCount = useMemo(() => {
     let n = 0;
+    if (filterValues.sources.size > 0) n++;
     if (filterValues.creators.size > 0) n++;
     if (filterValues.minAmt !== "" || filterValues.maxAmt !== "") n++;
     if (filterValues.dateFrom !== "" || filterValues.dateTo !== "") n++;
@@ -704,6 +548,10 @@ export default function JournalEntryPage() {
     const chips = [];
     for (const key of klayFilterKeys) {
       chips.push({ id: `klay:${key}`, source: "klay", key, label: klayChipLabel(key, klayFilters[key]) });
+    }
+    if (filterValues.sources.size > 0) {
+      const list = JE_SOURCES.filter((src) => filterValues.sources.has(src.key)).map((src) => src.label).join(", ");
+      chips.push({ id: "manual:sources", source: "manual", key: "sources", label: `Source: ${list}` });
     }
     if (filterValues.creators.size > 0) {
       const list = Array.from(filterValues.creators).join(", ");
@@ -725,6 +573,7 @@ export default function JournalEntryPage() {
   // ── Apply filters ─────────────────────────────────────────────────────
   const filteredRows = useMemo(() => {
     let list = corpus;
+    if (filterValues.sources.size > 0) list = list.filter((r) => filterValues.sources.has(entrySource(r)));
     if (filterValues.creators.size > 0) list = list.filter((r) => filterValues.creators.has(r.created_by));
     const min = filterValues.minAmt === "" ? null : Number(filterValues.minAmt);
     const max = filterValues.maxAmt === "" ? null : Number(filterValues.maxAmt);
@@ -768,13 +617,14 @@ export default function JournalEntryPage() {
   }, [corpus, filterValues, klayFilters]);
 
   // ── Sort + Group ───────────────────────────────────────────────────────
-  const effectiveSort = sortChoice || "date-desc";
+  const effectiveSort = sortChoice || (filter.kind === "tab" && filter.value === "pending" ? "risk" : "date-desc");
   const effectiveGroup = groupChoice || "none";
 
   const sortedRows = useMemo(() => {
     const arr = [...filteredRows];
     const cmpBy = (a, b) => {
       switch (effectiveSort) {
+        case "risk":       return (b.debit - a.debit) || (a.je_date || "").localeCompare(b.je_date || "");
         case "date-desc":  return (b.je_date || "").localeCompare(a.je_date || "");
         case "date-asc":   return (a.je_date || "").localeCompare(b.je_date || "");
         case "ref-asc":    return a.je_number.localeCompare(b.je_number);
@@ -785,13 +635,7 @@ export default function JournalEntryPage() {
         default: return 0;
       }
     };
-    // Pin Anomaly first (urgent), then Auto (needs confirmation), then chosen sort
-    const tier = (r) => r.status === "anomaly" ? 0 : r.status === "auto" ? 1 : 2;
-    arr.sort((a, b) => {
-      const ta = tier(a), tb = tier(b);
-      if (ta !== tb) return ta - tb;
-      return cmpBy(a, b);
-    });
+    arr.sort(cmpBy);
     return arr;
   }, [filteredRows, effectiveSort]);
 
@@ -821,7 +665,6 @@ export default function JournalEntryPage() {
     }));
   }, [effectiveGroup, sortedRows]);
 
-  const selected = allRows.find((r) => r.je_number === selectedId);
 
   const pageDebit = filteredRows.reduce((s, r) => s + r.debit, 0);
   const pageCredit = filteredRows.reduce((s, r) => s + r.credit, 0);
@@ -904,7 +747,8 @@ export default function JournalEntryPage() {
         return next;
       });
     } else if (chip.source === "manual") {
-      if (chip.key === "creators") setFilterValues((v) => ({ ...v, creators: new Set() }));
+      if (chip.key === "sources") setFilterValues((v) => ({ ...v, sources: new Set() }));
+      else if (chip.key === "creators") setFilterValues((v) => ({ ...v, creators: new Set() }));
       else if (chip.key === "amount") setFilterValues((v) => ({ ...v, minAmt: "", maxAmt: "" }));
       else if (chip.key === "date") setFilterValues((v) => ({ ...v, dateFrom: "", dateTo: "" }));
     }
@@ -970,14 +814,14 @@ export default function JournalEntryPage() {
     const rowsToExport = checked.size > 0
       ? sortedRows.filter((r) => checked.has(r.je_number))
       : sortedRows;
-    const headers = ["Journal No.", "Date", "Memo", "Status", "Lines", "Debit", "Credit", "Dibuat oleh"];
+    const headers = ["Journal No.", "Posting date", "Memo", "Source", "Status", "Lines", "Debit", "Credit", "Dibuat oleh"];
     const esc = (v) => {
       const s = String(v == null ? "" : v);
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
     const lines = [headers.join(",")];
     for (const r of rowsToExport) {
-      lines.push([r.je_number, r.je_date, r.memo, r.status, r.lines.length, r.debit, r.credit, r.created_by].map(esc).join(","));
+      lines.push([r.je_number, r.je_date, r.memo, JE_SOURCE_LABEL[entrySource(r)], r.status, r.lines.length, r.debit, r.credit, r.created_by].map(esc).join(","));
     }
     const blob = new Blob(["﻿" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -993,182 +837,20 @@ export default function JournalEntryPage() {
   }
 
   // ── Lifecycle ──────────────────────────────────────────────────────────
-  // Rows can carry a display status (Auto, Anomaly) over the stored one, so
-  // every check and every write goes through the stored entry.
-  const actor = user?.name || "You";
-  const todayIso = isoOf(TODAY);
-  const storedOf = (r) => JOURNAL_ENTRIES.find((j) => j.je_number === r.je_number) || r;
-  const ctx = { user: actor, closedThrough, canPost: canApprove };
-
-  // Where an entry came from, for the drawer's Source row and "Open source".
-  function sourceOf(je) {
-    const id = je.reference_id;
-    if (je.status === "scheduled" && je.schedule) {
-      if (je.schedule.kind === "template") return { label: je.schedule.source, open: () => setTemplatesOpen(true) };
-      if (je.schedule.kind === "reversal") return { label: `Entry ${je.schedule.reverses}`, open: () => { setSelectedId(je.schedule.reverses); setDrawerTab("detail"); } };
-      return { label: "Fixed asset register", open: () => navigate("/assets") };
-    }
-    if (["bill", "ap_bill", "bill_payment"].includes(je.reference_type) && id) return { label: `Bill ${id}`, open: () => navigate(`/bills/${id}`) };
-    if (je.reference_type === "payment" && id) {
-      return /^BILL/.test(id)
-        ? { label: `Payment on bill ${id}`, open: () => navigate(`/bills/${id}`) }
-        : { label: `Payment on ${id}`, open: () => navigate("/payments") };
-    }
-    if (["invoice", "invoice_payment"].includes(je.reference_type)) return { label: `Invoice ${id || ""}`.trim(), open: () => navigate("/invoices") };
-    if (je.reference_type === "bank_reconciliation") return { label: "Bank reconciliation", open: () => navigate("/bank-reconciliation") };
-    if (je.reference_type === "inventory_movement") return { label: "Stock movement", open: () => navigate("/inventory") };
-    if (je.reference_type === "schedule") return { label: "Fixed asset register", open: () => navigate("/assets") };
-    if (je.reference_type === "recurring") return { label: "Recurring template", open: () => setTemplatesOpen(true) };
-    if (je.reversal_of) return { label: `Reverses ${je.reversal_of}`, open: () => { setSelectedId(je.reversal_of); setDrawerTab("detail"); } };
-    return null;
-  }
-
-  function actionsFor(row) {
-    if (row.status === "scheduled") {
-      const src = sourceOf(row);
-      return [
-        ...(canApprove ? [{ key: "post_scheduled", label: row.schedule?.due ? "Post now" : "Post early", icon: "check", primary: true, check: { ok: true } }] : []),
-        ...(src ? [{ key: "open_source", label: `Open ${src.label.replace(/^Recurring template.*/, "recurring templates").replace(/^Fixed/, "fixed").replace(/^Entry/, "entry")}`, icon: "link", check: { ok: true } }] : []),
-      ];
-    }
-    const je = storedOf(row);
-    const sys = isSystemEntry(je);
-    const out = [];
-    if (je.status === "draft" && !sys) {
-      out.push({ key: "submit", label: "Submit for approval", icon: "send", primary: true, check: canTransact ? canSubmit(je, ctx) : { ok: false, reason: "Your role cannot prepare journal entries." } });
-      out.push({ key: "edit", label: "Edit", icon: "edit", check: canTransact ? canEdit(je) : { ok: false, reason: "Your role cannot prepare journal entries." } });
-    }
-    if (je.status === "pending") {
-      out.push({ key: "approve", label: "Approve & post", icon: "check", primary: true, check: canApproveEntry(je, ctx) });
-      out.push({ key: "return", label: "Send back", icon: "back", check: canReturn(je, ctx) });
-    }
-    if (je.status === "posted" && reversibleHere(je)) out.push({ key: "reverse", label: "Reverse", icon: "reverse", check: canReverse(je, { canReverse: hasCapability("gl.je.reverse") }) });
-    if (!sys && !je.reversal_of && ["draft", "posted"].includes(je.status) && canTransact) {
-      out.push({ key: "recurring", label: "Make recurring", icon: "repeat", check: { ok: true } });
-    }
-    const src = sourceOf(je);
-    if (src) out.push({ key: "open_source", label: "Open source", icon: "link", check: { ok: true } });
-    if ((je.status === "draft" || je.status === "pending") && !sys) out.push({ key: "void", label: "Void", icon: "void", danger: true, check: canVoid(je) });
-    return out;
-  }
-
-  function submitEntry(je) {
-    const check = canSubmit(je, ctx);
-    if (!check.ok) { showToast(check.reason); return false; }
-    updateJournalEntry(je.je_number, (cur) => withEvent({ ...cur, status: "pending" }, "submitted", actor));
-    return true;
-  }
-  function approveEntry(je) {
-    const check = canApproveEntry(je, ctx);
-    if (!check.ok) { showToast(check.reason); return false; }
-    updateJournalEntry(je.je_number, (cur) => withEvent({ ...cur, status: "posted", posted_by: actor, posted_date: todayIso }, "approved and posted", actor));
-    return true;
-  }
-
+  // Actions and their dialogs are shared with the detail page
+  // (pages/journalEntryShared.jsx); a row's "View detail" opens that page.
+  const { actionsFor, runAction, bulk, openEntry, dialogs } = useJournalActions({
+    showToast,
+    fromTab: filter.kind === "tab" ? filter.value : null,
+  });
   function onRowAction(action, row) {
     setMenuOpenFor(null);
-    if (action === "view") { setSelectedId(row.je_number); setDrawerTab("detail"); return; }
-    if (action === "post_scheduled") { postScheduled(row); return; }
-    if (action === "open_source") { sourceOf(row.status === "scheduled" ? row : storedOf(row))?.open(); return; }
-    const je = storedOf(row);
-    if (action === "submit" && submitEntry(je)) showToast(`${je.je_number} submitted for approval`);
-    else if (action === "approve" && approveEntry(je)) showToast(`${je.je_number} approved and posted`);
-    else if (action === "edit") openEdit(je);
-    else if (action === "return") setDialog({ kind: "return", je });
-    else if (action === "reverse") setDialog({ kind: "reverse", je });
-    else if (action === "recurring") setDialog({ kind: "recurring", je });
-    else if (action === "void") {
-      const check = canVoid(je);
-      if (!check.ok) { showToast(check.reason); return; }
-      updateJournalEntry(je.je_number, (cur) => withEvent({ ...cur, status: "void" }, "voided", actor));
-      showToast(`${je.je_number} voided`);
-    }
+    if (action === "view") { openEntry(row.je_number); return; }
+    runAction(action, row);
   }
-
-  function confirmReturn(je, reason) {
-    updateJournalEntry(je.je_number, (cur) => withEvent({ ...cur, status: "draft" }, "sent back", actor, reason));
-    setDialog(null);
-    showToast(`${je.je_number} sent back to ${je.created_by}`);
-  }
-
-  function confirmReverse(je, date) {
-    const check = canReverse(je, { canReverse: hasCapability("gl.je.reverse") });
-    if (!check.ok) { showToast(check.reason); return; }
-    const jeNumber = peekNextJeNumber();
-    addJournalEntry(buildReversal(je, { jeNumber, date, by: actor, today: todayIso }));
-    updateJournalEntry(je.je_number, (cur) => withEvent({ ...cur, reversed_by: jeNumber }, "reversed", actor, `By ${jeNumber}`));
-    setDialog(null);
-    showToast(`${je.je_number} reversed by ${jeNumber}`);
-  }
-
-  function confirmRecurring(je, cfg) {
-    const id = `TPL-${String(templates.length + 1 + Math.floor(Math.random() * 900)).padStart(3, "0")}`;
-    addTemplate({
-      id, ...cfg, memo: cfg.name, active: true, created_by: actor, created_date: todayIso,
-      lines: je.lines.map(({ account_code, account_name, debit, credit, description, dimensions, payee }) => ({ account_code, account_name, debit, credit, description, dimensions, payee })),
-    });
-    setDialog(null);
-    selectTab("scheduled");
-    showToast(`Template “${cfg.name}” created — its months are on the Scheduled tab`);
-  }
-
-  // Posting a scheduled entry writes a real, numbered entry dated on its
-  // schedule date and carrying its schedule_key, which is what takes the
-  // scheduled one off the list (lib/scheduledJournals.js). A template's
-  // auto-reverse flag travels with it; a scheduled reversal marks the entry
-  // it reverses.
-  function postScheduled(je) {
-    const jeNumber = peekNextJeNumber();
-    const kind = je.schedule?.kind;
-    addJournalEntry(withEvent({
-      je_number: jeNumber,
-      je_date: je.je_date,
-      status: "posted",
-      memo: je.memo,
-      reference_type: kind === "template" ? "recurring" : kind === "reversal" ? "reversal" : "schedule",
-      reference_id: je.reference_id,
-      schedule_key: je.schedule_key,
-      ...(je.auto_reverse ? { auto_reverse: true } : {}),
-      ...(je.reversal_of ? { reversal_of: je.reversal_of } : {}),
-      created_by: "Klay schedule",
-      created_date: todayIso,
-      posted_by: actor,
-      posted_date: todayIso,
-      lines: je.lines.map(({ account_code, account_name, debit, credit, description }) => ({ account_code, account_name, debit, credit, description })),
-    }, "posted from schedule", actor, je.schedule?.source));
-    if (je.reversal_of) {
-      updateJournalEntry(je.reversal_of, (cur) => withEvent({ ...cur, reversed_by: jeNumber }, "reversed", actor, `By ${jeNumber}`));
-    }
-    if (selectedId === je.je_number) setSelectedId(jeNumber);
-    showToast(`${je.memo} posted as ${jeNumber}`);
-  }
-
-  function onAutoAction(action, je) {
-    if (action === "confirm") showToast(`${je.je_number} confirmed and posted to GL`);
-    else if (action === "reject") showToast(`${je.je_number} rejected — Klay will re-learn`);
-  }
-  // Bulk runs each selected entry through the same checks as one at a time,
-  // and says how many it skipped and why rather than failing silently.
   function onBulk(action) {
-    const picked = [...checked].map((n) => JOURNAL_ENTRIES.find((j) => j.je_number === n)).filter(Boolean);
-    const run = action === "submit" ? submitEntryQuiet : approveEntryQuiet;
-    let done = 0;
-    const skipped = [];
-    for (const je of picked) { const r = run(je); if (r.ok) done += 1; else skipped.push(r.reason); }
-    const verb = action === "submit" ? "submitted" : "approved and posted";
-    const why = skipped.length ? ` · ${skipped.length} skipped (${[...new Set(skipped)][0]})` : "";
-    showToast(`${done} ${verb}${why}`);
+    bulk(action, [...checked]);
     clearChecks();
-  }
-  function submitEntryQuiet(je) {
-    const check = canSubmit(je, ctx);
-    if (check.ok) updateJournalEntry(je.je_number, (cur) => withEvent({ ...cur, status: "pending" }, "submitted", actor));
-    return check;
-  }
-  function approveEntryQuiet(je) {
-    const check = canApproveEntry(je, ctx);
-    if (check.ok) updateJournalEntry(je.je_number, (cur) => withEvent({ ...cur, status: "posted", posted_by: actor, posted_date: todayIso }, "approved and posted", actor));
-    return check;
   }
 
   return (
@@ -1206,13 +888,21 @@ export default function JournalEntryPage() {
                   <span className="bp-tab-count">{t.count}</span>
                 </button>
               ))}
-              {/* The templates feeding the Scheduled tab live next to it. */}
-              {isTabActive("scheduled") && (
-                <button type="button" className="je-tpl-btn" onClick={() => setTemplatesOpen(true)}>
-                  {ACTION_ICON.repeat}
-                  Recurring templates · {templates.length}
-                </button>
-              )}
+              {/* Quick view: only what people keyed in by hand — the Journal
+                  Entry form's own entries — over every source. */}
+              <div className="je-srcview" role="group" aria-label="Source view">
+                {(() => {
+                  const manualOnly = filterValues.sources.size === 1 && filterValues.sources.has("manual");
+                  return (
+                    <>
+                      <button type="button" className={`je-srcview-btn${!manualOnly ? " on" : ""}`} aria-pressed={!manualOnly}
+                        onClick={() => setFilterValues((v) => ({ ...v, sources: new Set() }))}>All sources</button>
+                      <button type="button" className={`je-srcview-btn${manualOnly ? " on" : ""}`} aria-pressed={manualOnly}
+                        onClick={() => setFilterValues((v) => ({ ...v, sources: new Set(["manual"]) }))}>Manual</button>
+                    </>
+                  );
+                })()}
+              </div>
             </div>
 
             <div className="lg-filter-row">
@@ -1233,7 +923,7 @@ export default function JournalEntryPage() {
                     Filter
                     {activeFilterCount > 0 && <span className="lg-filter-badge">{activeFilterCount}</span>}
                   </button>
-                  {filterPopOpen && <FilterPopover values={filterValues} onChange={setFilterValues} onClose={() => setFilterPopOpen(false)} />}
+                  {filterPopOpen && <FilterPopover values={filterValues} creators={creatorOptions} onChange={setFilterValues} onClose={() => setFilterPopOpen(false)} />}
                 </div>
                 <div className="lg-meta-btn-wrap">
                   <button className="lg-meta-btn" onClick={() => { setSortPopOpen(!sortPopOpen); setFilterPopOpen(false); setGroupPopOpen(false); }}>
@@ -1255,10 +945,10 @@ export default function JournalEntryPage() {
 
             <div className="lg-col-header">
               <div><input type="checkbox" className="lg-row-check" disabled /></div>
-              <div>Date</div>
+              <div title="Posting date — the day the entry hits the ledger">Posting date</div>
               <div>Reference</div>
               <div>Description</div>
-              <div style={{ textAlign: "right" }}>Lines</div>
+              <div>Source</div>
               <div style={{ textAlign: "right" }}>Debit (Rp)</div>
               <div style={{ textAlign: "right" }}>Credit (Rp)</div>
               <div>Status</div>
@@ -1290,10 +980,11 @@ export default function JournalEntryPage() {
                             r={r}
                             isChecked={checked.has(r.je_number)}
                             onCheck={toggleRow}
-                            onClick={() => { setSelectedId(r.je_number); setDrawerTab("detail"); }}
+                            onClick={() => openEntry(r.je_number)}
                             onKebab={(id) => setMenuOpenFor(menuOpenFor === id ? null : id)}
-                            isSelected={selectedId === r.je_number}
+                            isSelected={highlightedRef === r.je_number}
                             isAlt={i % 2 === 1}
+                            closedThrough={closedThrough}
                           />
                           {menuOpenFor === r.je_number && (
                             <div style={{ position: "absolute", right: 32, top: 32, zIndex: 5 }}>
@@ -1314,10 +1005,11 @@ export default function JournalEntryPage() {
                         r={r}
                         isChecked={checked.has(r.je_number)}
                         onCheck={toggleRow}
-                        onClick={() => { setSelectedId(r.je_number); setDrawerTab("detail"); }}
+                        onClick={() => openEntry(r.je_number)}
                         onKebab={(id) => setMenuOpenFor(menuOpenFor === id ? null : id)}
-                        isSelected={selectedId === r.je_number}
+                        isSelected={highlightedRef === r.je_number}
                         isAlt={i % 2 === 1}
+                        closedThrough={closedThrough}
                       />
                       {menuOpenFor === r.je_number && (
                         <div style={{ position: "absolute", right: 32, top: 32, zIndex: 5 }}>
@@ -1365,356 +1057,6 @@ export default function JournalEntryPage() {
         </div>
       </div>
 
-      {/* ── Side drawer (JE detail) ─────────────────────────────── */}
-      {selected && (
-        <>
-          <div className="drawer-overlay" onClick={() => setSelectedId(null)} />
-          <div className="drawer">
-            <div className="drawer-head">
-              <div className="drawer-av invoice">JE</div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div className="drawer-title">{selected.je_number}</div>
-                <div className="drawer-sub">
-                  {formatDate(selected.je_date)} ·{" "}
-                  <span className={`badge badge-${STATUS_BADGE_CLASS[selected.status]}`}>{STATUS_LABEL[selected.status]}</span>
-                </div>
-              </div>
-              <button className="drawer-close" onClick={() => setSelectedId(null)}>
-                <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
-            </div>
-            <div className="drawer-tabs">
-              {[["detail", "Detail"], ["lines", "Lines Journal"], ["audit", "Audit"], ["ai", "AI Insight"]].map(([t, label]) => (
-                <div key={t} className={`drawer-tab${drawerTab === t ? " active" : ""}`} onClick={() => setDrawerTab(t)}>
-                  {t === "ai" && <span style={{ marginRight: 4, color: "var(--color-action)" }}>✦</span>}
-                  {label}
-                </div>
-              ))}
-            </div>
-            <div className="drawer-body">
-              {drawerTab === "detail" && (
-                <>
-                  {selected.status === "auto" && selected.ai_summary && (
-                    <div className="drawer-ai-callout">
-                      <div className="drawer-ai-eyebrow"><KlaySparkleIcon /> Klay's interpretation</div>
-                      <p className="drawer-ai-text">{selected.ai_summary}</p>
-                      <div className="drawer-ai-meta">Auto-drafted by Klay · awaiting your confirmation</div>
-                    </div>
-                  )}
-                  {selected.status === "anomaly" && selected.anomaly && (
-                    <div className="drawer-anomaly-callout">
-                      <div className="drawer-anomaly-eyebrow">
-                        <svg viewBox="0 0 12 12"><path d="M6 1.5l5 8.5h-10z" fill="currentColor" stroke="none"/><line x1="6" y1="5" x2="6" y2="7.5" stroke="#fff" strokeWidth="1.4"/><circle cx="6" cy="8.8" r="0.6" fill="#fff" stroke="none"/></svg>
-                        Anomaly flagged by Klay
-                      </div>
-                      <p className="drawer-anomaly-text">{selected.anomaly}</p>
-                      <div className="drawer-anomaly-meta">Needs your review before period close</div>
-                    </div>
-                  )}
-                  {selected.status === "scheduled" && selected.schedule && (
-                    <div className={`drawer-sched-callout${selected.schedule.due ? " due" : ""}`}>
-                      <div className="drawer-sched-eyebrow">
-                        {selected.schedule.due ? "Due — not posted yet" : `Scheduled · posts on ${formatDate(selected.schedule.postsOn)}`}
-                      </div>
-                      <p className="drawer-sched-text">
-                        {selected.schedule.kind === "template"
-                          ? <>Drafted from {selected.schedule.source} for {selected.schedule.periodLabel}. It is read-only — change or pause the template and this entry follows. It posts without a second approval; the template was the approval.</>
-                          : selected.schedule.kind === "reversal"
-                            ? <>Undoes {selected.schedule.reverses} on {formatDate(selected.schedule.postsOn)}, the 1st of the month after it was booked — every debit and credit swapped.</>
-                            : <>Drafted from the fixed asset register for {selected.schedule.periodLabel}. It is read-only — change an asset and this entry follows.</>}
-                        {" "}It gets its journal number when it posts.
-                        {selected.schedule.note && <> {selected.schedule.note}</>}
-                      </p>
-                      <div className="drawer-sched-list">
-                        {selected.schedule.sources.map((s, i) => (
-                          <div key={`${s.id}-${i}`} className="drawer-sched-item">
-                            <span className="drawer-sched-tag">{s.tag}</span>
-                            <span className="drawer-sched-name">{s.name}</span>
-                            <span className="drawer-sched-amt">Rp {fmtRp(s.amount)}</span>
-                          </div>
-                        ))}
-                      </div>
-                      {selected.schedule.unmapped.length > 0 && (
-                        <div className="drawer-sched-warn">
-                          Left out — no account mapped for {selected.schedule.unmapped.join(", ")}. Set the accounts on the asset category.
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  <div className="drawer-stat-row">
-                    <div className="drawer-stat-card">
-                      <div className="drawer-stat-lbl">Total Debit</div>
-                      <div className="drawer-stat-val">Rp {fmtRp(selected.debit)}</div>
-                    </div>
-                    <div className="drawer-stat-card">
-                      <div className="drawer-stat-lbl">Total Credit</div>
-                      <div className="drawer-stat-val">Rp {fmtRp(selected.credit)}</div>
-                    </div>
-                  </div>
-                  <div className="drawer-section">
-                    <div className="drawer-section-title">Journal Information</div>
-                    {[
-                      ["Journal No.", selected.status === "scheduled" ? "Assigned on posting" : selected.je_number],
-                      ["Date", formatDate(selected.je_date)],
-                      ["Description", selected.memo],
-                      ["Reference", selected.reference || "—"],
-                      ["Reference type", selected.reference_type || "—"],
-                      ["Created by", selected.created_by],
-                      ["Created on", formatDate(selected.created_date)],
-                      ["Posted by", selected.posted_by || "—"],
-                      ["Posted on", selected.posted_date ? formatDate(selected.posted_date) : "—"],
-                    ].map(([label, value]) => (
-                      <div key={label} className="drawer-row">
-                        <div className="drawer-label">{label}</div>
-                        <div className="drawer-value">{value}</div>
-                      </div>
-                    ))}
-                    {/* Where the entry came from, one click away — the bill,
-                        payment, asset or template that wrote it. */}
-                    {(() => {
-                      const src = sourceOf(selected.status === "scheduled" ? selected : storedOf(selected));
-                      const stored = storedOf(selected);
-                      return (
-                        <>
-                          <div className="drawer-row">
-                            <div className="drawer-label">Source</div>
-                            <div className="drawer-value">
-                              {src ? <button type="button" className="je-link" onClick={src.open}>{src.label} →</button> : "Manual entry"}
-                            </div>
-                          </div>
-                          {stored.reversed_by && (
-                            <div className="drawer-row">
-                              <div className="drawer-label">Reversed by</div>
-                              <div className="drawer-value">
-                                <button type="button" className="je-link" onClick={() => setSelectedId(stored.reversed_by)}>{stored.reversed_by} →</button>
-                              </div>
-                            </div>
-                          )}
-                          {stored.auto_reverse && !stored.reversed_by && stored.status !== "scheduled" && (
-                            <div className="drawer-row">
-                              <div className="drawer-label">Auto-reverse</div>
-                              <div className="drawer-value">On the 1st of the month after it posts</div>
-                            </div>
-                          )}
-                        </>
-                      );
-                    })()}
-                  </div>
-                  {selected.status !== "scheduled" && (() => {
-                    const stored = storedOf(selected);
-                    const files = stored.attachments || [];
-                    return (
-                      <div className="drawer-section">
-                        <div className="drawer-section-title">Attachments · {files.length}</div>
-                        {files.length === 0 && <div className="je-attach-empty">Nothing attached.</div>}
-                        {files.map((a, i) => (
-                          <div key={`${a.name}-${i}`} className="je-attach-row">
-                            <a href={a.url} target="_blank" rel="noreferrer">{a.name}</a>
-                            <span>{Math.max(1, Math.round((a.size || 0) / 1024))} KB</span>
-                          </div>
-                        ))}
-                        {/* Evidence can be added at any stage, posted included —
-                            it changes nothing in the ledger. */}
-                        {stored.status !== "void" && canTransact && (
-                          <label className="dje-attach-add">
-                            + Attach file
-                            <input type="file" multiple onChange={(e) => {
-                              const added = [...e.target.files].map((f) => ({ name: f.name, size: f.size, type: f.type, url: URL.createObjectURL(f) }));
-                              e.target.value = "";
-                              if (!added.length) return;
-                              updateJournalEntry(stored.je_number, (cur) => withEvent({ ...cur, attachments: [...(cur.attachments || []), ...added] }, "attached", actor, added.map((a) => a.name).join(", ")));
-                              showToast(`${added.length} file${added.length === 1 ? "" : "s"} attached to ${stored.je_number}`);
-                            }} />
-                          </label>
-                        )}
-                      </div>
-                    );
-                  })()}
-                </>
-              )}
-              {drawerTab === "lines" && (
-                <div className="drawer-section">
-                  <div className="drawer-section-title">Lines Journal · {selected.lines.length} rows</div>
-                  {selected.lines.map((l, i) => (
-                    <div key={i} className={focusLine === i ? "je-line-focus" : ""} style={{ background: "var(--color-surface-sunken)", border: "1px solid var(--color-border-default)", borderRadius: "var(--radius-md)", padding: "10px 12px", marginBottom: 8 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-action)" }}>{l.account_code}</div>
-                          <div style={{ fontSize: 12, fontWeight: 600, marginTop: 2 }}>{l.account_name}</div>
-                          {l.description && <div style={{ fontSize: 11, color: "var(--color-text-tertiary)", marginTop: 2 }}>{l.description}</div>}
-                          {l.payee && (
-                            <div style={{ fontSize: 11, marginTop: 4, color: "var(--color-text-secondary)" }}>
-                              Payee: <strong>{l.payee.name}</strong> <span style={{ color: "var(--color-text-tertiary)" }}>· {l.payee.kind === "customer" ? "customer" : "vendor"}</span>
-                            </div>
-                          )}
-                        </div>
-                        <div style={{ textAlign: "right", flexShrink: 0 }}>
-                          {l.debit > 0 && <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 700 }}>Dr {fmtRp(l.debit)}</div>}
-                          {l.credit > 0 && <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 700, color: "var(--color-action)" }}>Cr {fmtRp(l.credit)}</div>}
-                        </div>
-                      </div>
-                      {(() => {
-                        const acct = COA_BY_CODE[l.account_code];
-                        const keys = dimensionsForAccount(acct);
-                        if (keys.length === 0) return null;
-                        const simulated = !l.dimensions;
-                        return (
-                          <div className="je-line-dims">
-                            {keys.map((k) => {
-                              const dim = DIM_BY_KEY[k];
-                              if (!dim) return null;
-                              const pal = paletteFor(dim.cls);
-                              const val = l.dimensions?.[k] ?? sampleDimensionValue(k, `${selected.je_number}|${l.account_code}|${k}`);
-                              if (!val) return null;
-                              return (
-                                <span className="je-line-dim" key={k} style={{ background: pal.bg, color: pal.fg }}>
-                                  <span className="je-line-dim-k">{dim.label}</span>
-                                  <span className="je-line-dim-v">{val}</span>
-                                </span>
-                              );
-                            })}
-                            {simulated && <span className="je-line-dim-sim" title="Illustrative values — this entry predates per-line dimension tagging">simulated</span>}
-                          </div>
-                        );
-                      })()}
-                    </div>
-                  ))}
-                </div>
-              )}
-              {drawerTab === "audit" && (() => {
-                const stored = storedOf(selected);
-                // Every lifecycle move appends to `history` (lib/journalLifecycle.js).
-                // Seeded entries predate it, so their creation and posting are
-                // read off the record itself.
-                const events = stored.history?.length
-                  ? stored.history
-                  : [
-                    { at: stored.created_date, action: "created", by: stored.created_by },
-                    ...(stored.posted_by ? [{ at: stored.posted_date, action: "posted", by: stored.posted_by }] : []),
-                  ];
-                return (
-                  <div className="drawer-section">
-                    <div className="drawer-section-title">Audit trail</div>
-                    <div className="je-audit">
-                      {events.map((ev, i) => (
-                        <div key={i} className="je-audit-item">
-                          <span className="je-audit-dot" />
-                          <div>
-                            <div className="je-audit-head"><strong>{ev.action.charAt(0).toUpperCase() + ev.action.slice(1)}</strong> · {ev.by}</div>
-                            <div className="je-audit-date">{formatDate(ev.at)}</div>
-                            {ev.note && <div className="je-audit-note">{ev.note}</div>}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="drawer-row">
-                      <div className="drawer-label">Current status</div>
-                      <div className="drawer-value">
-                        <span className={`badge badge-${STATUS_BADGE_CLASS[selected.status]}`}>{STATUS_LABEL[selected.status]}</span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })()}
-              {drawerTab === "ai" && (
-                <div className="drawer-section">
-                  <div className="drawer-section-title">AI Insight</div>
-                  <div style={{ padding: 12, background: "var(--ai-surface)", border: "1px solid var(--ai-border)", borderRadius: "var(--radius-md)", marginBottom: 10 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-action)", textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 4 }}>✦ AI Classification</div>
-                    <div style={{ fontSize: 12, color: "var(--color-text-secondary)", lineHeight: 1.55 }}>
-                      {selected.lines.length} rows di-tag automatic berdasarkan deskripsi & pattern historical. Akurasi average <strong>96%</strong>, model v2.1.
-                    </div>
-                  </div>
-                  {selected.status === "draft" && (
-                    <div style={{ padding: 12, background: "var(--color-warning-surface)", border: "1px solid var(--color-warning-border)", borderRadius: "var(--radius-md)", marginBottom: 10 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-warning-text)", textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 4 }}>Recommendation</div>
-                      <div style={{ fontSize: 12, color: "var(--color-text-secondary)", lineHeight: 1.55 }}>
-                        Draft ini siap posted — semua rows balanced and account already terklasificashi.
-                      </div>
-                    </div>
-                  )}
-                  {selected.status === "pending" && (
-                    <div style={{ padding: 12, background: "var(--color-warning-surface)", border: "1px solid var(--color-warning-border)", borderRadius: "var(--radius-md)" }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-warning-text)", textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 4 }}>Awaiting Approval</div>
-                      <div style={{ fontSize: 12, color: "var(--color-text-secondary)", lineHeight: 1.55 }}>
-                        Already awaiting {Math.max(1, Math.floor((new Date("2025-04-23") - new Date(selected.created_date)) / 86400000))} days. Perteambangkan eskalasi to whichger.
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-            <div className="drawer-footer">
-              {/* Auto and Anomaly keep their own review buttons below; every
-                  other status offers the same actions as its row menu. */}
-              {selected.status !== "auto" && selected.status !== "anomaly" && (() => {
-                const acts = actionsFor(selected);
-                const secondary = acts.filter((a) => !a.primary && !a.danger);
-                const primary = acts.filter((a) => a.primary);
-                const danger = acts.filter((a) => a.danger);
-                return (
-                  <>
-                    {danger.map((a) => (
-                      <button key={a.key} className="drawer-btn ghost danger-text" disabled={!a.check.ok} title={a.check.ok ? "" : a.check.reason}
-                        onClick={() => onRowAction(a.key, selected)}>
-                        {ACTION_ICON[a.icon]}{a.label}
-                      </button>
-                    ))}
-                    {secondary.map((a) => (
-                      <button key={a.key} className="drawer-btn ghost" disabled={!a.check.ok} title={a.check.ok ? "" : a.check.reason}
-                        onClick={() => onRowAction(a.key, selected)}>
-                        {ACTION_ICON[a.icon]}{a.label}
-                      </button>
-                    ))}
-                    {primary.map((a) => (
-                      <button key={a.key} className="drawer-btn primary" disabled={!a.check.ok} title={a.check.ok ? "" : a.check.reason}
-                        onClick={() => onRowAction(a.key, selected)}>
-                        {ACTION_ICON[a.icon]}{a.label}
-                      </button>
-                    ))}
-                  </>
-                );
-              })()}
-              {selected.status === "auto" && (
-                <>
-                  <button
-                    className="drawer-btn ghost"
-                    onClick={() => { onAutoAction("reject", selected); setSelectedId(null); }}
-                  >
-                    <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                    Reject
-                  </button>
-                  <button
-                    className="drawer-btn primary klay"
-                    onClick={() => { onAutoAction("confirm", selected); setSelectedId(null); }}
-                  >
-                    <KlaySparkleIcon />
-                    Confirm &amp; post
-                  </button>
-                </>
-              )}
-              {selected.status === "anomaly" && (
-                <>
-                  <button
-                    className="drawer-btn ghost"
-                    onClick={() => { showToast(`${selected.je_number} dismissed — Klay will learn`); setSelectedId(null); }}
-                  >
-                    Dismiss
-                  </button>
-                  <button
-                    className="drawer-btn primary danger"
-                    onClick={() => { showToast(`Investigating ${selected.je_number}`); setSelectedId(null); }}
-                  >
-                    <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                    Investigate
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        </>
-      )}
-
       {/* ── Klay AI drawers ────────────────────────────────────────── */}
       <div
         className={`ai-backdrop${aiOpen || summaryOpen ? " open" : ""}`}
@@ -1742,42 +1084,8 @@ export default function JournalEntryPage() {
       />
 
       <KlayActionModal intent={klayAction} onClose={() => setKlayAction(null)} />
-      <DraftJournalModal
-        key={draftKey}
-        open={draftOpen}
-        intentQuery={draftSeedMemo}
-        initialMemo={draftSeedMemo}
-        initialLines={draftInitialLines}
-        nextJeNumber={peekNextJeNumber()}
-        createdBy={user?.name}
-        editing={editingJe}
-        closedThrough={closedThrough}
-        onClose={() => { setDraftOpen(false); setEditingJe(null); setDraftSeedMemo(""); setDraftInitialLines(null); }}
-        onSave={handleSaveDraft}
-      />
 
-      {dialog?.kind === "return" && (
-        <ReturnDialog je={dialog.je} onClose={() => setDialog(null)} onConfirm={(reason) => confirmReturn(dialog.je, reason)} />
-      )}
-      {dialog?.kind === "reverse" && (
-        <ReverseDialog je={dialog.je} closedThrough={closedThrough} onClose={() => setDialog(null)} onConfirm={(date) => confirmReverse(dialog.je, date)} />
-      )}
-      {dialog?.kind === "recurring" && (
-        <RecurringDialog
-          je={dialog.je}
-          firstOpen={closedThrough ? nextPeriod(closedThrough) : null}
-          onClose={() => setDialog(null)}
-          onConfirm={(cfg) => confirmRecurring(dialog.je, cfg)}
-        />
-      )}
-      {templatesOpen && (
-        <TemplatesDrawer
-          templates={templates}
-          onClose={() => setTemplatesOpen(false)}
-          onToggle={(t) => { updateTemplate(t.id, { active: !t.active }); showToast(`${t.name} ${t.active ? "paused" : "resumed"}`); }}
-          onRemove={(t) => { removeTemplate(t.id); showToast(`${t.name} deleted — posted entries stay in the ledger`); }}
-        />
-      )}
+      {dialogs}
 
       <ReconReviewModal
         open={reconReviewOpen}

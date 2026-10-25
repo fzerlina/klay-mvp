@@ -1,0 +1,30 @@
+/* Account picker — components/AccountCombobox.jsx */
+.acx{position:relative;min-width:0}
+.acx-btn{width:100%;display:flex;align-items:center;gap:8px;min-height:38px;padding:5px 30px 5px 10px;border:1px solid var(--color-border-default);border-radius:var(--radius-sm);background:var(--color-surface-raised);color:var(--color-text-primary);font-family:var(--font-sans);text-align:left;cursor:pointer;position:relative}
+.acx-btn:hover{border-color:var(--color-text-tertiary)}
+.acx-btn:focus-visible,.acx.open .acx-btn{outline:none;border-color:var(--color-action);box-shadow:0 0 0 2px var(--color-action-wash)}
+.acx-btn.invalid{border-color:#C4453A;background:#FDF6F5}
+.acx-btn.empty .acx-placeholder{color:var(--color-text-tertiary);font-size:12.5px}
+.acx-val{display:flex;flex-direction:column;min-width:0;gap:1px}
+.acx-val-main{display:flex;align-items:center;gap:6px;min-width:0}
+.acx-code{font-family:var(--font-mono);font-size:11.5px;color:var(--color-action);flex-shrink:0}
+.acx-name{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.acx-path{font-size:10.5px;color:var(--color-text-tertiary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.acx-chev{position:absolute;right:9px;top:50%;width:14px;height:14px;margin-top:-7px;fill:none;stroke:var(--color-text-tertiary);stroke-width:2}
+.acx-lock-ic{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:2;flex-shrink:0}
+.acx-btn.invalid .acx-lock-ic{color:#A02020}
+
+.acx-pop{position:absolute;left:0;top:calc(100% + 4px);z-index:60;width:max(100%,380px);background:var(--color-surface-raised);border:1px solid var(--color-border-default);border-radius:var(--radius-md);box-shadow:0 12px 32px rgba(8,7,6,.16);overflow:hidden}
+.acx-search{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--color-border-subtle)}
+.acx-search svg{width:14px;height:14px;fill:none;stroke:var(--color-text-tertiary);stroke-width:2;flex-shrink:0}
+.acx-search input{flex:1;border:none;outline:none;background:transparent;font-family:var(--font-sans);font-size:12.5px;color:var(--color-text-primary)}
+.acx-list{max-height:300px;overflow:auto;padding:4px 0}
+.acx-section{padding:8px 12px 4px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--color-text-tertiary)}
+.acx-opt{padding:6px 12px;cursor:pointer}
+.acx-opt.active{background:var(--color-action-wash)}
+.acx-opt.selected .acx-name{color:var(--color-action)}
+.acx-opt-main{display:flex;align-items:center;gap:8px;min-width:0}
+.acx-opt.locked{cursor:not-allowed;opacity:.72}
+.acx-opt.locked .acx-path{color:#8A5A12}
+.acx-lock{margin-left:auto;display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#8A5A12;flex-shrink:0}
+.acx-empty{padding:14px 12px;font-size:12px;color:var(--color-text-tertiary)}

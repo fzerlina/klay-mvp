@@ -6,6 +6,9 @@ import CommandCenterPage from "./pages/CommandCenterPage";
 import PaymentsPage from "./pages/PaymentsPage";
 import ReportsPage from "./pages/ReportsPage";
 import JournalEntryPage from "./pages/JournalEntryPage";
+import JournalEntryFormPage from "./pages/JournalEntryFormPage";
+import JournalEntryDetailPage from "./pages/JournalEntryDetailPage";
+import ScheduledAutoPost from "./state/ScheduledAutoPost";
 import ChartOfAccountsPage from "./pages/ChartOfAccountsPage";
 import DimensionsPage from "./pages/DimensionsPage";
 import LocationsPage from "./pages/LocationsPage";
@@ -138,6 +141,8 @@ export default function App() {
             <AssetsProvider>
             <PaymentsProvider>
             <BankReconProvider>
+            {/* Scheduled journal entries post themselves on their date. */}
+            <ScheduledAutoPost />
             <Routes>
               <Route element={<Layout />}>
                 <Route index element={<RoleLanding />} />
@@ -147,6 +152,9 @@ export default function App() {
                 <Route path="/insights" element={<Navigate to="/command-center?tab=insights" replace />} />
                 <Route path="/general-ledger" element={<GeneralLedgerPage />} />
                 <Route path="/journal-entry" element={<JournalEntryPage />} />
+                <Route path="/journal-entry/new" element={<RequireLevel module="gl" level="transact" action="prepare journal entries"><JournalEntryFormPage /></RequireLevel>} />
+                <Route path="/journal-entry/:jeNumber" element={<JournalEntryDetailPage />} />
+                <Route path="/journal-entry/:jeNumber/edit" element={<RequireLevel module="gl" level="transact" action="prepare journal entries"><JournalEntryFormPage /></RequireLevel>} />
                 <Route path="/chart-of-accounts" element={<ChartOfAccountsPage />} />
                 <Route path="/dimensions" element={<DimensionsPage />} />
                 <Route path="/locations" element={<LocationsPage />} />

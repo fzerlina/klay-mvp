@@ -5,7 +5,8 @@
 // They still have to be paid, so the Payment list carries them next to bills.
 //
 // A journal line is payable when it CREDITS an account flagged reconcilable in
-// the chart of accounts (Settings → Chart of Accounts) and names a payee. The
+// the chart of accounts (Settings → Chart of Accounts) and has a payee — its
+// own, or the entry's payee when the line names none. The
 // payee is what makes it payable: without one there is nobody to pay and
 // nothing for bank reconciliation to match. Lines without a payee — including
 // every ledger entry made before the flag existed — stay off the list.
@@ -27,7 +28,9 @@ export function journalPayableLines(entries, reconcilableCodes, paidSoFarOf = ()
   const out = [];
   for (const je of entries || []) {
     if (je.status !== "posted") continue;
-    const payable = (je.lines || []).filter((l) => codes.has(l.account_code) && (l.credit || 0) > 0 && l.payee?.id);
+    const payable = (je.lines || [])
+      .map((l) => (l.payee?.id || !je.payee?.id ? l : { ...l, payee: je.payee }))
+      .filter((l) => codes.has(l.account_code) && (l.credit || 0) > 0 && l.payee?.id);
     payable.forEach((l, i) => {
       const id = payable.length > 1 ? `${je.je_number}/${i + 1}` : je.je_number;
       const total = l.credit;
