@@ -249,7 +249,7 @@ export default function QuickDraftModal({ line, account, vendors, customers, bil
         <div className="mm-foot">
           <div className={`mm-foot-sum${problem ? " rj-problem" : ""}`}>{problem || plan.note || "Balanced. The bank side equals the statement line."}</div>
           <button type="button" className="recon-ex-btn" onClick={onClose}>Cancel</button>
-          <button type="button" className="recon-ex-btn primary" disabled={!!problem || !canPost} title={canPost ? undefined : "Needs the Reconcile bank permission"} onClick={post}>
+          <button type="button" className="recon-ex-btn primary" disabled={!!problem || !canPost} title={canPost ? undefined : "Needs the Reconcile bank or Quick draft from bank permission"} onClick={post}>
             Post journal
           </button>
         </div>

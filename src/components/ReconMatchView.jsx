@@ -123,7 +123,7 @@ export function MatchPanels({ lines, candidates, spokenFor = 0, dir, onDir, canQ
   const pickedRecords = candidates.filter((r) => selRecords.has(r.id));
   // Quick draft writes the cash journal for one bank line at a time.
   const draftLine = pickedLines.length === 1 ? pickedLines[0] : null;
-  const draftWhy = !canQuickDraft ? "Needs the Reconcile bank permission"
+  const draftWhy = !canQuickDraft ? "Needs the Reconcile bank or Quick draft from bank permission"
     : pickedLines.length === 0 ? "Tick the bank line it's for first"
     : pickedLines.length > 1 ? "Tick one bank line — a quick draft is for one line"
     : `Post the cash journal for the ${shortDate(draftLine.date)} line`;

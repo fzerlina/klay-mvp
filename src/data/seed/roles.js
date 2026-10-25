@@ -98,6 +98,7 @@ export const CAPABILITIES = {
   "bank.account.delete": named("bank", "Archive bank accounts", "Archive a company bank account."),
   "bank.statement.import": named("bank", "Import statements", "Upload bank statements."),
   "bank.reconcile": named("bank", "Reconcile bank", "Reconcile bank statements against the ledger, and post the journals reconciliation writes (bank charges, interest, differences, quick drafts)."),
+  "bank.quick_draft": named("bank", "Quick draft from bank", "Post the cash journal for an unexplained bank statement line (Quick draft). Matching and reconciling it stays with Reconcile bank."),
 
   // Master data
   "masterdata.counterparty.manage": named("masterdata", "Manage counterparty lists", "Payment terms, vendor categories and payment methods."),
@@ -193,6 +194,8 @@ const ADMIN_SETTINGS_CAPS = ["settings.users.manage", "settings.roles.manage", "
 //     AR Staff, Warehouse Staff, Purchasing Staff
 //   • bank.view / bank.statement.import / bank.reconcile → AP Staff (no
 //     approve or post, so no SoD conflict)
+//   • bank.quick_draft → Finance Manager (posts the missing cash journal from
+//     a bank line; reconciling it stays with AP Staff, so SoD #2/#3 hold)
 //   • settings.period.lock / settings.period.reopen → Finance Manager
 // The payment pipeline stays three seats: AP Staff requests (ap.transact),
 // Finance Manager authorizes (ap.payment.authorize), CFO records the payment
@@ -230,7 +233,7 @@ export const ROLE_CAPS = {
     ap: ["view", "transact", "approve", "post", "ap.reverse", "ap.vendor.approve", "ap.vendor.edit",
       "ap.payment.authorize"], // gap
     ar: ["view", "transact", "approve", "post", "ar.customer.approve", "ar.customer.edit"],
-    bank: ["bank.account.create", "bank.account.manage"],
+    bank: ["bank.account.create", "bank.account.manage", "bank.quick_draft"], // gap
     gl: ["view", "transact", "approve", "post", "gl.je.reverse", "gl.posting.dry_run", "gl.recommendations.dismiss"],
     inventory: ["transact", "inventory.adjust"],
     masterdata: [
@@ -338,7 +341,7 @@ export const ROLES = [
   {
     key: "finance_manager",
     name: "Finance Manager",
-    description: "The senior control. Approves and posts across GL, AP and AR, reverses entries, approves vendors and customers, and authorizes payments. Holds accounting configuration (chart of accounts, dimensions, FX, posting rules, tax) and period close. No user administration, vendor creation or bank reconciliation.",
+    description: "The senior control. Approves and posts across GL, AP and AR, reverses entries, approves vendors and customers, and authorizes payments. Holds accounting configuration (chart of accounts, dimensions, FX, posting rules, tax) and period close. Can quick-draft a missing cash journal from a bank line, but not reconcile it. No user administration or vendor creation.",
     is_system: true,
     is_internal: false,
     approval_limit: 100000000,
