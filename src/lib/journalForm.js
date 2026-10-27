@@ -99,10 +99,9 @@ export const defaultReversalDate = (jeDate) => firstOfNextMonth(jeDate);
 
 // The entry the form saves, always as a draft — submitting and posting are
 // lifecycle moves the page applies afterwards (lib/journalLifecycle.js).
-// `payee` is the entry's payee ({ kind, id, name }) or null — who the entry is
-// for. A line keeps a payee only when it names its own; otherwise it reads
-// the entry's.
-export function buildEntry({ editing, jeNumber, jeDate, memo, reference, payee, reversal, attachments, lines, createdBy, today, payeeOf }) {
+// A payee lives on its line only; an older draft's header payee is dropped
+// here (the form has already moved it onto the payable lines).
+export function buildEntry({ editing, jeNumber, jeDate, memo, reference, reversal, attachments, lines, createdBy, today, payeeOf }) {
   const active = lines.filter((l) => l.account_code);
   const { auto_reverse: _ar, reversal_date: _rd, payee: _pe, ...kept } = editing || {};
   return {
@@ -118,7 +117,6 @@ export function buildEntry({ editing, jeNumber, jeDate, memo, reference, payee, 
     created_date: editing?.created_date || today,
     posted_by: null,
     posted_date: null,
-    ...(payee ? { payee } : {}),
     ...(reversal.on ? { auto_reverse: true, reversal_date: reversal.date } : {}),
     attachments,
     lines: active.map((l) => ({

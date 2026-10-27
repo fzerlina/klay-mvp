@@ -18,7 +18,14 @@
 .jef-card-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--color-text-secondary)}
 .jef-card > .jef-card-title{margin-bottom:12px}
 .jef-hint{font-size:11.5px;color:var(--color-text-tertiary);font-weight:400}
-.jef-template{margin-left:auto;max-width:280px;font-size:12px}
+/* Template chip in the header — opens components/JournalTemplateMenu.jsx */
+.jef-tpl-wrap{position:relative;display:inline-flex}
+.jef-tpl{display:inline-flex;align-items:center;gap:6px;padding:3px 8px 3px 7px;border:1px dashed var(--color-border-default);border-radius:9999px;background:transparent;font-family:var(--font-sans);font-size:11.5px;font-weight:600;color:var(--color-text-secondary);cursor:pointer}
+.jef-tpl:hover,.jef-tpl[aria-expanded="true"]{border-color:var(--color-action);color:var(--color-action)}
+.jef-tpl.set{border-style:solid;background:var(--color-action-wash);border-color:var(--color-action-subtle);color:var(--color-action)}
+.jef-tpl svg{width:11px;height:11px;flex-shrink:0;fill:none;stroke:currentColor;stroke-width:1.4}
+.jef-tpl .jef-tpl-caret{width:10px;height:10px;stroke-width:1.8}
+
 
 .jef-grid{display:grid;grid-template-columns:170px minmax(0,1fr) 220px 180px;gap:12px;align-items:start}
 .jef-field{display:flex;flex-direction:column;gap:4px;min-width:0}

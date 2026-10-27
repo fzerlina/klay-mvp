@@ -15,6 +15,7 @@ import {
   blankLine, templateLines, seedLines, applicableDims, dimValues, validateForm, buildEntry, defaultReversalDate,
 } from "../lib/journalForm";
 import AccountCombobox from "../components/AccountCombobox";
+import JournalTemplateMenu from "../components/JournalTemplateMenu";
 import "./modules.css";
 import "./invoices-ledger.css";
 import "./journal-entry-form.css";
@@ -22,12 +23,11 @@ import "./journal-entry-form.css";
 // New / edit manual journal — a full page (decided 25 Oct 2026), replacing
 // the Draft Journal Entry modal. Core Ledger & JE PRD §3:
 //   • Header: posting date (today), memo (required — the business reason),
-//     payee (the vendor the entry is for), reference, reversal date for
-//     accruals, attachments.
+//     reference, reversal date for accruals, attachments.
 //   • Lines: account picker with the chart's groups, one side per line,
 //     description, the dimensions the account requires, and an optional payee
-//     (the entry's unless the line names its own). A credit to a payable
-//     (reconcilable) account with a payee goes to Payment once posted.
+//     — set per line only, never on the header (27 Oct 2026). A credit to a
+//     payable (reconcilable) account with a payee goes to Payment once posted.
 //   • A sticky balance bar: Submit stays disabled until debits equal credits.
 //   • Actions by role: anyone who prepares journals saves a draft or submits it
 //     for approval; an approver also gets Post when Self-posting allows it
@@ -61,16 +61,29 @@ export default function JournalEntryFormPage() {
   const [staged] = useState(() => (!editNumber ? pendingDraft : null));
   useEffect(() => { if (staged) clearPendingDraft(); }, [staged, clearPendingDraft]);
 
+  // A new journal can start from a journal template: picked on the list's
+  // New Manual Journal split button, or later from the chip in the header.
+  const canPickTemplate = !editing && !staged?.lines?.length && journalTemplates.length > 0;
+  const [templateId, setTemplateId] = useState(() => (
+    canPickTemplate && journalTemplates.some((t) => t.id === navState?.templateId) ? navState.templateId : ""
+  ));
+  const [templateMenuOpen, setTemplateMenuOpen] = useState(false);
+  const startTemplate = journalTemplates.find((t) => t.id === templateId) || null;
+
   const [jeNumber] = useState(() => editing?.je_number || peekNextJeNumber());
   const [jeDate, setJeDate] = useState(editing?.je_date || TODAY_ISO);
-  const [memo, setMemo] = useState(editing?.memo || staged?.memo || navState?.memo || "");
+  const [memo, setMemo] = useState(editing?.memo || staged?.memo || navState?.memo || startTemplate?.name || "");
   const [reference, setReference] = useState(editing?.reference || "");
-  const [entryPayee, setEntryPayee] = useState(editing?.payee ? `${editing.payee.kind}:${editing.payee.id}` : "");
-  const [lines, setLines] = useState(() => seedLines(editing?.lines || staged?.lines));
+  // An older draft may carry its payee on the header; it moves onto the lines
+  // that would have read it, the payable ones.
+  const [lines, setLines] = useState(() => (startTemplate ? templateLines(startTemplate) : seedLines(
+    editing?.payee
+      ? editing.lines.map((l) => (l.payee || !reconcilableAccounts.includes(l.account_code) ? l : { ...l, payee: editing.payee }))
+      : editing?.lines || staged?.lines,
+  )));
   const [reversalOn, setReversalOn] = useState(!!editing?.auto_reverse);
   const [reversalDate, setReversalDate] = useState(editing?.reversal_date || defaultReversalDate(editing?.je_date || TODAY_ISO));
   const [attachments, setAttachments] = useState(() => editing?.attachments || []);
-  const [templateId, setTemplateId] = useState("");
   const [showErrors, setShowErrors] = useState(false);
   const [dirty, setDirty] = useState(false);
   const touch = (fn) => (...args) => { setDirty(true); fn(...args); };
@@ -106,7 +119,7 @@ export default function JournalEntryFormPage() {
   const { totals } = v;
 
   const draft = () => buildEntry({
-    editing, jeNumber, jeDate, memo, reference, payee: payeeOf(entryPayee), reversal, attachments, lines,
+    editing, jeNumber, jeDate, memo, reference, reversal, attachments, lines,
     createdBy: actor, today: TODAY_ISO, payeeOf,
   });
 
@@ -132,14 +145,20 @@ export default function JournalEntryFormPage() {
   const addLine = touch(() => setLines((prev) => [...prev, blankLine()]));
   const removeLine = touch((id) => setLines((prev) => (prev.length <= 2 ? prev.map((l) => (l.id === id ? blankLine() : l)) : prev.filter((l) => l.id !== id))));
 
+  // `id` "" is a blank journal. Anything other than what's already there
+  // replaces the lines (asking first if amounts are in).
   function applyTemplate(id) {
-    const t = journalTemplates.find((x) => x.id === id);
-    if (!t) { setTemplateId(""); return; }
+    setTemplateMenuOpen(false);
+    const t = journalTemplates.find((x) => x.id === id) || null;
+    const current = startTemplate;
+    if (id === templateId) return;
     const typed = lines.some((l) => l.debit || l.credit);
-    if (typed && !window.confirm(`Replace the lines with “${t.name}”? Amounts you entered will be cleared.`)) return;
+    const ask = t ? `Replace the lines with “${t.name}”?` : "Start over with blank lines?";
+    if (typed && !window.confirm(`${ask} Amounts you entered will be cleared.`)) return;
     setTemplateId(id);
-    setLines(templateLines(t));
-    if (!memo.trim()) setMemo(t.name);
+    setLines(t ? templateLines(t) : [blankLine(), blankLine()]);
+    // The memo follows the template until someone writes their own.
+    if (!memo.trim() || memo === current?.name) setMemo(t ? t.name : "");
     setDirty(true);
   }
 
@@ -215,11 +234,36 @@ export default function JournalEntryFormPage() {
           <button type="button" className="jef-back" onClick={leave}>← Journal Entries</button>
           <div className="jef-head-main">
             <div>
-              <h1 className="jef-title">{editing ? `Edit ${editing.je_number}` : "New journal entry"}</h1>
+              <h1 className="jef-title">{editing ? `Edit ${editing.je_number}` : "New manual journal"}</h1>
               <div className="jef-sub">
                 <span className="jef-mono">{jeNumber}</span>
                 <span className="badge badge-draft">Draft</span>
                 <span>Manual journal</span>
+                {canPickTemplate && (
+                  <span className="jef-tpl-wrap">
+                    <button
+                      type="button"
+                      className={`jef-tpl${startTemplate ? " set" : ""}`}
+                      aria-haspopup="dialog"
+                      aria-expanded={templateMenuOpen}
+                      onClick={() => setTemplateMenuOpen((o) => !o)}
+                    >
+                      <svg viewBox="0 0 12 12"><rect x="1.5" y="1.5" width="9" height="9" rx="1.5" /><path d="M1.5 4.5h9M4.5 4.5v6" /></svg>
+                      {startTemplate ? startTemplate.name : "Use a template"}
+                      <svg className="jef-tpl-caret" viewBox="0 0 12 12"><path d="M3 4.5l3 3 3-3" /></svg>
+                    </button>
+                    {templateMenuOpen && (
+                      <JournalTemplateMenu
+                        templates={journalTemplates}
+                        current={templateId}
+                        showBlank={!!startTemplate}
+                        align="left"
+                        onPick={applyTemplate}
+                        onClose={() => setTemplateMenuOpen(false)}
+                      />
+                    )}
+                  </span>
+                )}
               </div>
             </div>
             <div className="jef-head-totals">
@@ -246,19 +290,6 @@ export default function JournalEntryFormPage() {
                 value={memo}
                 onChange={(e) => { setDirty(true); setMemo(e.target.value); }}
               />
-            </label>
-            <label className="jef-field">
-              <span className="jef-lbl">Payee</span>
-              <select
-                className={`jef-input${entryPayee ? " set" : ""}`}
-                value={entryPayee}
-                onChange={(e) => { setDirty(true); setEntryPayee(e.target.value); }}
-                aria-label="Payee"
-              >
-                <option value="">No payee</option>
-                {payeeVendors.map((vd) => <option key={vd.id} value={`vendor:${vd.id}`}>{vd.name}</option>)}
-              </select>
-              <span className="jef-field-hint">The vendor this entry is for. Employees are set up as vendors.</span>
             </label>
             <label className="jef-field">
               <span className="jef-lbl">Reference</span>
@@ -292,12 +323,6 @@ export default function JournalEntryFormPage() {
           <div className="jef-card-head">
             <div className="jef-card-title">Lines</div>
             <span className="jef-hint">Pick an account — the dimensions it requires appear under the line.</span>
-            {!editing && journalTemplates.length > 0 && (
-              <select className="jef-input jef-template" value={templateId} onChange={(e) => applyTemplate(e.target.value)} aria-label="Journal template">
-                <option value="">Start from a template…</option>
-                {journalTemplates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
-            )}
           </div>
 
           <div className="jef-lines" role="table" aria-label="Journal lines">
@@ -310,7 +335,7 @@ export default function JournalEntryFormPage() {
               const errs = showErrors || l.debit || l.credit ? v.lineErrors[l.id] : null;
               const block = v.lineBlocks[l.id];
               // A credit to a payable account is what reaches Payment.
-              const toPayment = isReconcilable(l.account_code) && !!l.credit && !!payeeOf(l.payee || entryPayee);
+              const toPayment = isReconcilable(l.account_code) && !!l.credit && !!payeeOf(l.payee);
               return (
                 <div key={l.id} className={`jef-line${errs || (showErrors && block) ? " has-err" : ""}`}>
                   <div className="jef-row" role="row">
@@ -370,12 +395,12 @@ export default function JournalEntryFormPage() {
                           })}
                         </div>
                       )}
-                      {/* Optional on every line; a line that names nobody reads the
-                          entry's payee. */}
+                      {/* Optional on every line — the only place a payee is set.
+                          Employees are set up as vendors. */}
                       <div className="jef-payee">
                         <span className="jef-sub-lbl">Payee</span>
                         <select className={`jef-input jef-payee-sel${l.payee ? " set" : ""}`} value={l.payee} onChange={(e) => { setDirty(true); patchLine(l.id, { payee: e.target.value }); }} aria-label={`Line ${i + 1} payee`}>
-                          <option value="">{entryPayee ? `Same as entry — ${payeeOf(entryPayee)?.name}` : "None"}</option>
+                          <option value="">None</option>
                           {payeeVendors.map((vd) => <option key={vd.id} value={`vendor:${vd.id}`}>{vd.name}</option>)}
                         </select>
                         {toPayment && <span className="jef-hint">Goes to Payment once posted.</span>}

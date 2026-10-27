@@ -1,0 +1,27 @@
+/* Journal template menu — components/JournalTemplateMenu.jsx */
+.jtm{position:absolute;top:calc(100% + 6px);z-index:40;width:340px;max-width:calc(100vw - 32px);display:flex;flex-direction:column;background:var(--color-surface-raised);border:1px solid var(--color-border-default);border-radius:10px;box-shadow:0 12px 32px rgba(8,7,6,.14);font-family:var(--font-sans);overflow:hidden;text-align:left}
+.jtm-right{right:0}
+.jtm-left{left:0}
+.jtm-search{padding:8px;border-bottom:1px solid var(--color-border-subtle)}
+.jtm-search input{width:100%;box-sizing:border-box;padding:7px 10px;border:1px solid var(--color-border-default);border-radius:var(--radius-sm);background:var(--color-surface-raised);font-family:var(--font-sans);font-size:12.5px;color:var(--color-text-primary);outline:none}
+.jtm-search input:focus{border-color:var(--color-action);box-shadow:0 0 0 2px var(--color-action-wash)}
+.jtm-list{max-height:360px;overflow-y:auto;padding:4px}
+.jtm-item{display:flex;flex-direction:column;gap:4px;width:100%;padding:8px 10px;border:none;border-radius:var(--radius-sm);background:transparent;font-family:var(--font-sans);text-align:left;cursor:pointer}
+.jtm-item.active{background:var(--color-surface-sunken)}
+.jtm-item.blank{border-bottom:1px solid var(--color-border-subtle);border-radius:var(--radius-sm) var(--radius-sm) 0 0;margin-bottom:2px}
+.jtm-name{display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--color-text-primary);line-height:1.3}
+.jtm-check{width:12px;height:12px;flex-shrink:0;fill:none;stroke:var(--color-action);stroke-width:2;margin-left:auto}
+.jtm-desc{font-size:11.5px;color:var(--color-text-tertiary)}
+.jtm-lines{display:flex;flex-direction:column;gap:1px}
+.jtm-line{display:flex;align-items:baseline;gap:6px;font-size:11px;color:var(--color-text-secondary);line-height:1.35}
+.jtm-line i{color:var(--color-text-tertiary)}
+.jtm-line em{flex-shrink:0;width:18px;font-style:normal;font-family:var(--font-mono);font-size:10px;font-weight:700;color:var(--color-text-tertiary)}
+.jtm-line em.debit{color:var(--color-action)}
+.jtm-empty{padding:14px 10px;font-size:12px;color:var(--color-text-tertiary)}
+.jtm-foot{padding:7px 12px;border-top:1px solid var(--color-border-subtle);font-size:11px;color:var(--color-text-tertiary);background:var(--color-surface-sunken)}
+
+/* New Manual Journal split button (list page) */
+.jtm-split{position:relative;display:inline-flex}
+.jtm-split .jtm-split-main{border-radius:var(--radius-sm) 0 0 var(--radius-sm)}
+.jtm-split .jtm-split-caret{padding:7px 9px;border-radius:0 var(--radius-sm) var(--radius-sm) 0;border-left:1px solid rgba(255,255,255,.28)}
+.jtm-split .jtm-split-caret svg{width:10px;height:10px}
