@@ -782,8 +782,5 @@
 .je-src-cell{display:flex;align-items:center;min-width:0}
 .je-src{display:inline-block;padding:2px 8px;border-radius:9999px;font-size:10.5px;font-weight:600;white-space:nowrap;background:var(--color-surface-sunken);color:var(--color-text-secondary);border:1px solid var(--color-border-subtle)}
 .je-src-manual{background:var(--color-action-wash);color:var(--color-action);border-color:transparent}
-.je-srcview{margin-left:auto;align-self:center;display:inline-flex;padding:2px;border-radius:8px;border:1px solid var(--color-border-default);background:var(--color-surface-sunken)}
-.je-srcview-btn{border:none;background:transparent;padding:4px 10px;border-radius:6px;font-family:var(--font-sans);font-size:11.5px;font-weight:600;color:var(--color-text-secondary);cursor:pointer}
-.je-srcview-btn.on{background:var(--color-surface-raised);color:var(--color-text-primary);box-shadow:0 1px 2px rgba(8,7,6,.08)}
 
 /* Journal Entry: a posted entry waiting for its deletion to be approved */

@@ -4,6 +4,8 @@ import { useJournalEntries } from "../state/JournalEntriesContext";
 import { useClosePeriod } from "../state/ClosePeriodContext";
 import { isClosedDate } from "../lib/journalLifecycle";
 import { useCurrentUser } from "../state/CurrentUserContext";
+import { useAccountingSettings } from "../state/AccountingSettingsContext";
+import JournalTemplateMenu from "../components/JournalTemplateMenu";
 import {
   fmtRp, STATUS_LABEL, STATUS_BADGE_CLASS, ACTION_ICON, KlaySparkleIcon, useJournalRows, useJournalActions,
   JE_SOURCES, JE_SOURCE_LABEL, entrySource,
@@ -16,7 +18,6 @@ import ReconReviewModal, { RECON_TOTAL, RECON_MATCHED, RECON_UNMATCHED } from ".
 import { computeJournalTasks, makeJournalAiContext } from "./ai-journal-context";
 import "./modules.css";
 import "./invoices-ledger.css";
-import { useAccountingSettings } from "../state/AccountingSettingsContext";
 
 // ── Klay command bar: intent + filter parsing (mock; replace with LLM later) ──
 const JE_REF_RE = /^JE-\d{4}-\d{4}$/i;
@@ -160,12 +161,6 @@ const SORT_LABELS = {
   "debit-asc":   "Debit lowest ↑",
   "lines-desc":  "Most lines ↓",
 };
-const GROUP_LABELS = {
-  "none":   "—",
-  "status": "Status",
-  "month":  "Month",
-};
-
 function useClickOutside(ref, onClose) {
   useEffect(() => {
     const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
@@ -184,28 +179,6 @@ function SortPopover({ value, onPick, onClose }) {
           <button key={k} className={`lg-popover-item${value === k ? " selected" : ""}`} onClick={() => onPick(k)}>
             {lbl}
             {value === k && <svg className="lg-popover-check" viewBox="0 0 12 12"><polyline points="2 6 5 9 10 3"/></svg>}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function GroupPopover({ value, onPick, onClose }) {
-  const ref = useRef(null);
-  useClickOutside(ref, onClose);
-  const items = [
-    { k: "none",   lbl: "Not grouped" },
-    { k: "status", lbl: "Status" },
-    { k: "month",  lbl: "Month" },
-  ];
-  return (
-    <div className="lg-popover" ref={ref}>
-      <div className="lg-popover-list">
-        {items.map((it) => (
-          <button key={it.k} className={`lg-popover-item${value === it.k ? " selected" : ""}`} onClick={() => onPick(it.k)}>
-            {it.lbl}
-            {value === it.k && <svg className="lg-popover-check" viewBox="0 0 12 12"><polyline points="2 6 5 9 10 3"/></svg>}
           </button>
         ))}
       </div>
@@ -354,7 +327,6 @@ export default function JournalEntryPage() {
   const canApprove = hasLevel("gl", "approve+post");
   const canTransact = hasLevel("gl", "transact");
   const insightsRole = canApprove ? "operator" : canTransact ? "preparer" : "viewer";
-  const { journalDeletion } = useAccountingSettings();
   const navigate = useNavigate();
   const allRows = useJournalRows();
   const { closedThrough } = useClosePeriod();
@@ -369,7 +341,7 @@ export default function JournalEntryPage() {
   const [searchParams] = useSearchParams();
   const initialTab = (() => {
     const t = searchParams.get("tab");
-    const valid = ["semua", "scheduled", "pending", "draft", "posted", "void", "deleted"];
+    const valid = ["semua", "scheduled", "pending", "draft", "posted"];
     return t && valid.includes(t) ? t : "semua";
   })();
   const [filter, setFilter] = useState({ kind: "tab", value: initialTab });
@@ -377,11 +349,10 @@ export default function JournalEntryPage() {
   // Respond to deep-link tab changes (e.g. navigating from Close → JE with ?tab=pending)
   useEffect(() => {
     const t = searchParams.get("tab");
-    const valid = ["semua", "scheduled", "pending", "draft", "posted", "void", "deleted"];
+    const valid = ["semua", "scheduled", "pending", "draft", "posted"];
     if (t && valid.includes(t)) setFilter({ kind: "tab", value: t });
   }, [searchParams]);
   const [sortChoice, setSortChoice] = useState(null);
-  const [groupChoice, setGroupChoice] = useState(null);
   const emptyFilters = { sources: new Set(), creators: new Set(), minAmt: "", maxAmt: "", dateFrom: "", dateTo: "" };
   const [filterValues, setFilterValues] = useState(emptyFilters);
 
@@ -412,11 +383,11 @@ export default function JournalEntryPage() {
   }, [searchParams]);
   const [checked, setChecked] = useState(() => new Set());
   const [menuOpenFor, setMenuOpenFor] = useState(null);
-  const [collapsedGroups, setCollapsedGroups] = useState(() => new Set());
 
   const [sortPopOpen, setSortPopOpen] = useState(false);
-  const [groupPopOpen, setGroupPopOpen] = useState(false);
   const [filterPopOpen, setFilterPopOpen] = useState(false);
+  const [templateMenuOpen, setTemplateMenuOpen] = useState(false);
+  const { journalTemplates } = useAccountingSettings();
 
   const [aiOpen, setAiOpen] = useState(false);
   const [aiSeedQuestion, setAiSeedQuestion] = useState(null);
@@ -432,9 +403,11 @@ export default function JournalEntryPage() {
 
   // New and edit open the full-page form (pages/JournalEntryFormPage.jsx),
   // which saves and comes back to the entry here with a toast.
-  function openDraft(seedMemo = "") {
+  // `templateId` opens it already filled from that journal template.
+  function openDraft(seedMemo = "", templateId = "") {
     setKlayAction(null);
-    navigate("/journal-entry/new", { state: { memo: seedMemo, fromTab: filter.kind === "tab" ? filter.value : null } });
+    setTemplateMenuOpen(false);
+    navigate("/journal-entry/new", { state: { memo: seedMemo, templateId, fromTab: filter.kind === "tab" ? filter.value : null } });
   }
 
   // A stock adjustment (or other page) can stage a pre-filled draft, then route
@@ -475,7 +448,8 @@ export default function JournalEntryPage() {
       case "balanced":
       case "unbalanced":
       case "largestPosted":  selectTab("posted"); break;
-      case "voids":          selectTab("void"); break;
+      // Voided entries have no tab of their own; they sit in All.
+      case "voids":          selectTab("semua"); break;
       default:               askAi(task.question);
     }
   }
@@ -499,8 +473,6 @@ export default function JournalEntryPage() {
     pending: counts.pending,
     draft:   counts.draft,
     posted:  counts.posted,
-    void:    counts.void,
-    deleted: counts.deleted,
   }), [allRows, counts]);
   const tabs = [
     { k: "semua",   lbl: "All",     count: tabCounts.semua },
@@ -508,9 +480,7 @@ export default function JournalEntryPage() {
     { k: "pending", lbl: "Pending", count: tabCounts.pending },
     { k: "draft",   lbl: "Draft",   count: tabCounts.draft },
     { k: "posted",  lbl: "Posted",  count: tabCounts.posted },
-    { k: "void",    lbl: "Void",    count: tabCounts.void },
-    // Only once deletion is on, or something has been deleted.
-    ...(journalDeletion || tabCounts.deleted ? [{ k: "deleted", lbl: "Deleted", count: tabCounts.deleted }] : []),
+    // Void and deleted entries have no tab of their own; they sit in All.
   ];
 
   // ── Corpus ─────────────────────────────────────────────────────────────
@@ -530,9 +500,8 @@ export default function JournalEntryPage() {
     filterValues.dateFrom !== "" ||
     filterValues.dateTo !== "" ||
     klayFilterKeys.length > 0 ||
-    sortChoice !== null ||
-    groupChoice !== null
-  ), [filterValues, klayFilterKeys, sortChoice, groupChoice]);
+    sortChoice !== null
+  ), [filterValues, klayFilterKeys, sortChoice]);
 
   const activeFilterCount = useMemo(() => {
     let n = 0;
@@ -616,9 +585,8 @@ export default function JournalEntryPage() {
     return list;
   }, [corpus, filterValues, klayFilters]);
 
-  // ── Sort + Group ───────────────────────────────────────────────────────
+  // ── Sort ───────────────────────────────────────────────────────────────
   const effectiveSort = sortChoice || (filter.kind === "tab" && filter.value === "pending" ? "risk" : "date-desc");
-  const effectiveGroup = groupChoice || "none";
 
   const sortedRows = useMemo(() => {
     const arr = [...filteredRows];
@@ -639,32 +607,6 @@ export default function JournalEntryPage() {
     return arr;
   }, [filteredRows, effectiveSort]);
 
-  const groups = useMemo(() => {
-    if (effectiveGroup === "none") return null;
-    const keyFn = (r) => {
-      if (effectiveGroup === "status") return STATUS_LABEL[r.status] || r.status;
-      if (effectiveGroup === "month") {
-        const [y, m] = r.je_date.split("-");
-        const names = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
-        return `${names[parseInt(m, 10) - 1]} ${y}`;
-      }
-      return "—";
-    };
-    const map = new Map();
-    for (const r of sortedRows) {
-      const k = keyFn(r);
-      if (!map.has(k)) map.set(k, []);
-      map.get(k).push(r);
-    }
-    return Array.from(map.entries()).map(([k, rows]) => ({
-      key: k,
-      label: k,
-      rows,
-      sum: rows.reduce((s, r) => s + r.debit, 0),
-      kind: effectiveGroup,
-    }));
-  }, [effectiveGroup, sortedRows]);
-
 
   const pageDebit = filteredRows.reduce((s, r) => s + r.debit, 0);
   const pageCredit = filteredRows.reduce((s, r) => s + r.credit, 0);
@@ -675,13 +617,6 @@ export default function JournalEntryPage() {
     setChecked((prev) => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  }
-  function toggleGroup(key) {
-    setCollapsedGroups((prev) => {
-      const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
       return next;
     });
   }
@@ -700,7 +635,6 @@ export default function JournalEntryPage() {
 
   function resetAll() {
     setSortChoice(null);
-    setGroupChoice(null);
     setFilterValues(emptyFilters);
     setKlayFilters({});
     setKlayQuery("");
@@ -865,15 +799,38 @@ export default function JournalEntryPage() {
               <h1 className="lg-title">Journal Entry</h1>
             </div>
             <div className="lg-head-actions">
-              <button
-                className="lg-btn-brand"
-                disabled={!canTransact}
-                title={canTransact ? "Draft a new journal entry" : "Your role can view journals but not draft them"}
-                onClick={() => canTransact && openDraft()}
-              >
-                <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                New Journal Entry
-              </button>
+              {/* Split button: the main part opens a blank journal; the caret
+                  starts one from a journal template. */}
+              <div className="jtm-split">
+                <button
+                  className={`lg-btn-brand${canTransact && journalTemplates.length ? " jtm-split-main" : ""}`}
+                  disabled={!canTransact}
+                  title={canTransact ? "Draft a new manual journal" : "Your role can view journals but not draft them"}
+                  onClick={() => canTransact && openDraft()}
+                >
+                  <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  New Manual Journal
+                </button>
+                {canTransact && journalTemplates.length > 0 && (
+                  <button
+                    className="lg-btn-brand jtm-split-caret"
+                    title="Start from a template"
+                    aria-label="Start from a template"
+                    aria-haspopup="dialog"
+                    aria-expanded={templateMenuOpen}
+                    onClick={() => setTemplateMenuOpen((o) => !o)}
+                  >
+                    <svg viewBox="0 0 12 12"><path d="M3 4.5l3 3 3-3" /></svg>
+                  </button>
+                )}
+                {templateMenuOpen && (
+                  <JournalTemplateMenu
+                    templates={journalTemplates}
+                    onPick={(id) => openDraft("", id)}
+                    onClose={() => setTemplateMenuOpen(false)}
+                  />
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -888,21 +845,6 @@ export default function JournalEntryPage() {
                   <span className="bp-tab-count">{t.count}</span>
                 </button>
               ))}
-              {/* Quick view: only what people keyed in by hand — the Journal
-                  Entry form's own entries — over every source. */}
-              <div className="je-srcview" role="group" aria-label="Source view">
-                {(() => {
-                  const manualOnly = filterValues.sources.size === 1 && filterValues.sources.has("manual");
-                  return (
-                    <>
-                      <button type="button" className={`je-srcview-btn${!manualOnly ? " on" : ""}`} aria-pressed={!manualOnly}
-                        onClick={() => setFilterValues((v) => ({ ...v, sources: new Set() }))}>All sources</button>
-                      <button type="button" className={`je-srcview-btn${manualOnly ? " on" : ""}`} aria-pressed={manualOnly}
-                        onClick={() => setFilterValues((v) => ({ ...v, sources: new Set(["manual"]) }))}>Manual</button>
-                    </>
-                  );
-                })()}
-              </div>
             </div>
 
             <div className="lg-filter-row">
@@ -918,7 +860,7 @@ export default function JournalEntryPage() {
               />
               <div className="lg-filter-meta">
                 <div className="lg-meta-btn-wrap">
-                  <button className={`lg-meta-btn${activeFilterCount > 0 ? " active" : ""}`} onClick={() => { setFilterPopOpen(!filterPopOpen); setSortPopOpen(false); setGroupPopOpen(false); }}>
+                  <button className={`lg-meta-btn${activeFilterCount > 0 ? " active" : ""}`} onClick={() => { setFilterPopOpen(!filterPopOpen); setSortPopOpen(false); }}>
                     <svg viewBox="0 0 12 12"><path d="M2 3h8M3 6h6M4 9h4" strokeLinecap="round"/></svg>
                     Filter
                     {activeFilterCount > 0 && <span className="lg-filter-badge">{activeFilterCount}</span>}
@@ -926,18 +868,11 @@ export default function JournalEntryPage() {
                   {filterPopOpen && <FilterPopover values={filterValues} creators={creatorOptions} onChange={setFilterValues} onClose={() => setFilterPopOpen(false)} />}
                 </div>
                 <div className="lg-meta-btn-wrap">
-                  <button className="lg-meta-btn" onClick={() => { setSortPopOpen(!sortPopOpen); setFilterPopOpen(false); setGroupPopOpen(false); }}>
+                  <button className="lg-meta-btn" onClick={() => { setSortPopOpen(!sortPopOpen); setFilterPopOpen(false); }}>
                     <span className="meta-lbl">Sort:</span>
                     <span className="meta-val">{SORT_LABELS[effectiveSort]}</span>
                   </button>
                   {sortPopOpen && <SortPopover value={effectiveSort} onPick={(v) => { setSortChoice(v); setSortPopOpen(false); }} onClose={() => setSortPopOpen(false)} />}
-                </div>
-                <div className="lg-meta-btn-wrap">
-                  <button className="lg-meta-btn" onClick={() => { setGroupPopOpen(!groupPopOpen); setSortPopOpen(false); setFilterPopOpen(false); }}>
-                    <span className="meta-lbl">Group:</span>
-                    <span className="meta-val">{GROUP_LABELS[effectiveGroup]}</span>
-                  </button>
-                  {groupPopOpen && <GroupPopover value={effectiveGroup} onPick={(v) => { setGroupChoice(v); setGroupPopOpen(false); }} onClose={() => setGroupPopOpen(false)} />}
                 </div>
                 {hasActiveFilters && <button className="lg-reset-all" onClick={resetAll}>Reset all</button>}
               </div>
@@ -956,70 +891,26 @@ export default function JournalEntryPage() {
             </div>
 
             <div>
-              {groups ? (
-                groups.map((g) => {
-                  const isCollapsed = collapsedGroups.has(g.key);
-                  return (
-                    <div key={g.key}>
-                      <div className="lg-group-head muted" onClick={() => toggleGroup(g.key)}>
-                        <div className="lg-group-left">
-                          <svg className={`lg-group-chevron${isCollapsed ? " closed" : ""}`} viewBox="0 0 9 9"><path d="M2 3l2.5 3L7 3"/></svg>
-                          <span className="lg-group-lbl">{g.label}</span>
-                          <span className="lg-group-count">{g.rows.length}</span>
-                        </div>
-                        {g.sum > 0 && (
-                          <div className="lg-group-subtotal">
-                            <span className="lg-group-subtotal-lbl">Debit</span>
-                            Rp {fmtRp(g.sum)}
-                          </div>
-                        )}
-                      </div>
-                      {!isCollapsed && g.rows.map((r, i) => (
-                        <div key={r.je_number} data-je-row={r.je_number} style={{ position: "relative" }}>
-                          <JeRow
-                            r={r}
-                            isChecked={checked.has(r.je_number)}
-                            onCheck={toggleRow}
-                            onClick={() => openEntry(r.je_number)}
-                            onKebab={(id) => setMenuOpenFor(menuOpenFor === id ? null : id)}
-                            isSelected={highlightedRef === r.je_number}
-                            isAlt={i % 2 === 1}
-                            closedThrough={closedThrough}
-                          />
-                          {menuOpenFor === r.je_number && (
-                            <div style={{ position: "absolute", right: 32, top: 32, zIndex: 5 }}>
-                              <RowMenu je={r} actions={actionsFor(r)} onClose={() => setMenuOpenFor(null)} onAction={onRowAction} />
-                            </div>
-                          )}
-                        </div>
-                      ))}
+              {sortedRows.length === 0 && <div className="lg-empty">None journals matching</div>}
+              {sortedRows.map((r, i) => (
+                <div key={r.je_number} data-je-row={r.je_number} style={{ position: "relative" }}>
+                  <JeRow
+                    r={r}
+                    isChecked={checked.has(r.je_number)}
+                    onCheck={toggleRow}
+                    onClick={() => openEntry(r.je_number)}
+                    onKebab={(id) => setMenuOpenFor(menuOpenFor === id ? null : id)}
+                    isSelected={highlightedRef === r.je_number}
+                    isAlt={i % 2 === 1}
+                    closedThrough={closedThrough}
+                  />
+                  {menuOpenFor === r.je_number && (
+                    <div style={{ position: "absolute", right: 32, top: 32, zIndex: 5 }}>
+                      <RowMenu je={r} actions={actionsFor(r)} onClose={() => setMenuOpenFor(null)} onAction={onRowAction} />
                     </div>
-                  );
-                })
-              ) : (
-                <>
-                  {sortedRows.length === 0 && <div className="lg-empty">None journals matching</div>}
-                  {sortedRows.map((r, i) => (
-                    <div key={r.je_number} data-je-row={r.je_number} style={{ position: "relative" }}>
-                      <JeRow
-                        r={r}
-                        isChecked={checked.has(r.je_number)}
-                        onCheck={toggleRow}
-                        onClick={() => openEntry(r.je_number)}
-                        onKebab={(id) => setMenuOpenFor(menuOpenFor === id ? null : id)}
-                        isSelected={highlightedRef === r.je_number}
-                        isAlt={i % 2 === 1}
-                        closedThrough={closedThrough}
-                      />
-                      {menuOpenFor === r.je_number && (
-                        <div style={{ position: "absolute", right: 32, top: 32, zIndex: 5 }}>
-                          <RowMenu je={r} actions={actionsFor(r)} onClose={() => setMenuOpenFor(null)} onAction={onRowAction} />
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </>
-              )}
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         </div>
