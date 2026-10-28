@@ -5,11 +5,12 @@ import { useCurrentUser } from "../state/CurrentUserContext";
 import { useAssets } from "../state/AssetsContext";
 import { useAccountingSettings } from "../state/AccountingSettingsContext";
 import { scheduledEntries, postedFromSchedule } from "../lib/scheduledJournals";
+import { draftFromRecurring, canRepeat, describeRecurrence, monthLabel } from "../lib/recurringJournals";
 import {
   canEdit, canSubmit, canApprove as canApproveEntry, canReturn, canVoid, canReverse,
   isSystemEntry, reversibleHere, withEvent, buildReversal, approvedEntry, isoOf,
 } from "../lib/journalLifecycle";
-import { ReturnDialog, ReverseDialog } from "./JeActionDialogs";
+import { ReturnDialog, ReverseDialog, RepeatDialog } from "./JeActionDialogs";
 import { TODAY } from "../lib/clock";
 
 // What the Journal Entry list and the Journal Entry detail page share: the
@@ -31,19 +32,43 @@ export function lineSums(je) {
   return { debit, credit };
 }
 
-export const STATUS_LABEL = { posted: "Posted", draft: "Draft", pending: "Pending", void: "Void", scheduled: "Scheduled", deleted: "Deleted" };
-export const STATUS_BADGE_CLASS = { posted: "approved", draft: "draft", pending: "review", void: "rejected", scheduled: "scheduled", deleted: "rejected" };
+// "Pending Review" matches Bills; the stored status stays `pending` (the PRD's PENDING).
+export const STATUS_LABEL = { posted: "Posted", reversed: "Reversed", draft: "Draft", pending: "Pending Review", void: "Void", scheduled: "Scheduled", deleted: "Deleted" };
+export const STATUS_BADGE_CLASS = { posted: "approved", reversed: "reversed", draft: "draft", pending: "review", void: "rejected", scheduled: "scheduled", deleted: "rejected" };
+
+// The status an entry shows. A posted entry that has been reversed reads
+// Reversed — the PRD's REVERSED — though it is stored, and filed under the
+// Posted tab, as posted: it is still in the ledger, netted off by its reversal.
+export const displayStatus = (je) => (je.status === "posted" && je.reversed_by ? "reversed" : je.status);
+
+// A journal that repeats monthly, or a month one drafted (scheduled or
+// stored) — marked with an icon rather than a Source of its own.
+export function recurringNote(je) {
+  if (je.recurring_of) return `Recurring — the monthly copy of ${je.recurring_of}`;
+  if (je.recurrence && je.recurrence.status !== "ended") return `Repeats monthly${je.recurrence.status === "paused" ? " (paused)" : ""}`;
+  return null;
+}
+export function RecurringIcon({ je }) {
+  const note = recurringNote(je);
+  if (!note) return null;
+  return (
+    <span className="je-rec-icon" title={note} aria-label={note} role="img">
+      <svg viewBox="0 0 24 24"><polyline points="17 1 21 5 17 9" /><path d="M3 11V9a4 4 0 0 1 4-4h14" /><polyline points="7 23 3 19 7 15" /><path d="M21 13v2a4 4 0 0 1-4 4H3" /></svg>
+    </span>
+  );
+}
 
 // Which screen wrote an entry, for the list's Source column and filter.
-// Manual = the Journal Entry form, plus reversals of its entries — by hand or
-// automatic (only a manual entry can be set to auto-reverse);
+// Manual = a journal someone keyed in: the Journal Entry form, the months a
+// repeating journal drafts (marked with an icon instead — isRecurring), and the
+// journals a Finance Manager writes from a bank line in Bank Reconciliation;
+// plus reversals of any of these, by hand or automatic.
 // Fixed assets = the register's monthly depreciation and amortisation.
 export const JE_SOURCES = [
   { key: "manual", label: "Manual" },
   { key: "bills", label: "Bills" },
   { key: "invoices", label: "Invoices" },
   { key: "payments", label: "Payments" },
-  { key: "bankrec", label: "Bank rec" },
   { key: "fixedassets", label: "Fixed assets" },
   { key: "inventory", label: "Inventory" },
 ];
@@ -54,7 +79,6 @@ export function entrySource(je) {
     case "bill": case "ap_bill": return "bills";
     case "invoice": return "invoices";
     case "bill_payment": case "payment": case "invoice_payment": return "payments";
-    case "bank_reconciliation": case "bank_quick_draft": return "bankrec";
     case "schedule": return "fixedassets";
     case "inventory_movement": return "inventory";
     default: return "manual";
@@ -126,6 +150,7 @@ export function useJournalActions({ showToast, fromTab = null, onPostedScheduled
     const id = je.reference_id;
     if (je.status === "scheduled" && je.schedule) {
       if (je.schedule.kind === "reversal") return { label: `Entry ${je.schedule.reverses}`, open: () => openEntry(je.schedule.reverses) };
+      if (je.schedule.kind === "recurring") return { label: `Entry ${je.recurring_of}`, open: () => openEntry(je.recurring_of) };
       return { label: "Fixed asset register", open: () => navigate("/assets") };
     }
     if (["bill", "ap_bill", "bill_payment"].includes(je.reference_type) && id) return { label: `Bill ${id}`, open: () => navigate(`/bills/${id}`) };
@@ -138,6 +163,7 @@ export function useJournalActions({ showToast, fromTab = null, onPostedScheduled
     if (je.reference_type === "bank_reconciliation") return { label: "Bank reconciliation", open: () => navigate("/bank-reconciliation") };
     if (je.reference_type === "inventory_movement") return { label: "Stock movement", open: () => navigate("/inventory") };
     if (je.reference_type === "schedule") return { label: "Fixed asset register", open: () => navigate("/assets") };
+    if (je.recurring_of) return { label: `Repeats ${je.recurring_of}`, open: () => openEntry(je.recurring_of) };
     if (je.reversal_of) return { label: `Reverses ${je.reversal_of}`, open: () => openEntry(je.reversal_of) };
     return null;
   }
@@ -145,6 +171,14 @@ export function useJournalActions({ showToast, fromTab = null, onPostedScheduled
   function actionsFor(row) {
     if (row.status === "scheduled") {
       const src = sourceOf(row);
+      // A recurring month never posts itself: it becomes a draft on its date,
+      // or now by hand.
+      if (row.schedule?.kind === "recurring") {
+        return [
+          ...(canTransact ? [{ key: "draft_recurring", label: "Draft now", icon: "edit", primary: true, check: { ok: true } }] : []),
+          ...(src ? [{ key: "open_source", label: `Open ${src.label.replace(/^Entry/, "entry")}`, icon: "link", check: { ok: true } }] : []),
+        ];
+      }
       return [
         // A due one posts itself; only a future one can be posted early.
         ...(canApprove && !row.schedule?.due ? [{ key: "post_scheduled", label: "Post early", icon: "check", primary: true, check: { ok: true } }] : []),
@@ -163,6 +197,10 @@ export function useJournalActions({ showToast, fromTab = null, onPostedScheduled
       out.push({ key: "return", label: "Send back", icon: "back", check: canReturn(je, ctx) });
     }
     if (je.status === "posted" && reversibleHere(je)) out.push({ key: "reverse", label: "Reverse", icon: "reverse", check: canReverse(je, { canReverse: hasCapability("gl.je.reverse") }) });
+    // Offered on posted manual journals that don't already repeat.
+    if (je.status === "posted" && (je.reference_type || "manual") === "manual" && !je.reversal_of && !(je.recurrence && je.recurrence.status !== "ended")) {
+      out.push({ key: "repeat", label: "Repeat monthly", icon: "repeat", check: canRepeat(je, { canTransact }) });
+    }
     const src = sourceOf(je);
     if (src) out.push({ key: "open_source", label: "Open source", icon: "link", check: { ok: true } });
     if ((je.status === "draft" || je.status === "pending") && !sys) out.push({ key: "void", label: "Void", icon: "void", danger: true, check: canVoid(je) });
@@ -193,10 +231,41 @@ export function useJournalActions({ showToast, fromTab = null, onPostedScheduled
     showToast(`${je.memo} posted as ${jeNumber}`);
   }
 
+  // A recurring month drafted ahead of its date, by hand. The same draft its
+  // date would have made (state/ScheduledAutoPost.jsx).
+  function draftRecurring(row) {
+    const jeNumber = peekNextJeNumber();
+    addJournalEntry(draftFromRecurring(row, { jeNumber, by: actor, today: todayIso }));
+    onPostedScheduled?.(jeNumber, row);
+    showToast(`${row.schedule.periodLabel} drafted as ${jeNumber} — review and submit it`);
+  }
+
+  function confirmRepeat(je, recurrence) {
+    updateJournalEntry(je.je_number, (cur) => withEvent(
+      { ...cur, recurrence: { ...recurrence, status: "active", set_by: actor, set_date: todayIso } },
+      "set to repeat", actor, describeRecurrence(recurrence),
+    ));
+    setDialog(null);
+    showToast(`${je.je_number} now repeats monthly from ${monthLabel(recurrence.start)}`);
+  }
+
+  // Pause, resume or end a schedule (the detail page's Recurring card).
+  function setRecurrenceStatus(je, status) {
+    const verb = { paused: "paused", active: "resumed", ended: "ended" }[status];
+    updateJournalEntry(je.je_number, (cur) => {
+      const r = { ...cur.recurrence, status };
+      // Resuming never back-fills: it picks up from this month.
+      if (status === "active" && r.start < todayIso.slice(0, 7)) r.start = todayIso.slice(0, 7);
+      return withEvent({ ...cur, recurrence: r }, `repeat ${verb}`, actor);
+    });
+    showToast(`Repeat ${verb} for ${je.je_number}`);
+  }
+
   // `view` is the caller's (the list opens the detail page; the detail page
   // is already there).
   function runAction(action, row) {
     if (action === "post_scheduled") { postScheduled(row); return; }
+    if (action === "draft_recurring") { draftRecurring(row); return; }
     if (action === "open_source") { sourceOf(row.status === "scheduled" ? row : storedOf(row))?.open(); return; }
     const je = storedOf(row);
     if (action === "submit") { const c = submitQuiet(je); showToast(c.ok ? `${je.je_number} submitted for approval` : c.reason); }
@@ -208,6 +277,11 @@ export function useJournalActions({ showToast, fromTab = null, onPostedScheduled
     }
     else if (action === "return") setDialog({ kind: "return", je });
     else if (action === "reverse") setDialog({ kind: "reverse", je });
+    else if (action === "repeat") {
+      const check = canRepeat(je, { canTransact });
+      if (!check.ok) { showToast(check.reason); return; }
+      setDialog({ kind: "repeat", je });
+    }
     else if (action === "void") {
       const check = canVoid(je);
       if (!check.ok) { showToast(check.reason); return; }
@@ -250,11 +324,14 @@ export function useJournalActions({ showToast, fromTab = null, onPostedScheduled
       {dialog?.kind === "return" && (
         <ReturnDialog je={dialog.je} onClose={() => setDialog(null)} onConfirm={(reason) => confirmReturn(dialog.je, reason)} />
       )}
+      {dialog?.kind === "repeat" && (
+        <RepeatDialog je={dialog.je} onClose={() => setDialog(null)} onConfirm={(r) => confirmRepeat(dialog.je, r)} />
+      )}
       {dialog?.kind === "reverse" && (
         <ReverseDialog je={dialog.je} closedThrough={closedThrough} onClose={() => setDialog(null)} onConfirm={(date) => confirmReverse(dialog.je, date)} />
       )}
     </>
   );
 
-  return { actionsFor, runAction, bulk, sourceOf, storedOf, openEntry, dialogs, canApprove, canTransact, actor };
+  return { actionsFor, runAction, bulk, sourceOf, storedOf, openEntry, setRecurrenceStatus, dialogs, canApprove, canTransact, actor };
 }

@@ -42,6 +42,8 @@
 .jef-check input{margin-top:2px}
 .jef-check > span{display:flex;flex-direction:column;gap:2px}
 .jef-field-inline{width:180px}
+.jef-repeat{flex-direction:column;align-items:stretch;gap:12px;margin-top:12px}
+.jef-repeat-fields{margin-left:23px}
 
 /* Lines */
 .jef-lines{display:flex;flex-direction:column}

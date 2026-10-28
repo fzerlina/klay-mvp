@@ -16,6 +16,8 @@ import {
 } from "../lib/journalForm";
 import AccountCombobox from "../components/AccountCombobox";
 import JournalTemplateMenu from "../components/JournalTemplateMenu";
+import RecurrenceFields from "../components/RecurrenceFields";
+import { defaultRecurrence } from "../lib/recurringJournals";
 import "./modules.css";
 import "./invoices-ledger.css";
 import "./journal-entry-form.css";
@@ -83,6 +85,11 @@ export default function JournalEntryFormPage() {
   )));
   const [reversalOn, setReversalOn] = useState(!!editing?.auto_reverse);
   const [reversalDate, setReversalDate] = useState(editing?.reversal_date || defaultReversalDate(editing?.je_date || TODAY_ISO));
+  // Repeat monthly (lib/recurringJournals.js). A month a schedule drafted
+  // can't itself repeat.
+  const canRepeatHere = !editing?.recurring_of;
+  const [repeatOn, setRepeatOn] = useState(!!editing?.recurrence);
+  const [repeat, setRepeat] = useState(() => editing?.recurrence || defaultRecurrence(editing?.je_date || TODAY_ISO));
   const [attachments, setAttachments] = useState(() => editing?.attachments || []);
   const [showErrors, setShowErrors] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -115,11 +122,18 @@ export default function JournalEntryFormPage() {
   }, [entries, actor]);
 
   const reversal = { on: reversalOn, date: reversalDate };
-  const v = validateForm({ lines, memo, jeDate, closedThrough, reversal });
+  const recurrence = repeatOn && canRepeatHere ? {
+    ...repeat,
+    end: { ...repeat.end, count: parseInt(repeat.end.count, 10) || 0 },
+    status: editing?.recurrence?.status || "active",
+    set_by: editing?.recurrence?.set_by || actor,
+    set_date: editing?.recurrence?.set_date || TODAY_ISO,
+  } : null;
+  const v = validateForm({ lines, memo, jeDate, closedThrough, reversal, recurrence });
   const { totals } = v;
 
   const draft = () => buildEntry({
-    editing, jeNumber, jeDate, memo, reference, reversal, attachments, lines,
+    editing, jeNumber, jeDate, memo, reference, reversal, recurrence, attachments, lines,
     createdBy: actor, today: TODAY_ISO, payeeOf,
   });
 
@@ -171,6 +185,12 @@ export default function JournalEntryFormPage() {
     setDirty(true);
     // The reversal date follows the entry date until someone sets it by hand.
     if (reversalDate === defaultReversalDate(jeDate)) setReversalDate(defaultReversalDate(next));
+    // So do the repeat's first month and day.
+    const was = defaultRecurrence(jeDate);
+    if (next && repeat.start === was.start && repeat.day === was.day) {
+      const now = defaultRecurrence(next);
+      setRepeat((r) => ({ ...r, start: now.start, day: now.day }));
+    }
     setJeDate(next);
   }
 
@@ -316,6 +336,24 @@ export default function JournalEntryFormPage() {
               </label>
             )}
           </div>
+          {canRepeatHere && (
+            <div className="jef-reversal jef-repeat">
+              <label className="jef-check">
+                <input type="checkbox" checked={repeatOn} onChange={(e) => { setDirty(true); setRepeatOn(e.target.checked); }} />
+                <span>
+                  <strong>Repeat this entry every month</strong>
+                  <span className="jef-hint">
+                    Once this entry is posted, each month's copy arrives as a draft for {editing?.recurrence?.set_by && editing.recurrence.set_by !== actor ? editing.recurrence.set_by : "you"} to review and submit — nothing posts by itself.
+                  </span>
+                </span>
+              </label>
+              {repeatOn && (
+                <div className="jef-repeat-fields">
+                  <RecurrenceFields value={repeat} jeDate={jeDate} onChange={(r) => { setDirty(true); setRepeat(r); }} />
+                </div>
+              )}
+            </div>
+          )}
         </section>
 
         {/* ── Lines ───────────────────────────────────────────────────── */}

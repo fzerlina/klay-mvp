@@ -2,10 +2,13 @@
 // page reads as the list it is:
 //   • ReturnDialog     — send a pending entry back to its preparer, with why
 //   • ReverseDialog    — reverse a posted entry on a chosen date
+//   • RepeatDialog     — set a posted manual entry to repeat monthly
 
 import { useState } from "react";
 import { firstOfNextMonth, reversalDateCheck } from "../lib/journalLifecycle";
 import { formatDate } from "../lib/format";
+import { defaultRecurrence, recurrenceProblem, monthLabel } from "../lib/recurringJournals";
+import RecurrenceFields from "../components/RecurrenceFields";
 
 
 function Shell({ title, sub, children, onClose, onConfirm, confirmLabel, disabled, danger }) {
@@ -78,6 +81,30 @@ export function ReverseDialog({ je, closedThrough, onClose, onConfirm }) {
       <p className="jad-note">
         Posts a new entry with every debit and credit swapped, dated {date ? formatDate(date) : "—"}. The original stays in the
         ledger, marked as reversed — a posted entry is never edited or deleted.
+      </p>
+    </Shell>
+  );
+}
+
+export function RepeatDialog({ je, onClose, onConfirm }) {
+  const [r, setR] = useState(() => defaultRecurrence(je.je_date));
+  const value = { ...r, end: { ...r.end, count: parseInt(r.end.count, 10) || 0 } };
+  const problem = recurrenceProblem(value, je.je_date);
+  return (
+    <Shell
+      title="Repeat monthly"
+      sub={`${je.je_number} · ${je.memo}`}
+      onClose={onClose}
+      onConfirm={() => onConfirm(value)}
+      confirmLabel="Repeat monthly"
+      disabled={!!problem}
+    >
+      <RecurrenceFields value={r} jeDate={je.je_date} onChange={setR} />
+      {problem && <div className="dje-warn">{problem}</div>}
+      <p className="jad-note">
+        From {monthLabel(value.start)}, each month gets a copy of these lines as a draft for you to review and submit.
+        Nothing posts by itself — every month goes through approval like any manual journal.
+        {je.auto_reverse ? " Each one also reverses itself on the 1st of the following month." : ""}
       </p>
     </Shell>
   );

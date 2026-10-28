@@ -6,8 +6,9 @@ import { DIM_BY_KEY, paletteFor, dimensionsForAccount, sampleDimensionValue } fr
 import { withEvent, isClosedDate, periodOf } from "../lib/journalLifecycle";
 import { useClosePeriod } from "../state/ClosePeriodContext";
 import { formatDate } from "../lib/format";
+import { describeRecurrence, recurringInstances, RECURRENCE_STATUS } from "../lib/recurringJournals";
 import {
-  fmtRp, STATUS_LABEL, STATUS_BADGE_CLASS, ACTION_ICON, useJournalRows, useJournalActions,
+  fmtRp, STATUS_LABEL, STATUS_BADGE_CLASS, ACTION_ICON, useJournalRows, useJournalActions, displayStatus, RecurringIcon,
 } from "./journalEntryShared";
 import "./modules.css";
 import "./invoices-ledger.css";
@@ -28,7 +29,7 @@ export default function JournalEntryDetailPage() {
   const [params] = useSearchParams();
   const { state: navState, pathname, search } = useLocation();
   const navigate = useNavigate();
-  const { updateJournalEntry } = useJournalEntries();
+  const { entries, updateJournalEntry } = useJournalEntries();
   const rows = useJournalRows();
   const { closedThrough } = useClosePeriod();
 
@@ -49,7 +50,7 @@ export default function JournalEntryDetailPage() {
 
   const fromTab = navState?.fromTab || null;
   const backTo = `/journal-entry${fromTab ? `?tab=${fromTab}` : ""}`;
-  const { actionsFor, runAction, sourceOf, storedOf, openEntry, dialogs, canTransact, actor } = useJournalActions({
+  const { actionsFor, runAction, sourceOf, storedOf, openEntry, setRecurrenceStatus, dialogs, canTransact, actor } = useJournalActions({
     showToast,
     fromTab,
     // A scheduled entry, once posted, lives on under its new number.
@@ -93,6 +94,11 @@ export default function JournalEntryDetailPage() {
     ...(!history.length && stored.posted_by ? [{ at: stored.posted_date, action: "posted", by: stored.posted_by }] : []),
     ...history,
   ];
+  // A repeating entry: what it has drafted, and its next month on the Scheduled tab.
+  const drafted = stored.recurrence ? recurringInstances(entries, stored.je_number) : [];
+  const nextRecurring = stored.recurrence
+    ? rows.filter((r) => r.status === "scheduled" && r.recurring_of === stored.je_number).sort((a, b) => a.je_date.localeCompare(b.je_date))[0]
+    : null;
   const payees = [...new Map((row.lines || []).filter((l) => l.payee).map((l) => [l.payee.id, l.payee.name])).values()];
   const entryPayee = stored.payee?.name || (payees.length === 1 ? payees[0] : payees.length > 1 ? `${payees.length} payees` : null);
 
@@ -124,7 +130,8 @@ export default function JournalEntryDetailPage() {
             <div className="jed-head-text">
               <div className="jed-title-row">
                 <h1 className="jed-title">{row.status === "scheduled" ? "Scheduled entry" : row.je_number}</h1>
-                <span className={`badge badge-${STATUS_BADGE_CLASS[row.status]}`}>{STATUS_LABEL[row.status]}</span>
+                <RecurringIcon je={stored} />
+                <span className={`badge badge-${STATUS_BADGE_CLASS[displayStatus(stored)]}`}>{STATUS_LABEL[displayStatus(stored)]}</span>
                 {stored.self_approved && <span className="je-self-chip" title="Prepared and posted by the same person (Self-posting)">Self-posted</span>}
                 {stored.system_posted && <span className="je-sys-chip" title="Posted automatically on its scheduled date — nobody clicked Post">Auto-posted</span>}
               </div>
@@ -157,16 +164,32 @@ export default function JournalEntryDetailPage() {
         )}
         {row.status === "scheduled" && row.schedule && (
           <div className={`drawer-sched-callout jed-callout${row.schedule.due ? " due" : ""}`}>
-            <div className="drawer-sched-eyebrow">
-              {row.schedule.due ? "Due — posting now" : `Scheduled · posts itself on ${formatDate(row.schedule.postsOn)}`}
-            </div>
-            <p className="drawer-sched-text">
-              {row.schedule.kind === "reversal"
-                  ? <>Undoes {row.schedule.reverses} on {formatDate(row.schedule.postsOn)} — every debit and credit swapped.</>
-                  : <>Drafted from the fixed asset register for {row.schedule.periodLabel}. It is read-only — change an asset and this entry follows.</>}
-              {" "}It posts itself on {formatDate(row.schedule.postsOn)} — no approval needed — recorded as posted by the system, and gets its journal number then.
-              {row.schedule.note && <> {row.schedule.note}</>}
-            </p>
+            {row.schedule.kind === "recurring" ? (
+              <>
+                <div className="drawer-sched-eyebrow">
+                  {row.schedule.due ? "Due — drafting now" : `Scheduled · becomes a draft on ${formatDate(row.schedule.postsOn)}`}
+                </div>
+                <p className="drawer-sched-text">
+                  {row.schedule.periodLabel}'s copy of {row.recurring_of}, which repeats monthly. On {formatDate(row.schedule.postsOn)} it
+                  becomes a draft for {row.created_by} to review and submit, and gets its journal number then. It never posts by
+                  itself — it goes through approval like any manual journal.
+                  {row.schedule.note && <> {row.schedule.note}</>}
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="drawer-sched-eyebrow">
+                  {row.schedule.due ? "Due — posting now" : `Scheduled · posts itself on ${formatDate(row.schedule.postsOn)}`}
+                </div>
+                <p className="drawer-sched-text">
+                  {row.schedule.kind === "reversal"
+                      ? <>Undoes {row.schedule.reverses} on {formatDate(row.schedule.postsOn)} — every debit and credit swapped.</>
+                      : <>Drafted from the fixed asset register for {row.schedule.periodLabel}. It is read-only — change an asset and this entry follows.</>}
+                  {" "}It posts itself on {formatDate(row.schedule.postsOn)} — no approval needed — recorded as posted by the system, and gets its journal number then.
+                  {row.schedule.note && <> {row.schedule.note}</>}
+                </p>
+              </>
+            )}
             {row.schedule.sources.length > 0 && (
               <div className="drawer-sched-list">
                 {row.schedule.sources.map((s, i) => (
@@ -269,6 +292,54 @@ export default function JournalEntryDetailPage() {
                 )}
               </dl>
             </section>
+
+            {stored.recurrence && row.status !== "scheduled" && (
+              <section className="jed-card">
+                <div className="jed-card-title jed-rec-title">
+                  Repeats monthly
+                  <span className={`jed-rec-status ${stored.recurrence.status}`}>
+                    {stored.status === "posted" ? RECURRENCE_STATUS[stored.recurrence.status] : "Starts once posted"}
+                  </span>
+                </div>
+                <div className="jed-rec-desc">{describeRecurrence(stored.recurrence)}</div>
+                <div className="jed-rec-meta">
+                  Each month arrives as a draft for {stored.recurrence.set_by || stored.created_by} to review and submit — nothing posts by itself.
+                </div>
+                {stored.status === "posted" && stored.recurrence.status === "active" && (
+                  <div className="jed-rec-next">
+                    {nextRecurring
+                      ? <>Next: <button type="button" className="je-link" onClick={() => openEntry(nextRecurring.je_number)}>{nextRecurring.schedule.periodLabel} · {formatDate(nextRecurring.je_date)} →</button></>
+                      : "Nothing more in the next two months."}
+                  </div>
+                )}
+                {drafted.length > 0 && (
+                  <div className="jed-rec-list">
+                    <div className="jed-rec-list-lbl">Drafted so far · {drafted.length}</div>
+                    {drafted.map((d) => (
+                      <button key={d.je_number} type="button" className="jed-rec-item" onClick={() => openEntry(d.je_number)}>
+                        <span className="jed-code">{d.je_number}</span>
+                        <span className="jed-rec-item-date">{formatDate(d.je_date)}</span>
+                        <span className={`badge badge-${STATUS_BADGE_CLASS[displayStatus(d)]}`}>{STATUS_LABEL[displayStatus(d)]}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {canTransact && stored.status === "posted" && stored.recurrence.status !== "ended" && (
+                  <div className="jed-rec-actions">
+                    {stored.recurrence.status === "active"
+                      ? <button type="button" className="drawer-btn ghost" onClick={() => setRecurrenceStatus(stored, "paused")}>Pause</button>
+                      : <button type="button" className="drawer-btn ghost" onClick={() => setRecurrenceStatus(stored, "active")}>Resume</button>}
+                    <button
+                      type="button"
+                      className="drawer-btn ghost danger-text"
+                      onClick={() => { if (window.confirm(`Stop ${stored.je_number} repeating? Drafts already made stay as they are.`)) setRecurrenceStatus(stored, "ended"); }}
+                    >
+                      End repeat
+                    </button>
+                  </div>
+                )}
+              </section>
+            )}
 
             {row.status !== "scheduled" && (
               <section className="jed-card">
