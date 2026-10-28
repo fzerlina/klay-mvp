@@ -5,8 +5,9 @@ import "./reports.css";
 // Reports — a hub, not a report. Each financial statement lives on its own
 // route; this page is the single nav entry that indexes them. AP Aging folds
 // in here too (it was a top-level nav item before the /reports consolidation).
-// MVP shows four reports; the General Ledger (/general-ledger)
-// and Inventory Sub-Ledger (/inventory) pages still exist but aren't listed.
+// MVP shows four reports; the General Ledger (/general-ledger) lives in the
+// sidebar's General Ledger section, and the Inventory Sub-Ledger (/inventory)
+// page still exists but isn't listed.
 const REPORTS = [
   {
     key: "trial-balance",

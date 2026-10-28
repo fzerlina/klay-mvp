@@ -71,6 +71,8 @@ export const CAPABILITIES = {
   "gl.je.reverse": named("gl", "Reverse journals", "Reverse a posted journal entry, and delete posted journals where Klay has turned deletion on."),
   "gl.posting.dry_run": named("gl", "Preview postings", "Run a posting as a dry run to see the journal it would write."),
   "gl.recommendations.dismiss": named("gl", "Dismiss recommendations", "Dismiss Klay's suggestions and insights."),
+  "gl.reclassify": named("gl", "Reclassify in the ledger", "Move a posted line to another account or cost centre from the General Ledger. Writes a reclassification journal for approval; the original stays."),
+  "gl.export": named("gl", "Export the ledger", "Download General Ledger lines as CSV or Excel."),
 
   // Accounts Payable
   "ap.reverse": named("ap", "Reverse bills", "Reverse a posted bill with a compensating entry."),
@@ -234,7 +236,7 @@ export const ROLE_CAPS = {
       "ap.payment.authorize"], // gap
     ar: ["view", "transact", "approve", "post", "ar.customer.approve", "ar.customer.edit"],
     bank: ["bank.account.create", "bank.account.manage", "bank.quick_draft"], // gap
-    gl: ["view", "transact", "approve", "post", "gl.je.reverse", "gl.posting.dry_run", "gl.recommendations.dismiss"],
+    gl: ["view", "transact", "approve", "post", "gl.je.reverse", "gl.reclassify", "gl.export", "gl.posting.dry_run", "gl.recommendations.dismiss"],
     inventory: ["transact", "inventory.adjust"],
     masterdata: [
       "masterdata.counterparty.manage", "masterdata.counterparty.delete", "masterdata.fixed_asset.create",
@@ -258,7 +260,7 @@ export const ROLE_CAPS = {
     ap: ["view"],
     ar: ["view"],
     bank: ["bank.account.create"],
-    gl: ["view", "gl.posting.dry_run", "gl.recommendations.dismiss"],
+    gl: ["view", "gl.export", "gl.posting.dry_run", "gl.recommendations.dismiss"],
     inventory: ["transact"],
     masterdata: [
       "masterdata.counterparty.manage", "masterdata.fixed_asset.create", "masterdata.inventory_ob.manage",
