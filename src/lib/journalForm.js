@@ -7,14 +7,16 @@
 //     has one side, an amount and its dimensions, and the entry balances. A
 //     payee is optional on every line (agreed 25 Oct 2026).
 //   • submitBlocks — what submitting or posting adds on top: a memo, an open
-//     period, a valid reversal date, and no line on an account a manual
-//     journal can't post to (lib/journalLifecycle.js manualPostBlock).
+//     period, a valid reversal date, a valid repeat schedule, and no line on an
+//     account a manual journal can't post to (lib/journalLifecycle.js
+//     manualPostBlock).
 // A draft may sit on a control account or in a closed period — it is
 // re-pointed or re-dated before it goes anywhere.
 
 import { COA_BY_CODE } from "../data/seed/coa";
 import { DIM_BY_KEY, dimensionsForAccount } from "../data/seed/dimensions";
 import { manualPostBlock, isClosedDate, periodOf, firstOfNextMonth } from "./journalLifecycle";
+import { recurrenceProblem } from "./recurringJournals";
 
 let LINE_SEQ = 0;
 export function blankLine() {
@@ -60,7 +62,7 @@ export function totalsOf(lines) {
   return { active, debit, credit, diff: debit - credit, balanced: debit > 0 && debit === credit };
 }
 
-export function validateForm({ lines, memo, jeDate, closedThrough, reversal }) {
+export function validateForm({ lines, memo, jeDate, closedThrough, reversal, recurrence = null }) {
   const totals = totalsOf(lines);
   const lineErrors = {};
   const lineBlocks = {};
@@ -91,6 +93,8 @@ export function validateForm({ lines, memo, jeDate, closedThrough, reversal }) {
     else if (reversal.date <= jeDate) submitBlocks.push("The reversal date must be after the entry date.");
     else if (isClosedDate(reversal.date, closedThrough)) submitBlocks.push(`The reversal date is in ${periodOf(reversal.date)}, which is closed.`);
   }
+  const repeatProblem = recurrence && recurrenceProblem(recurrence, jeDate);
+  if (repeatProblem) submitBlocks.push(repeatProblem);
 
   return { totals, lineErrors, lineBlocks, draftBlocks, submitBlocks, canSave: draftBlocks.length === 0, canSubmit: submitBlocks.length === 0 };
 }
@@ -100,10 +104,11 @@ export const defaultReversalDate = (jeDate) => firstOfNextMonth(jeDate);
 // The entry the form saves, always as a draft — submitting and posting are
 // lifecycle moves the page applies afterwards (lib/journalLifecycle.js).
 // A payee lives on its line only; an older draft's header payee is dropped
-// here (the form has already moved it onto the payable lines).
-export function buildEntry({ editing, jeNumber, jeDate, memo, reference, reversal, attachments, lines, createdBy, today, payeeOf }) {
+// here (the form has already moved it onto the payable lines). `recurrence` is
+// the repeat schedule (lib/recurringJournals.js) or null.
+export function buildEntry({ editing, jeNumber, jeDate, memo, reference, reversal, recurrence, attachments, lines, createdBy, today, payeeOf }) {
   const active = lines.filter((l) => l.account_code);
-  const { auto_reverse: _ar, reversal_date: _rd, payee: _pe, ...kept } = editing || {};
+  const { auto_reverse: _ar, reversal_date: _rd, payee: _pe, recurrence: _rc, ...kept } = editing || {};
   return {
     ...kept,
     je_number: editing?.je_number || jeNumber,
@@ -118,6 +123,7 @@ export function buildEntry({ editing, jeNumber, jeDate, memo, reference, reversa
     posted_by: null,
     posted_date: null,
     ...(reversal.on ? { auto_reverse: true, reversal_date: reversal.date } : {}),
+    ...(recurrence ? { recurrence } : {}),
     attachments,
     lines: active.map((l) => ({
       account_code: l.account_code,

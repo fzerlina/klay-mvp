@@ -40,6 +40,21 @@
 .jed-dl dt{color:var(--color-text-tertiary)}
 .jed-dl dd{margin:0;color:var(--color-text-primary);overflow-wrap:anywhere}
 
+/* Repeats monthly — lib/recurringJournals.js */
+.jed-rec-title{display:flex;align-items:center;gap:8px}
+.jed-rec-status{margin-left:auto;font-size:10px;font-weight:700;letter-spacing:0;text-transform:none;padding:2px 8px;border-radius:9999px;background:var(--color-surface-sunken);color:var(--color-text-secondary)}
+.jed-rec-status.active{background:#E1F5EE;color:#0F6E56}
+.jed-rec-status.paused{background:#FFF8EC;color:#7A5510}
+.jed-rec-desc{font-size:12.5px;font-weight:600;color:var(--color-text-primary)}
+.jed-rec-meta{margin-top:4px;font-size:11.5px;line-height:1.45;color:var(--color-text-tertiary)}
+.jed-rec-next{margin-top:10px;font-size:12px;color:var(--color-text-secondary)}
+.jed-rec-list{margin-top:12px;display:flex;flex-direction:column;gap:2px}
+.jed-rec-list-lbl{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--color-text-tertiary);margin-bottom:4px}
+.jed-rec-item{display:flex;align-items:center;gap:10px;padding:5px 6px;margin:0 -6px;border:none;border-radius:var(--radius-sm);background:transparent;font-family:var(--font-sans);font-size:12px;color:var(--color-text-primary);cursor:pointer;text-align:left}
+.jed-rec-item:hover{background:var(--color-surface-sunken)}
+.jed-rec-item-date{flex:1;color:var(--color-text-secondary)}
+.jed-rec-actions{display:flex;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--color-border-subtle)}
+
 .jed-missing{margin-top:24px;padding:20px;border:1px solid var(--color-border-default);border-radius:var(--radius-lg);background:var(--color-surface-raised)}
 .jed-missing-title{font-size:15px;font-weight:700;margin-bottom:6px;color:var(--color-text-primary)}
 .jed-missing p{margin:0;font-size:12.5px;color:var(--color-text-secondary)}

@@ -6,8 +6,11 @@ import { isClosedDate } from "../lib/journalLifecycle";
 import { useCurrentUser } from "../state/CurrentUserContext";
 import { useAccountingSettings } from "../state/AccountingSettingsContext";
 import JournalTemplateMenu from "../components/JournalTemplateMenu";
+import AccountCombobox from "../components/AccountCombobox";
+import { COA_BY_CODE } from "../data/seed/coa";
 import {
   fmtRp, STATUS_LABEL, STATUS_BADGE_CLASS, ACTION_ICON, KlaySparkleIcon, useJournalRows, useJournalActions,
+  displayStatus, RecurringIcon, recurringNote,
   JE_SOURCES, JE_SOURCE_LABEL, entrySource,
 } from "./journalEntryShared";
 import { TODAY } from "../lib/clock";
@@ -40,6 +43,8 @@ function parseKlayFilters(q) {
   else if (/\bdrafts?\b/.test(lower)) out.status = "draft";
   else if (/\bpending\b/.test(lower)) out.status = "pending";
   else if (/\bposted\b/.test(lower)) out.status = "posted";
+  if (/\brecurring\b|\brepeat(s|ing)?\b/.test(lower)) out.kind = "recurring";
+  else if (/\breversed\b/.test(lower)) out.kind = "reversed";
   if (/\binventory\b/.test(lower)) out.category = "inventory";
   else if (/\bpayroll\b/.test(lower)) out.category = "payroll";
   const mShort = lower.match(/(\d+(?:[.,]\d+)?)\s*([mb])\b/);
@@ -58,6 +63,7 @@ function parseKlayFilters(q) {
 
 function klayChipLabel(key, val) {
   if (key === "status") return `Status: ${val[0].toUpperCase()}${val.slice(1)}`;
+  if (key === "kind") return JE_FLAG_LABEL[val] || String(val);
   if (key === "category") return `Category: ${val[0].toUpperCase()}${val.slice(1)}`;
   if (key === "amountMin") return `≥ Rp ${val.toLocaleString("id-ID", { maximumFractionDigits: 0 })}`;
   if (key === "dateRange") return val === "thisWeek" ? "This week" : "This month";
@@ -75,7 +81,7 @@ function JeRow({ r, isChecked, onCheck, onClick, onKebab, isSelected, isAlt, clo
         <input type="checkbox" className="lg-row-check" checked={isChecked} onChange={() => onCheck(r.je_number)} />
       </div>
       <div className="lg-cell-date">{formatDate(r.je_date)}</div>
-      <div className="lg-cell-no">{r.je_number}</div>
+      <div className="lg-cell-no">{r.je_number}<RecurringIcon je={r} /></div>
       <div className="je-desc-cell">
         <div className="je-desc-memo">
           {r.memo}
@@ -85,9 +91,12 @@ function JeRow({ r, isChecked, onCheck, onClick, onKebab, isSelected, isAlt, clo
         </div>
         {r.status === "scheduled" && r.schedule && (
           <div className={`je-desc-sched${r.schedule.due ? " due" : ""}`}>
-            {r.schedule.due
-              ? `Due — was to post on ${formatDate(r.schedule.postsOn)}`
-              : `Posts itself on ${formatDate(r.schedule.postsOn)}`}
+            {/* A recurring month becomes a draft for review; the rest post themselves. */}
+            {r.schedule.kind === "recurring"
+              ? (r.schedule.due ? `Due — drafting for ${r.created_by}` : `Drafts for review on ${formatDate(r.schedule.postsOn)}`)
+              : r.schedule.due
+                ? `Due — was to post on ${formatDate(r.schedule.postsOn)}`
+                : `Posts itself on ${formatDate(r.schedule.postsOn)}`}
             {" · "}{r.schedule.source}
           </div>
         )}
@@ -95,15 +104,14 @@ function JeRow({ r, isChecked, onCheck, onClick, onKebab, isSelected, isAlt, clo
       <div className="je-src-cell">
         <span className={`je-src je-src-${entrySource(r)}`}>{JE_SOURCE_LABEL[entrySource(r)]}</span>
       </div>
+      {/* One amount: an entry's debits equal its credits, so showing both
+          only repeats the number. */}
       <div className="lg-cell-total">
         {r.debit > 0 ? <><span className="lg-cell-total-rp">Rp</span>{fmtRp(r.debit)}</> : <span className="lg-cell-em-dash">—</span>}
       </div>
-      <div className="lg-cell-total">
-        {r.credit > 0 ? <><span className="lg-cell-total-rp">Rp</span>{fmtRp(r.credit)}</> : <span className="lg-cell-em-dash">—</span>}
-      </div>
       <div>
-        <span className={`badge badge-${STATUS_BADGE_CLASS[r.status]}`}>
-          {STATUS_LABEL[r.status]}
+        <span className={`badge badge-${STATUS_BADGE_CLASS[displayStatus(r)]}`} title={r.reversed_by ? `Reversed by ${r.reversed_by}` : undefined}>
+          {STATUS_LABEL[displayStatus(r)]}
         </span>
       </div>
       <div className="lg-cell-kebab" onClick={(e) => e.stopPropagation()}>
@@ -186,7 +194,38 @@ function SortPopover({ value, onPick, onClose }) {
   );
 }
 
-function FilterPopover({ values, onChange, onClose, creators = [] }) {
+// "Show only" filters for what a status or a source doesn't say: a journal
+// that repeats (or a month one drafted), a posted entry since reversed, one
+// its preparer posted, an accrual set to undo itself, and a manual journal
+// with no evidence attached. Picking several shows entries that are any of them.
+const JE_FLAGS = [
+  { key: "recurring", label: "Recurring", hint: "Journals that repeat monthly, and the months they draft", test: (r) => !!recurringNote(r) },
+  { key: "reversed", label: "Reversed", hint: "Posted entries that have since been reversed", test: (r) => displayStatus(r) === "reversed" },
+  { key: "selfposted", label: "Self-posted", hint: "Prepared and posted by the same person", test: (r) => !!r.self_approved },
+  { key: "autoreverse", label: "Auto-reverse", hint: "Accruals set to reverse themselves", test: (r) => !!r.auto_reverse },
+  { key: "noattach", label: "No attachment", hint: "Manual journals with no supporting file attached", test: (r) => r.status !== "scheduled" && entrySource(r) === "manual" && !(r.attachments || []).length },
+];
+
+// A whole month as a date range, for the Posting date quick picks.
+const pad2 = (n) => String(n).padStart(2, "0");
+const ymOf = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
+const monthRange = (ym) => {
+  const [y, m] = ym.split("-").map((n) => parseInt(n, 10));
+  return { dateFrom: `${ym}-01`, dateTo: `${ym}-${pad2(new Date(y, m, 0).getDate())}` };
+};
+const THIS_MONTH = ymOf(TODAY);
+const LAST_MONTH = ymOf(new Date(TODAY.getFullYear(), TODAY.getMonth() - 1, 1));
+// The month a date range covers exactly, or null.
+const wholeMonthOf = ({ dateFrom, dateTo }) => {
+  if (!dateFrom || dateFrom.slice(0, 7) !== String(dateTo).slice(0, 7)) return null;
+  const r = monthRange(dateFrom.slice(0, 7));
+  return r.dateFrom === dateFrom && r.dateTo === dateTo ? dateFrom.slice(0, 7) : null;
+};
+const MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const monthName = (ym) => `${MONTHS_SHORT[parseInt(ym.slice(5, 7), 10) - 1]} ${ym.slice(0, 4)}`;
+const JE_FLAG_LABEL = Object.fromEntries(JE_FLAGS.map((f) => [f.key, f.label]));
+
+function FilterPopover({ values, onChange, onClose, creators = [], posters = [], accounts = [] }) {
   const ref = useRef(null);
   useClickOutside(ref, onClose);
   const [draft, setDraft] = useState(values);
@@ -197,12 +236,24 @@ function FilterPopover({ values, onChange, onClose, creators = [] }) {
     next.has(k) ? next.delete(k) : next.add(k);
     return { ...d, sources: next };
   });
+  const toggleFlag = (k) => setDraft((d) => {
+    const next = new Set(d.flags);
+    next.has(k) ? next.delete(k) : next.add(k);
+    return { ...d, flags: next };
+  });
   const toggleCreator = (c) => setDraft((d) => {
     const next = new Set(d.creators);
     next.has(c) ? next.delete(c) : next.add(c);
     return { ...d, creators: next };
   });
-  const reset = () => setDraft({ sources: new Set(), creators: new Set(), minAmt: "", maxAmt: "", dateFrom: "", dateTo: "" });
+  const togglePoster = (c) => setDraft((d) => {
+    const next = new Set(d.posters);
+    next.has(c) ? next.delete(c) : next.add(c);
+    return { ...d, posters: next };
+  });
+  const pickedMonth = wholeMonthOf(draft);
+  const pickMonth = (ym) => update(pickedMonth === ym ? { dateFrom: "", dateTo: "" } : monthRange(ym));
+  const reset = () => setDraft({ sources: new Set(), creators: new Set(), posters: new Set(), flags: new Set(), account: "", minAmt: "", maxAmt: "", dateFrom: "", dateTo: "" });
   const apply = () => { onChange(draft); onClose(); };
 
   return (
@@ -217,7 +268,22 @@ function FilterPopover({ values, onChange, onClose, creators = [] }) {
           </div>
         </div>
         <div className="lg-filter-fld">
-          <div className="lg-filter-fld-lbl">Dibuat oleh ({draft.creators.size > 0 ? `${draft.creators.size} selected` : "semua"})</div>
+          <div className="lg-filter-fld-lbl">Show only</div>
+          <div className="lg-toggle-row">
+            {JE_FLAGS.map((f) => (
+              <button key={f.key} className={`lg-toggle${draft.flags.has(f.key) ? " on" : ""}`} title={f.hint} onClick={() => toggleFlag(f.key)}>{f.label}</button>
+            ))}
+          </div>
+        </div>
+        <div className="lg-filter-fld">
+          <div className="lg-filter-fld-lbl lg-filter-lbl-row">
+            Account
+            {draft.account && <button type="button" className="lg-filter-clear" onClick={() => update({ account: "" })}>Any account</button>}
+          </div>
+          <AccountCombobox value={draft.account} onChange={(code) => update({ account: code || "" })} accounts={accounts} placeholder="Any account" />
+        </div>
+        <div className="lg-filter-fld">
+          <div className="lg-filter-fld-lbl">Created by ({draft.creators.size > 0 ? `${draft.creators.size} selected` : "all"})</div>
           <div className="lg-toggle-row">
             {creators.map((c) => (
               <button key={c} className={`lg-toggle${draft.creators.has(c) ? " on" : ""}`} onClick={() => toggleCreator(c)}>{c}</button>
@@ -225,7 +291,15 @@ function FilterPopover({ values, onChange, onClose, creators = [] }) {
           </div>
         </div>
         <div className="lg-filter-fld">
-          <div className="lg-filter-fld-lbl">Range Debit (Rp)</div>
+          <div className="lg-filter-fld-lbl">Posted by ({draft.posters.size > 0 ? `${draft.posters.size} selected` : "all"})</div>
+          <div className="lg-toggle-row">
+            {posters.map((c) => (
+              <button key={c} className={`lg-toggle${draft.posters.has(c) ? " on" : ""}`} onClick={() => togglePoster(c)}>{c}</button>
+            ))}
+          </div>
+        </div>
+        <div className="lg-filter-fld">
+          <div className="lg-filter-fld-lbl">Amount range (Rp)</div>
           <div className="lg-filter-row2">
             <input type="number" className="lg-filter-input" placeholder="Min" value={draft.minAmt} onChange={(e) => update({ minAmt: e.target.value })} />
             <span style={{ color: "var(--color-text-tertiary)", fontSize: 11 }}>—</span>
@@ -233,7 +307,18 @@ function FilterPopover({ values, onChange, onClose, creators = [] }) {
           </div>
         </div>
         <div className="lg-filter-fld">
-          <div className="lg-filter-fld-lbl">Period date</div>
+          <div className="lg-filter-fld-lbl">Posting date</div>
+          <div className="lg-toggle-row lg-filter-months">
+            <button className={`lg-toggle${pickedMonth === THIS_MONTH ? " on" : ""}`} onClick={() => pickMonth(THIS_MONTH)}>This month</button>
+            <button className={`lg-toggle${pickedMonth === LAST_MONTH ? " on" : ""}`} onClick={() => pickMonth(LAST_MONTH)}>Last month</button>
+            <input
+              type="month"
+              className={`lg-filter-input lg-filter-month${pickedMonth && pickedMonth !== THIS_MONTH && pickedMonth !== LAST_MONTH ? " on" : ""}`}
+              value={pickedMonth || ""}
+              onChange={(e) => update(e.target.value ? monthRange(e.target.value) : { dateFrom: "", dateTo: "" })}
+              aria-label="Pick a month"
+            />
+          </div>
           <div className="lg-filter-row2">
             <input type="date" className="lg-filter-input" value={draft.dateFrom} onChange={(e) => update({ dateFrom: e.target.value })} />
             <span style={{ color: "var(--color-text-tertiary)", fontSize: 11 }}>—</span>
@@ -338,6 +423,19 @@ export default function JournalEntryPage() {
     return [...n.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([name]) => name);
   }, [allRows]);
 
+  // "Posted by" choices, the same way: whoever approved and posted entries.
+  const posterOptions = useMemo(() => {
+    const n = new Map();
+    for (const r of allRows) if (r.posted_by) n.set(r.posted_by, (n.get(r.posted_by) || 0) + 1);
+    return [...n.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([name]) => name);
+  }, [allRows]);
+  // "Account" choices: only accounts some entry has a line on.
+  const accountOptions = useMemo(() => {
+    const codes = new Set();
+    for (const r of allRows) for (const l of r.lines || []) codes.add(l.account_code);
+    return [...codes].map((c) => COA_BY_CODE[c]).filter(Boolean).sort((a, b) => a.code.localeCompare(b.code));
+  }, [allRows]);
+
   const [searchParams] = useSearchParams();
   const initialTab = (() => {
     const t = searchParams.get("tab");
@@ -353,7 +451,7 @@ export default function JournalEntryPage() {
     if (t && valid.includes(t)) setFilter({ kind: "tab", value: t });
   }, [searchParams]);
   const [sortChoice, setSortChoice] = useState(null);
-  const emptyFilters = { sources: new Set(), creators: new Set(), minAmt: "", maxAmt: "", dateFrom: "", dateTo: "" };
+  const emptyFilters = { sources: new Set(), creators: new Set(), posters: new Set(), flags: new Set(), account: "", minAmt: "", maxAmt: "", dateFrom: "", dateTo: "" };
   const [filterValues, setFilterValues] = useState(emptyFilters);
 
   // Klay command bar state
@@ -477,7 +575,7 @@ export default function JournalEntryPage() {
   const tabs = [
     { k: "semua",   lbl: "All",     count: tabCounts.semua },
     { k: "scheduled", lbl: "Scheduled", count: tabCounts.scheduled },
-    { k: "pending", lbl: "Pending", count: tabCounts.pending },
+    { k: "pending", lbl: "Pending Review", count: tabCounts.pending },
     { k: "draft",   lbl: "Draft",   count: tabCounts.draft },
     { k: "posted",  lbl: "Posted",  count: tabCounts.posted },
     // Void and deleted entries have no tab of their own; they sit in All.
@@ -495,6 +593,9 @@ export default function JournalEntryPage() {
   const hasActiveFilters = useMemo(() => (
     filterValues.sources.size > 0 ||
     filterValues.creators.size > 0 ||
+    filterValues.posters.size > 0 ||
+    filterValues.account !== "" ||
+    filterValues.flags.size > 0 ||
     filterValues.minAmt !== "" ||
     filterValues.maxAmt !== "" ||
     filterValues.dateFrom !== "" ||
@@ -507,6 +608,9 @@ export default function JournalEntryPage() {
     let n = 0;
     if (filterValues.sources.size > 0) n++;
     if (filterValues.creators.size > 0) n++;
+    if (filterValues.flags.size > 0) n++;
+    if (filterValues.posters.size > 0) n++;
+    if (filterValues.account) n++;
     if (filterValues.minAmt !== "" || filterValues.maxAmt !== "") n++;
     if (filterValues.dateFrom !== "" || filterValues.dateTo !== "") n++;
     return n;
@@ -522,19 +626,32 @@ export default function JournalEntryPage() {
       const list = JE_SOURCES.filter((src) => filterValues.sources.has(src.key)).map((src) => src.label).join(", ");
       chips.push({ id: "manual:sources", source: "manual", key: "sources", label: `Source: ${list}` });
     }
+    if (filterValues.flags.size > 0) {
+      const list = JE_FLAGS.filter((f) => filterValues.flags.has(f.key)).map((f) => f.label).join(" or ");
+      chips.push({ id: "manual:flags", source: "manual", key: "flags", label: list });
+    }
+    if (filterValues.account) {
+      const a = COA_BY_CODE[filterValues.account];
+      chips.push({ id: "manual:account", source: "manual", key: "account", label: `Account: ${filterValues.account}${a ? ` ${a.name}` : ""}` });
+    }
     if (filterValues.creators.size > 0) {
       const list = Array.from(filterValues.creators).join(", ");
       chips.push({ id: "manual:creators", source: "manual", key: "creators", label: `Created by: ${list}` });
     }
+    if (filterValues.posters.size > 0) {
+      const list = Array.from(filterValues.posters).join(", ");
+      chips.push({ id: "manual:posters", source: "manual", key: "posters", label: `Posted by: ${list}` });
+    }
     if (filterValues.minAmt !== "" || filterValues.maxAmt !== "") {
       const min = filterValues.minAmt !== "" ? `Rp ${Number(filterValues.minAmt).toLocaleString("id-ID")}` : "—";
       const max = filterValues.maxAmt !== "" ? `Rp ${Number(filterValues.maxAmt).toLocaleString("id-ID")}` : "—";
-      chips.push({ id: "manual:amount", source: "manual", key: "amount", label: `Debit ${min} – ${max}` });
+      chips.push({ id: "manual:amount", source: "manual", key: "amount", label: `Amount ${min} – ${max}` });
     }
     if (filterValues.dateFrom !== "" || filterValues.dateTo !== "") {
       const from = filterValues.dateFrom || "—";
       const to = filterValues.dateTo || "—";
-      chips.push({ id: "manual:date", source: "manual", key: "date", label: `Date ${from} → ${to}` });
+      const month = wholeMonthOf(filterValues);
+      chips.push({ id: "manual:date", source: "manual", key: "date", label: month ? monthName(month) : `Date ${from} → ${to}` });
     }
     return chips;
   }, [klayFilters, klayFilterKeys, filterValues]);
@@ -544,6 +661,12 @@ export default function JournalEntryPage() {
     let list = corpus;
     if (filterValues.sources.size > 0) list = list.filter((r) => filterValues.sources.has(entrySource(r)));
     if (filterValues.creators.size > 0) list = list.filter((r) => filterValues.creators.has(r.created_by));
+    if (filterValues.posters.size > 0) list = list.filter((r) => filterValues.posters.has(r.posted_by));
+    if (filterValues.account) list = list.filter((r) => (r.lines || []).some((l) => l.account_code === filterValues.account));
+    if (filterValues.flags.size > 0) {
+      const on = JE_FLAGS.filter((f) => filterValues.flags.has(f.key));
+      list = list.filter((r) => on.some((f) => f.test(r)));
+    }
     const min = filterValues.minAmt === "" ? null : Number(filterValues.minAmt);
     const max = filterValues.maxAmt === "" ? null : Number(filterValues.maxAmt);
     if (min != null && !isNaN(min)) list = list.filter((r) => r.debit >= min);
@@ -554,6 +677,10 @@ export default function JournalEntryPage() {
     // Klay-parsed filters
     if (klayFilters.status === "flagged") list = list.filter((r) => r.status === "pending");
     else if (klayFilters.status) list = list.filter((r) => r.status === klayFilters.status);
+    if (klayFilters.kind) {
+      const f = JE_FLAGS.find((x) => x.key === klayFilters.kind);
+      if (f) list = list.filter(f.test);
+    }
     if (klayFilters.category === "inventory") {
       list = list.filter((r) =>
         /inventor/i.test(r.memo) || r.lines.some((l) => /inventor/i.test(l.account_name || "")),
@@ -683,6 +810,9 @@ export default function JournalEntryPage() {
     } else if (chip.source === "manual") {
       if (chip.key === "sources") setFilterValues((v) => ({ ...v, sources: new Set() }));
       else if (chip.key === "creators") setFilterValues((v) => ({ ...v, creators: new Set() }));
+      else if (chip.key === "flags") setFilterValues((v) => ({ ...v, flags: new Set() }));
+      else if (chip.key === "posters") setFilterValues((v) => ({ ...v, posters: new Set() }));
+      else if (chip.key === "account") setFilterValues((v) => ({ ...v, account: "" }));
       else if (chip.key === "amount") setFilterValues((v) => ({ ...v, minAmt: "", maxAmt: "" }));
       else if (chip.key === "date") setFilterValues((v) => ({ ...v, dateFrom: "", dateTo: "" }));
     }
@@ -865,7 +995,7 @@ export default function JournalEntryPage() {
                     Filter
                     {activeFilterCount > 0 && <span className="lg-filter-badge">{activeFilterCount}</span>}
                   </button>
-                  {filterPopOpen && <FilterPopover values={filterValues} creators={creatorOptions} onChange={setFilterValues} onClose={() => setFilterPopOpen(false)} />}
+                  {filterPopOpen && <FilterPopover values={filterValues} creators={creatorOptions} posters={posterOptions} accounts={accountOptions} onChange={setFilterValues} onClose={() => setFilterPopOpen(false)} />}
                 </div>
                 <div className="lg-meta-btn-wrap">
                   <button className="lg-meta-btn" onClick={() => { setSortPopOpen(!sortPopOpen); setFilterPopOpen(false); }}>
@@ -884,8 +1014,7 @@ export default function JournalEntryPage() {
               <div>Reference</div>
               <div>Description</div>
               <div>Source</div>
-              <div style={{ textAlign: "right" }}>Debit (Rp)</div>
-              <div style={{ textAlign: "right" }}>Credit (Rp)</div>
+              <div style={{ textAlign: "right" }}>Amount (Rp)</div>
               <div>Status</div>
               <div />
             </div>
@@ -943,7 +1072,7 @@ export default function JournalEntryPage() {
             Export {checked.size > 0 ? `${checked.size} selected` : `${filteredRows.length} visible`}
           </button>
           <span className="lg-footer-sep">·</span>
-          <span className="lg-footer-lbl">{checked.size > 0 ? "Debit selected" : "Debit page"}</span>
+          <span className="lg-footer-lbl">{checked.size > 0 ? "Amount selected" : "Amount on page"}</span>
           <span className="lg-footer-total">Rp {fmtRp(checked.size > 0 ? selectedDebit : pageDebit)}</span>
         </div>
       </div>

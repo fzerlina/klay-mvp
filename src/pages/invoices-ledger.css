@@ -165,9 +165,11 @@
 .lg-card.bp-card .lg-col-header{grid-template-columns:30px 120px 84px 1fr 62px 118px 90px 96px 116px 30px}
 .lg-cell-posting-empty{color:var(--color-text-tertiary);opacity:.6}
 .lg-footer-draft-split{font-weight:400;font-size:11.5px;color:var(--color-text-tertiary);font-style:italic;margin-left:2px}
-/* Journal entry grid — balanced ledger columns */
+/* Journal entry grid — one Amount column (an entry's debits equal its credits) */
 .lg-card.lg-table-je .lg-row,
-.lg-card.lg-table-je .lg-col-header{grid-template-columns:30px 100px 130px 1fr 96px 140px 140px 90px 30px}
+.lg-card.lg-table-je .lg-col-header{grid-template-columns:30px 100px 130px 1fr 96px 150px 90px 30px}
+.lg-card.lg-table-je .lg-col-header > :nth-child(6),
+.lg-card.lg-table-je .lg-cell-total{padding-right:16px}
 /* General Ledger grid — per-line ledger rows with rekon col */
 .lg-card.lg-table-gl .lg-row,
 .lg-card.lg-table-gl .lg-col-header{grid-template-columns:90px 110px 50px 1fr 120px 120px 130px 70px 30px}
@@ -288,6 +290,11 @@
 .lg-filter-row2{display:flex;gap:8px;align-items:center}
 .lg-filter-input{flex:1;font-family:var(--font-sans);font-size:12px;color:var(--color-text-primary);background:var(--color-surface-sunken);border:1px solid var(--color-border-default);border-radius:var(--radius-sm);padding:6px 9px;outline:none;transition:border-color var(--transition-fast);min-width:0}
 .lg-filter-input:focus{border-color:var(--color-action)}
+.lg-filter-lbl-row{display:flex;align-items:center;justify-content:space-between}
+.lg-filter-clear{border:none;background:none;padding:0;font-family:var(--font-sans);font-size:11px;font-weight:600;letter-spacing:0;text-transform:none;color:var(--color-action);cursor:pointer}
+.lg-filter-months{align-items:center;margin-bottom:6px}
+.lg-filter-month{flex:0 0 140px;padding:4px 9px}
+.lg-filter-month.on{border-color:var(--color-action-subtle);background:var(--color-action-wash);color:var(--color-action)}
 .lg-filter-input-suffix{color:var(--color-text-tertiary);font-size:11px;font-family:var(--font-mono)}
 
 /* Customer multi-select */
@@ -778,9 +785,16 @@
 .je-audit-head{font-size:12.5px;color:var(--color-text-primary)}
 .je-audit-date{font-size:11px;color:var(--color-text-tertiary)}
 .je-audit-note{margin-top:3px;font-size:12px;color:var(--color-text-secondary);font-style:italic}
-/* Source column + the All sources / Manual quick view (Journal Entry list) */
+/* Source column (Journal Entry list) */
 .je-src-cell{display:flex;align-items:center;min-width:0}
 .je-src{display:inline-block;padding:2px 8px;border-radius:9999px;font-size:10.5px;font-weight:600;white-space:nowrap;background:var(--color-surface-sunken);color:var(--color-text-secondary);border:1px solid var(--color-border-subtle)}
 .je-src-manual{background:var(--color-action-wash);color:var(--color-action);border-color:transparent}
+
+/* A repeating journal, or a month one drafted (journalEntryShared RecurringIcon) */
+.je-rec-icon{display:inline-flex;align-items:center;justify-content:center;margin-left:6px;vertical-align:-2px;color:var(--color-action)}
+.je-rec-icon svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+
+/* Reversed — a posted entry its reversal nets off (PRD REVERSED) */
+.badge-reversed{background:var(--color-surface-sunken);color:var(--color-text-secondary);border-color:var(--color-border-default);text-decoration:line-through;text-decoration-color:var(--color-text-tertiary)}
 
 /* Journal Entry: a posted entry waiting for its deletion to be approved */

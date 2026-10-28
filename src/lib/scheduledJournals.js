@@ -1,11 +1,12 @@
 // Scheduled journal entries — drafted from a schedule, waiting for their date.
 //
-// Two sources feed it:
+// Three sources feed it:
 //   • the fixed asset register (depreciation and amortisation, below);
 //   • automatic reversals (fromAutoReversals) — a posted entry marked to undo
-//     itself on its reversal date (Core Ledger PRD §7).
-// Recurring journal templates were removed on 25 Oct 2026: they are not in
-// the Core Ledger PRD.
+//     itself on its reversal date (Core Ledger PRD §7);
+//   • recurring journals (lib/recurringJournals.js) — a manual entry set to
+//     repeat monthly. Unlike the other two these never post themselves: on
+//     their date they become a draft for review (dueForDrafting).
 //
 // The asset register already knows, period by period, what each asset charges
 // (buildSchedule) and to which accounts (journalLines). This turns that into
@@ -31,6 +32,7 @@
 
 import { buildSchedule, journalLines, nextPeriod } from "./fixedAssets";
 import { withEvent, isClosedDate } from "./journalLifecycle";
+import { fromRecurring } from "./recurringJournals";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const monthLabel = (ym) => `${MONTHS[parseInt(ym.slice(5, 7), 10) - 1]} ${ym.slice(0, 4)}`;
@@ -107,6 +109,7 @@ export function scheduledEntries(assets, { entries = [], closedThrough, today })
 
   const out = [
     ...fromAutoReversals(entries, { taken, closedThrough, todayIso }),
+    ...fromRecurring(entries, { taken, firstOpen, horizon, todayIso }),
   ];
   for (const [kind, cfg] of Object.entries(KINDS)) {
     const done = postedPeriods(entries, kind);
@@ -201,13 +204,14 @@ export function postedFromSchedule(je, { jeNumber, by, today, system = false }) 
   }, system ? "posted automatically on its date" : "posted from schedule", by, je.schedule?.source);
 }
 
-// Scheduled entries whose date has come, in an open period — the ones that
-// post themselves now. `today` is an ISO date.
-export function dueForAutoPost(rows, { today, closedThrough }) {
-  return rows
-    .filter((r) => r.status === "scheduled" && r.je_date <= today && !isClosedDate(r.je_date, closedThrough))
-    .sort((a, b) => a.je_date.localeCompare(b.je_date) || a.je_number.localeCompare(b.je_number));
-}
+// Scheduled entries whose date has come, in an open period. `today` is an ISO
+// date. The asset register's and auto-reversals post themselves now
+// (dueForAutoPost); a recurring month becomes a draft instead (dueForDrafting).
+const dueRows = (rows, { today, closedThrough }) => rows
+  .filter((r) => r.status === "scheduled" && r.je_date <= today && !isClosedDate(r.je_date, closedThrough))
+  .sort((a, b) => a.je_date.localeCompare(b.je_date) || a.je_number.localeCompare(b.je_number));
+export const dueForAutoPost = (rows, opts) => dueRows(rows, opts).filter((r) => r.schedule?.kind !== "recurring");
+export const dueForDrafting = (rows, opts) => dueRows(rows, opts).filter((r) => r.schedule?.kind === "recurring");
 
 // The i-th number after `base` (JE-2025-0412 + 2 → JE-2025-0414), for posting
 // several entries before the list has re-numbered.
