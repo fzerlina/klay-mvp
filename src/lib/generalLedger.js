@@ -2,8 +2,8 @@
 //
 // The GL never holds data of its own: it is every journal line, flattened and
 // regrouped. This module builds those lines once (glLines), filters them with
-// the PRD's stackable filters (§3.4, AND logic), and rolls them up per account
-// (accountSummary). It also writes the one thing the GL may start: a
+// the PRD's stackable filters (§3.4, AND logic), and lays them out per account
+// with opening and running balances (accountLedger). It also writes the one thing the GL may start: a
 // reclassification journal (§3.5) — never an edit to the original.
 //
 // Amounts are carried in whole cents (integers), so sums never pick up
@@ -76,20 +76,40 @@ export function lineDimensions(je, l) {
   return out;
 }
 
-// Vendor or customer behind a line: the line's payee, an older entry's header
-// payee, or the bill / invoice the entry came from.
+// Partner behind a line — the vendor, customer or payee: the line's payee, an
+// older entry's header payee, or the bill / invoice the entry came from.
+const KIND_LABEL = { vendor: "Vendor", customer: "Customer", employee: "Employee" };
+const kindLabel = (k) => KIND_LABEL[k] || (k ? k[0].toUpperCase() + k.slice(1) : "");
 function partyOf(je, l, { billsById, invoicesById }) {
-  if (l.payee?.name) return l.payee.name;
-  if (je.payee?.name) return je.payee.name;
+  if (l.payee?.name) return { name: l.payee.name, kind: kindLabel(l.payee.kind) };
+  if (je.payee?.name) return { name: je.payee.name, kind: kindLabel(je.payee.kind) };
   const id = je.reference_id;
-  if (id && billsById[id]) return billsById[id].vendorName;
-  if (id && invoicesById[id]) return invoicesById[id].customerName;
-  return "";
+  if (id && billsById[id]) return { name: billsById[id].vendorName, kind: "Vendor" };
+  if (id && invoicesById[id]) return { name: invoicesById[id].customerName, kind: "Customer" };
+  return { name: "", kind: "" };
+}
+
+// Chart-of-accounts codes from smallest to largest, compared on their digits
+// so "1-1400" sits between "1-1300" and "1-1500" and "11110" after "1-1100".
+export function compareCodes(a, b) {
+  const da = String(a).replace(/\D/g, "");
+  const db = String(b).replace(/\D/g, "");
+  return da.localeCompare(db) || String(a).localeCompare(String(b));
+}
+
+// Transaction currency of an entry: a foreign-currency bill or invoice it came
+// from (with the rate it was booked at), else the base currency. Ledger
+// amounts are always in the base currency; the rate converts them back.
+function currencyOf(je, { billsById, invoicesById }, base) {
+  const doc = billsById[je.reference_id] || invoicesById[je.reference_id];
+  const ccy = doc?.original_currency || doc?.currency;
+  if (ccy && ccy !== base && doc.fx_rate_used) return { currency: ccy, rate: doc.fx_rate_used };
+  return { currency: base, rate: 1 };
 }
 
 // Every journal line the GL can show, oldest first. `billsById` /
-// `invoicesById` resolve the party on module-written entries.
-export function glLines(entries, { bills = [], invoices = [] } = {}) {
+// `invoicesById` resolve the party and currency on module-written entries.
+export function glLines(entries, { bills = [], invoices = [], baseCurrency = "IDR" } = {}) {
   const billsById = Object.fromEntries(bills.map((b) => [b.id, b]));
   const invoicesById = Object.fromEntries(invoices.map((i) => [i.id, i]));
   // An open reclassification shows on the line it moves, so nobody starts a
@@ -104,8 +124,10 @@ export function glLines(entries, { bills = [], invoices = [] } = {}) {
   for (const je of entries) {
     if (!GL_STATUS_KEYS.has(je.status)) continue;
     const source = entrySource(je);
+    const fx = currencyOf(je, { billsById, invoicesById }, baseCurrency);
     (je.lines || []).forEach((l, i) => {
       const meta = accountMeta(l.account_code, l.account_name);
+      const party = partyOf(je, l, { billsById, invoicesById });
       out.push({
         key: `${je.je_number}:${i}`,
         lineIndex: i,
@@ -122,7 +144,11 @@ export function glLines(entries, { bills = [], invoices = [] } = {}) {
         source,
         reference_type: je.reference_type || "manual",
         reference_id: je.reference_id || null,
-        party: partyOf(je, l, { billsById, invoicesById }),
+        reference: je.reference || null,
+        currency: fx.currency,
+        rate: fx.rate,
+        party: party.name,
+        partyKind: party.kind,
         payee: l.payee || null,
         dims: lineDimensions(je, l),
         reversed_by: je.reversed_by || null,
@@ -194,30 +220,41 @@ export function lineMatches(l, f) {
 
 // Free-text search over what a line says about itself.
 export function lineSearchText(l) {
-  return `${l.je_number} ${l.desc} ${l.memo} ${l.code} ${l.name} ${l.party} ${l.reference_id || ""}`.toLowerCase();
+  return `${l.je_number} ${l.desc} ${l.memo} ${l.code} ${l.name} ${l.party} ${l.reference_id || ""} ${l.reference || ""}`.toLowerCase();
 }
 
-// ── Per-account roll-up ────────────────────────────────────────────────
-// Opening = posted movement before `from`; debit / credit = posted movement in
-// the period; unposted = draft and pending movement in the period (signed in
-// the account's direction), shown in its own column.
-export function accountSummary(lines, { from, to, order }) {
+// ── Per-account ledger ─────────────────────────────────────────────────
+// The GL as an accountant reads it: one block per account in code order, each
+// opening on the posted balance before `from`, then the period's lines by date
+// with the balance after each, then the closing balance. Balances read in the
+// account's normal direction, so a positive figure is on its normal side.
+// Draft and pending lines sit in their block with no balance; `unposted` is
+// their net, signed the same way. `lines` must be in date order (glLines).
+export function accountLedger(lines, { from, to }) {
   const by = new Map();
   for (const l of lines) {
     if (l.date > to) continue;
-    if (!by.has(l.code)) by.set(l.code, { meta: l.meta, opening: 0, debit: 0, credit: 0, unposted: 0, count: 0 });
+    if (!by.has(l.code)) by.set(l.code, { meta: l.meta, opening: 0, debit: 0, credit: 0, unposted: 0, rows: [] });
     const s = by.get(l.code);
-    if (l.status !== "posted") {
-      if (l.date >= from) { s.unposted += signed(s.meta, l.dc, l.cc); s.count += 1; }
+    if (l.date < from) {
+      if (l.status === "posted") s.opening += signed(s.meta, l.dc, l.cc);
       continue;
     }
-    if (l.date < from) s.opening += signed(s.meta, l.dc, l.cc);
-    else { s.debit += l.dc; s.credit += l.cc; s.count += 1; }
+    s.rows.push(l);
   }
   return [...by.values()]
-    .map((s) => ({ ...s, closing: s.opening + signed(s.meta, s.debit, s.credit) }))
+    .map((s) => {
+      let bal = s.opening;
+      const rows = s.rows.map((l) => {
+        if (l.status !== "posted") { s.unposted += signed(s.meta, l.dc, l.cc); return { ...l, balance: null }; }
+        bal += signed(s.meta, l.dc, l.cc);
+        s.debit += l.dc; s.credit += l.cc;
+        return { ...l, balance: bal };
+      });
+      return { ...s, rows, count: rows.length, closing: bal };
+    })
     .filter((s) => s.count > 0 || s.opening !== 0)
-    .sort((a, b) => (order.get(a.meta.code) ?? 1e6) - (order.get(b.meta.code) ?? 1e6) || a.meta.code.localeCompare(b.meta.code));
+    .sort((a, b) => compareCodes(a.meta.code, b.meta.code));
 }
 
 // ── Quick reclassification (§3.5) ──────────────────────────────────────

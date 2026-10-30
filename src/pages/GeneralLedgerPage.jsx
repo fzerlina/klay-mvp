@@ -7,11 +7,11 @@
 // thing it can start is a reclassification, and that is a new journal sent for
 // approval, never an edit (§3.5).
 //
-// Two views:
-//   • All accounts — every line in the period across accounts, for questions
-//     like "every posting over Rp 150M in December" (§3.2, the Auditor).
-//   • One account  — its opening balance, each line with a running balance,
-//     and its closing balance.
+// Laid out the way a GL is read and exported: one block per account in
+// chart-of-accounts code order, each with its opening balance, the period's
+// lines by date with a running balance, and its closing balance. Picking an
+// account narrows the page to its block. Every line names its partner (vendor,
+// customer or payee) so an exported ledger can be traced line by line.
 // There is no per-account summary here: that is the Trial Balance (§0, §6),
 // which links into this page by account.
 //
@@ -28,17 +28,16 @@ import { useClosePeriod } from "../state/ClosePeriodContext";
 import { useAccountingSettings } from "../state/AccountingSettingsContext";
 import { useBills } from "../state/BillsContext";
 import { useInvoices } from "../state/InvoicesContext";
-import { COA } from "../data/seed/coa";
 import { DIM_BY_KEY } from "../data/seed/dimensions";
 import { TODAY } from "../lib/clock";
 import { formatDateEn } from "../lib/format";
 import { periodPresets, monthLabel, rangeLabel } from "../lib/reportPeriods";
 import { downloadCsv, reportHeader } from "../lib/reportExport";
-import { downloadXlsx } from "../lib/xlsxExport";
+import { downloadXlsx, colName } from "../lib/xlsxExport";
 import { canSubmit, withEvent, isoOf } from "../lib/journalLifecycle";
 import {
-  glLines, lineMatches, lineSearchText, accountSummary, accountMeta, signed, activeFilterCount,
-  buildReclassification, EMPTY_FILTERS, GROUP_BY_KEY, ACCOUNT_GROUPS,
+  glLines, lineMatches, lineSearchText, accountLedger, accountMeta, activeFilterCount,
+  buildReclassification, EMPTY_FILTERS, GROUP_BY_KEY,
 } from "../lib/generalLedger";
 import { JE_SOURCE_LABEL, STATUS_LABEL, STATUS_BADGE_CLASS, useJournalActions } from "./journalEntryShared";
 import {
@@ -51,44 +50,46 @@ import "./general-ledger.css";
 const pad = (n) => String(n).padStart(2, "0");
 const CURRENT_YM = `${TODAY.getFullYear()}-${pad(TODAY.getMonth() + 1)}`;
 const lastDay = (ym) => new Date(Date.UTC(+ym.slice(0, 4), +ym.slice(5, 7), 0)).getUTCDate();
-const PAGE = 200;
 const EXPORT_CAP = 100000;
-const COA_ORDER = new Map(COA.filter((a) => a.code).map((a, i) => [a.code, i]));
 
-// Where a line came from, as the Source column says it. The id is the
-// drill-down anchor (§3.3 source_transaction_id).
-function sourceText(l) {
-  const id = l.reference_id;
-  switch (l.reference_type) {
-    case "bill": case "ap_bill": return `Bill ${id || ""}`.trim();
-    case "bill_payment": case "payment": return `Payment ${id || ""}`.trim();
-    case "invoice": return `Invoice ${id || ""}`.trim();
-    case "invoice_payment": return `Receipt ${id || ""}`.trim();
-    case "reversal": return "Reversal";
-    case "reclassification": return "Reclass";
-    default: return JE_SOURCE_LABEL[l.source] || "Manual";
-  }
-}
+// Where a line came from: the kind of document (Source) and its number
+// (Source no.), the way Accurate's and Odoo's ledgers split them. The number
+// is the drill-down anchor (§3.3 source_transaction_id). A payment or receipt
+// carries the bill or invoice it settles; a reversal or reclassification the
+// entry it corrects.
+const SOURCE_TYPE = {
+  bill: "Bill", ap_bill: "Bill",
+  bill_payment: "Bill payment", payment: "Bill payment",
+  invoice: "Invoice", invoice_payment: "Invoice payment",
+  reversal: "Reversal", reclassification: "Reclassification",
+  schedule: "Fixed asset", inventory_movement: "Inventory",
+};
+const sourceType = (l) => SOURCE_TYPE[l.reference_type] || (l.source === "manual" ? "Journal entry" : JE_SOURCE_LABEL[l.source]);
+const sourceNo = (l) => (l.reference_type === "manual" ? l.reference : l.reference_id || l.reference) || "";
 
-// Columns of the line views. `opt` ones are switched on in Columns; `all`
-// shows only across accounts, `one` only inside one account.
+// Columns of a ledger block. The account is the block's header, so it is not
+// a column. `opt` ones are switched on in Columns.
 const LINE_COLUMNS = [
   { key: "date", label: "Date", w: "84px" },
   { key: "entry", label: "Entry", w: "108px" },
-  { key: "source", label: "Source", w: "112px" },
-  { key: "account", label: "Account", w: "minmax(170px, 1fr)", all: true },
-  { key: "type", label: "Account type", w: "92px", opt: true, all: true },
+  { key: "source", label: "Source", w: "104px" },
+  { key: "sourceNo", label: "Source no.", w: "100px", opt: true },
+  { key: "party", label: "Partner", w: "minmax(140px, .8fr)", opt: true },
   { key: "desc", label: "Description", w: "minmax(190px, 1.4fr)" },
-  { key: "party", label: "Vendor / customer", w: "minmax(140px, .8fr)", opt: true },
   ...FILTER_DIMS.map((k) => ({ key: `dim:${k}`, label: DIM_BY_KEY[k]?.label || k, w: "100px", opt: true })),
   { key: "status", label: "Status", w: "104px", opt: true },
+  { key: "currency", label: "Currency", w: "64px", opt: true },
   { key: "debit", label: "Debit", w: "116px", num: true },
   { key: "credit", label: "Credit", w: "116px", num: true },
-  { key: "balance", label: "Balance", w: "128px", num: true, one: true },
+  { key: "balance", label: "Balance", w: "128px", num: true },
 ];
-// The PRD's default-visible extras (§3.3 Primary layer).
-const DEFAULT_SHOWN = ["type", "status"];
-const COLS_KEY = "klay.gl.columns";
+// Source no., Partner and Currency show by default and can be switched off;
+// the Report export follows what is shown. Status is off by default, like
+// Odoo, Xero and Accurate: the ledger shows posted lines unless Filters →
+// Status asks for more, and an unposted line then carries its own badge. The
+// key is versioned so an earlier saved choice doesn't hide the new defaults.
+const DEFAULT_SHOWN = ["sourceNo", "party", "currency"];
+const COLS_KEY = "klay.gl.columns.v3";
 function loadShown() {
   try {
     const v = JSON.parse(window.localStorage.getItem(COLS_KEY));
@@ -98,7 +99,7 @@ function loadShown() {
 
 // ── Account picker ───────────────────────────────────────────────────────
 // The chosen account sits in a box — what it is, its code and where it
-// closed — and opens a searchable list grouped by type. Same idea as the
+// closed — and opens a searchable list by account number. Same idea as the
 // bank-account cards on Bank Reconciliation, sized for a chart of accounts.
 function AccountPicker({ accounts, value, onChange, periodLbl }) {
   const [open, setOpen] = useState(false);
@@ -110,12 +111,8 @@ function AccountPicker({ accounts, value, onChange, periodLbl }) {
   // still the one chosen.
   const current = accounts.find((s) => s.meta.code === value) || (value ? { meta: accountMeta(value), closing: null } : null);
   const needle = q.trim().toLowerCase();
-  const groups = ACCOUNT_GROUPS
-    .map((g) => ({
-      ...g,
-      items: accounts.filter((s) => s.meta.group === g.k && (!needle || `${s.meta.code} ${s.meta.name}`.toLowerCase().includes(needle))),
-    }))
-    .filter((g) => g.items.length > 0);
+  // One list by account number, the order the ledger itself runs in.
+  const items = accounts.filter((s) => !needle || `${s.meta.code} ${s.meta.name}`.toLowerCase().includes(needle));
   const pick = (code) => { onChange(code); setOpen(false); setQ(""); };
 
   return (
@@ -160,29 +157,25 @@ function AccountPicker({ accounts, value, onChange, periodLbl }) {
                 <span className="gl-acct-item-name">All accounts</span>
               </button>
             )}
-            {groups.length === 0 && <div className="gl-empty">No account matches “{q}”.</div>}
-            {groups.map((g) => (
-              <div key={g.k} className="gl-acct-group">
-                <div className="gl-acct-group-head">
-                  <span><span className="gl-acct-dot" style={{ background: g.color }} />{g.lbl}</span>
-                  <span className="gl-acct-group-count">{g.items.length}</span>
-                </div>
-                {g.items.map((s) => (
-                  <button
-                    key={s.meta.code}
-                    type="button"
-                    role="option"
-                    aria-selected={value === s.meta.code}
-                    className={`gl-acct-item${value === s.meta.code ? " selected" : ""}`}
-                    onClick={() => pick(s.meta.code)}
-                  >
-                    <span className="gl-code">{s.meta.code}</span>
-                    <span className="gl-acct-item-name">{s.meta.name}</span>
-                    <span className="gl-acct-item-amt">{fmtBal(s.closing)}</span>
-                  </button>
-                ))}
-              </div>
-            ))}
+            {items.length === 0 && <div className="gl-empty">No account matches “{q}”.</div>}
+            {items.map((s) => {
+              const g = GROUP_BY_KEY[s.meta.group];
+              return (
+                <button
+                  key={s.meta.code}
+                  type="button"
+                  role="option"
+                  aria-selected={value === s.meta.code}
+                  className={`gl-acct-item${value === s.meta.code ? " selected" : ""}`}
+                  onClick={() => pick(s.meta.code)}
+                >
+                  <span className="gl-code">{s.meta.code}</span>
+                  <span className="gl-acct-dot" style={{ background: g.color }} title={g.lbl} />
+                  <span className="gl-acct-item-name">{s.meta.name}</span>
+                  <span className="gl-acct-item-amt">{fmtBal(s.closing)}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
@@ -230,7 +223,7 @@ function describeFilters(f) {
   if (f.codeFrom || f.codeTo) out.push(`Codes: ${f.codeFrom || "…"}–${f.codeTo || "…"}`);
   if (f.sources.length) out.push(`Source: ${f.sources.map((s) => JE_SOURCE_LABEL[s]).join(", ")}`);
   if (f.min !== "" || f.max !== "") out.push(`Amount: ${f.min || "0"}–${f.max || "any"}`);
-  if (f.party) out.push(`Party: ${f.party}`);
+  if (f.party) out.push(`Partner: ${f.party}`);
   for (const [k, v] of Object.entries(f.dims)) if (v) out.push(`${DIM_BY_KEY[k]?.label || k}: ${v}`);
   if (f.hideReversed) out.push("Reversals hidden");
   return out.join("; ");
@@ -242,7 +235,7 @@ export default function GeneralLedgerPage() {
   const { entries, addJournalEntry, peekNextJeNumber } = useJournalEntries();
   const { user, hasCapability } = useCurrentUser();
   const { closedThrough } = useClosePeriod();
-  const { fiscalYearStart } = useAccountingSettings();
+  const { fiscalYearStart, baseCurrency } = useAccountingSettings();
   const { bills } = useBills();
   const { invoices } = useInvoices();
 
@@ -265,7 +258,6 @@ export default function GeneralLedgerPage() {
   useEffect(() => { try { window.localStorage.setItem(COLS_KEY, JSON.stringify(shown)); } catch { /* per-viewer nicety only */ } }, [shown]);
   const [drawer, setDrawer] = useState(null); // { je_number, line }
   const [reclass, setReclass] = useState(null); // a GL line
-  const [limit, setLimit] = useState(PAGE);
 
   const setParam = (patch) => {
     const next = new URLSearchParams(params);
@@ -275,7 +267,7 @@ export default function GeneralLedgerPage() {
 
   // Every line the ledger can show, then the filters — dates aside, since the
   // period decides what is opening balance and what is movement.
-  const allLines = useMemo(() => glLines(entries, { bills, invoices }), [entries, bills, invoices]);
+  const allLines = useMemo(() => glLines(entries, { bills, invoices, baseCurrency }), [entries, bills, invoices, baseCurrency]);
   const lines = useMemo(() => allLines.filter((l) => lineMatches(l, filters)), [allLines, filters]);
 
   const presets = useMemo(() => periodPresets({ fiscalYearStart }), [fiscalYearStart]);
@@ -289,42 +281,32 @@ export default function GeneralLedgerPage() {
   const view = account ? "account" : "lines";
   const q = search.trim().toLowerCase();
 
-  // Start the list from the top whenever what it shows changes.
-  useEffect(() => { setLimit(PAGE); }, [from, to, account, view, filters, q]);
-
   const parties = useMemo(() => [...new Set(allLines.map((l) => l.party).filter(Boolean))].sort(), [allLines]);
   const filterCount = activeFilterCount(filters);
 
-  // Each account's closing, for the account picker.
-  const summary = useMemo(() => accountSummary(lines, { from, to, order: COA_ORDER }), [lines, from, to]);
+  // Every account's block in code order — also the account picker's list.
+  const ledger = useMemo(() => accountLedger(lines, { from, to }), [lines, from, to]);
 
   // ── One account ────────────────────────────────────────────────────────
+  // Its block, or an empty one when it has nothing in the period.
   const accountView = useMemo(() => {
     if (!account) return null;
-    const meta = accountMeta(account, allLines.find((l) => l.code === account)?.name);
-    let opening = 0;
-    const rows = [];
-    for (const l of lines) {
-      if (l.code !== account || l.date > to) continue;
-      if (l.date < from) { if (l.status === "posted") opening += signed(meta, l.dc, l.cc); continue; }
-      rows.push(l);
-    }
-    let bal = opening;
-    let debit = 0, credit = 0, unposted = 0;
-    const withBal = rows.map((l) => {
-      if (l.status !== "posted") { unposted += signed(meta, l.dc, l.cc); return { ...l, balance: null }; }
-      bal += signed(meta, l.dc, l.cc);
-      debit += l.dc; credit += l.cc;
-      return { ...l, balance: bal };
-    });
-    return { meta, opening, closing: bal, debit, credit, unposted, all: withBal };
-  }, [account, allLines, lines, from, to]);
+    return ledger.find((b) => b.meta.code === account) || {
+      meta: accountMeta(account, allLines.find((l) => l.code === account)?.name),
+      opening: 0, debit: 0, credit: 0, unposted: 0, rows: [], count: 0, closing: 0,
+    };
+  }, [account, ledger, allLines]);
 
-  // ── All lines (or one account's) after search ──────────────────────────
-  const lineRows = useMemo(() => {
-    const base = view === "account" ? accountView.all : lines.filter((l) => l.date >= from && l.date <= to);
-    return q ? base.filter((l) => lineSearchText(l).includes(q)) : base;
-  }, [view, accountView, lines, from, to, q]);
+  // ── The blocks shown, after search ─────────────────────────────────────
+  // Search keeps the matching lines of each block (their balances stay the
+  // ones the full ledger gives them) and drops blocks with none.
+  const blocks = useMemo(() => {
+    const base = view === "account" ? [accountView] : ledger;
+    if (!q) return base;
+    const kept = base.map((b) => ({ ...b, rows: b.rows.filter((l) => lineSearchText(l).includes(q)) }));
+    return view === "account" ? kept : kept.filter((b) => b.rows.length > 0);
+  }, [view, accountView, ledger, q]);
+  const lineRows = useMemo(() => blocks.flatMap((b) => b.rows), [blocks]);
   const lineTotals = lineRows.reduce(
     (t, l) => (l.status === "posted" ? { ...t, dc: t.dc + l.dc, cc: t.cc + l.cc } : { ...t, unposted: t.unposted + 1 }),
     { dc: 0, cc: 0, unposted: 0 },
@@ -334,81 +316,198 @@ export default function GeneralLedgerPage() {
   const cutsEntries = !!(q || filters.types.length || filters.codeFrom || filters.codeTo || filters.min !== "" || filters.max !== ""
     || filters.party || Object.values(filters.dims).some(Boolean));
 
-  const cols = LINE_COLUMNS.filter((c) => (!c.opt || shown.includes(c.key)) && !(c.all && view === "account") && !(c.one && view !== "account"));
+  const cols = LINE_COLUMNS.filter((c) => !c.opt || shown.includes(c.key));
   const grid = { gridTemplateColumns: [...cols.map((c) => c.w), ...(canReclass ? ["32px"] : [])].join(" ") };
   const statusCol = cols.some((c) => c.key === "status");
-  const optionalCols = LINE_COLUMNS.filter((c) => c.opt && !(c.all && view === "account"));
+  const optionalCols = LINE_COLUMNS.filter((c) => c.opt);
 
   // ── Export (§3.5) ──────────────────────────────────────────────────────
-  // Visible = this view with its period, filters and search; All = every
-  // posted line in the ledger, every column. CSV or Excel, with a row count.
-  function exportData(mode) {
-    const money = (c) => (c ? c / 100 : null);
-    let columns;
-    let rows;
-    let scope;
-    if (mode === "all") {
-      scope = "All posted lines";
-      const dimKeys = [...new Set(allLines.flatMap((l) => Object.keys(l.dims)))];
-      rows = allLines.filter((l) => l.status === "posted");
-      columns = [
-        { label: "Date", value: (l) => l.date },
-        { label: "Entry", value: (l) => l.je_number },
-        { label: "Source", value: (l) => sourceText(l) },
-        { label: "Account", value: (l) => l.code },
-        { label: "Account name", value: (l) => l.name },
-        { label: "Account type", value: (l) => GROUP_BY_KEY[l.meta.group].lbl },
-        { label: "Description", value: (l) => l.desc },
-        { label: "Vendor / customer", value: (l) => l.party },
-        ...dimKeys.map((k) => ({ label: DIM_BY_KEY[k]?.label || k, value: (l) => l.dims[k] || "" })),
-        { label: "Debit", value: (l) => money(l.dc) },
-        { label: "Credit", value: (l) => money(l.cc) },
-      ];
-    } else {
-      scope = view === "account" ? `${periodLbl} · ${accountView.meta.code} ${accountView.meta.name}` : `${periodLbl} · all lines`;
-      const valueOf = {
-        date: (l) => l.date, entry: (l) => l.je_number, source: (l) => sourceText(l),
-        account: (l) => `${l.code} ${l.name}`, type: (l) => GROUP_BY_KEY[l.meta.group].lbl,
-        desc: (l) => l.desc, party: (l) => l.party, status: (l) => STATUS_LABEL[l.status],
-        debit: (l) => money(l.dc), credit: (l) => money(l.cc), balance: (l) => (l.balance == null ? null : l.balance / 100),
-      };
-      columns = cols.map((c) => ({ label: c.label, value: c.key.startsWith("dim:") ? (l) => l.dims[c.key.slice(4)] || "" : valueOf[c.key] }));
-      rows = lineRows;
-      if (view === "account") {
-        const blank = Object.fromEntries(cols.map((c) => [c.key, null]));
-        const special = (desc, balance, extra = {}) => ({ __row: { ...blank, desc, balance, ...extra } });
-        columns = columns.map((c, i) => ({ ...c, value: (r) => (r.__row ? r.__row[cols[i].key] : c.value(r)) }));
-        rows = [
-          special("Opening balance", accountView.opening / 100),
-          ...lineRows,
-          special("Closing balance", accountView.closing / 100, { debit: accountView.debit / 100, credit: accountView.credit / 100 }),
-        ];
-      }
-    }
-    if (rows.length > EXPORT_CAP) return null;
+  // Two layouts, the way the ledgers we benchmark against offer them:
+  //   • Report — the screen as a document: each account's header, opening
+  //     balance, lines and closing balance. Excel, or PDF through print.
+  //   • Data   — one row per journal line, with the account, partner and
+  //     currency on every row and the account's opening balance as a column
+  //     (as Accurate does) instead of opening / closing rows, so a sheet can
+  //     be filtered, summed and pivoted. Excel or CSV.
+  // What is exported is chosen with the page's own controls — period, account,
+  // filters, search — not by ticking rows. "Everything" is every posted line
+  // in the ledger, data layout.
+  const money = (c) => (c ? c / 100 : null);
+  const bal = (c) => (c == null ? null : c / 100);
+  // Ledger amounts are in the base currency; a foreign-currency line also
+  // gets its rate and its amounts in that currency (Accurate's "Prime").
+  const orig = (c, l) => (c ? Math.round(c / l.rate) / 100 : null);
+  const scopeLabel = view === "account" ? `${periodLbl} · ${accountView.meta.code} ${accountView.meta.name}` : `${periodLbl} · all accounts`;
+  const fileBase = (mode) => `general-ledger_${mode === "all" ? "all" : account || "all-accounts"}_${mode === "all" ? isoOf(TODAY) : `${from}_${to}`}`;
+  const tooBig = () => showToast(`Over ${EXPORT_CAP.toLocaleString("id-ID")} rows — narrow the period or filters to export this view.`);
+
+  function exportHeader(scope, withFilters) {
     const desc = describeFilters(filters);
-    const header = [
+    return [
       ...reportHeader({ report: "General Ledger", period: scope, runBy: actor }),
-      ...(mode === "visible" && desc ? [[`Filters: ${desc}`]] : []),
-      ...(mode === "visible" && q ? [[`Search: ${search.trim()}`]] : []),
-      [`${rows.length} rows`],
+      ...(withFilters && desc ? [[`Filters: ${desc}`]] : []),
+      ...(withFilters && q ? [[`Search: ${search.trim()}`]] : []),
     ];
-    return { header, columns, rows };
   }
 
-  function runExport(mode, format) {
-    const data = exportData(mode);
-    if (!data) { showToast(`Over ${EXPORT_CAP.toLocaleString("id-ID")} rows — narrow the period or filters to export this view.`); return; }
-    const base = `general-ledger_${mode === "all" ? "all" : account || "all-accounts"}_${mode === "all" ? isoOf(TODAY) : `${from}_${to}`}`;
-    if (format === "csv") downloadCsv(`${base}.csv`, data);
+  // Data layout. Columns: { label, value(row), kind: "date" | "num" | text, w }.
+  function dataExport(mode) {
+    const everything = mode === "all";
+    const ledgerBlocks = everything
+      ? accountLedger(allLines.filter((l) => l.status === "posted"), { from: "0000-01-01", to: "9999-12-31" })
+      : blocks;
+    const rows = ledgerBlocks.flatMap((b) => b.rows.map((l) => ({ l, opening: b.opening })));
+    const lines = rows.map((r) => r.l);
+    const dimKeys = [...new Set(lines.flatMap((l) => Object.keys(l.dims)))];
+    const anyUnposted = lines.some((l) => l.status !== "posted");
+    const L = (f) => (r) => f(r.l);
+    const columns = [
+      { label: "Account code", value: L((l) => l.code), w: 12 },
+      { label: "Account name", value: L((l) => l.name), w: 30 },
+      { label: "Account type", value: L((l) => GROUP_BY_KEY[l.meta.group].lbl), w: 12 },
+      { label: "Date", value: L((l) => l.date), kind: "date", w: 11 },
+      { label: "Entry", value: L((l) => l.je_number), w: 14 },
+      { label: "Source", value: L(sourceType), w: 15 },
+      { label: "Source no.", value: L(sourceNo), w: 14 },
+      { label: "Partner", value: L((l) => l.party), w: 28 },
+      { label: "Partner type", value: L((l) => l.partyKind), w: 12 },
+      { label: "Description", value: L((l) => l.desc), w: 40 },
+      ...dimKeys.map((k) => ({ label: DIM_BY_KEY[k]?.label || k, value: L((l) => l.dims[k] || ""), w: 14 })),
+      ...(anyUnposted ? [{ label: "Status", value: L((l) => STATUS_LABEL[l.status]), w: 14 }] : []),
+      { label: "Currency", value: L((l) => l.currency), w: 9 },
+      { label: "Rate", value: L((l) => l.rate), kind: "num", w: 11 },
+      { label: "Debit (original)", value: L((l) => orig(l.dc, l)), kind: "num", w: 16 },
+      { label: "Credit (original)", value: L((l) => orig(l.cc, l)), kind: "num", w: 16 },
+      { label: `Debit (${baseCurrency})`, value: L((l) => money(l.dc)), kind: "num", w: 18 },
+      { label: `Credit (${baseCurrency})`, value: L((l) => money(l.cc)), kind: "num", w: 18 },
+      ...(everything ? [] : [{ label: "Opening balance", value: (r) => r.opening / 100, kind: "num", w: 18 }]),
+      { label: "Balance", value: L((l) => bal(l.balance)), kind: "num", w: 18 },
+    ];
+    return { header: exportHeader(everything ? "All posted lines" : scopeLabel, !everything), columns, rows };
+  }
+
+  function runDataExport(mode, format) {
+    const data = dataExport(mode);
+    if (data.rows.length > EXPORT_CAP) { tooBig(); return; }
+    const header = [...data.header, [`${data.rows.length} lines`]];
+    if (format === "csv") downloadCsv(`${fileBase(mode)}.csv`, { ...data, header });
     else {
-      downloadXlsx(`${base}.xlsx`, {
+      const top = header.length + 2; // header block, blank row, column headings
+      downloadXlsx(`${fileBase(mode)}.xlsx`, {
         sheet: "General Ledger",
-        rows: [...data.header, [], data.columns.map((c) => c.label), ...data.rows.map((r) => data.columns.map((c) => c.value(r)))],
+        rows: [
+          ...header.map((r, i) => (i === 0 ? [{ v: r[0], s: "bold" }] : i === 1 ? [{ v: r[0], s: "title" }] : r)),
+          [],
+          data.columns.map((c) => ({ v: c.label, s: c.kind === "num" ? "headNum" : "head" })),
+          ...data.rows.map((r) => data.columns.map((c) => ({ v: c.value(r), s: c.kind || "text" }))),
+        ],
+        widths: data.columns.map((c) => c.w),
+        freeze: top,
+        filter: top,
       });
     }
-    showToast(`Exported ${data.rows.length} rows`);
+    showToast(`Exported ${data.rows.length} lines`);
   }
+
+  // Report layout, Excel: the screen's columns, each account as a block. As in
+  // DualEntry, totals are live formulas — a closing row sums its account's
+  // posted lines and rolls the opening balance forward, the last row sums the
+  // closing rows — so they follow if someone edits a figure in the sheet.
+  const REPORT_W = { date: 11, entry: 14, source: 15, sourceNo: 14, party: 28, desc: 44, status: 12, currency: 9, debit: 18, credit: 18, balance: 18 };
+  function runReportExcel() {
+    if (lineRows.length > EXPORT_CAP) { tooBig(); return; }
+    const at = Object.fromEntries(cols.map((c, i) => [c.key, i]));
+    const D = colName(at.debit), C = colName(at.credit), B = colName(at.balance);
+    // SUM over row numbers, as ranges of consecutive rows ("H9:H12,H14").
+    // Excel takes up to 255 arguments; beyond that the plain value stands.
+    const sumOf = (col, nums) => {
+      const parts = [];
+      for (let i = 0; i < nums.length; i++) {
+        let j = i;
+        while (j + 1 < nums.length && nums[j + 1] === nums[j] + 1) j++;
+        parts.push(i === j ? `${col}${nums[i]}` : `${col}${nums[i]}:${col}${nums[j]}`);
+        i = j;
+      }
+      return parts.length && parts.length <= 255 ? `SUM(${parts.join(",")})` : undefined;
+    };
+    const row = (cells, s = "text", formulas = {}) => cols.map((c) => {
+      const v = cells[c.key] ?? null;
+      return { v, s: c.num ? (s === "bold" ? "numBold" : "num") : s, f: formulas[c.key] };
+    });
+    const valueOf = (c, l) => {
+      if (c.key.startsWith("dim:")) return { v: l.dims[c.key.slice(4)] || "" };
+      switch (c.key) {
+        case "date": return { v: l.date, s: "date" };
+        case "entry": return { v: l.je_number };
+        case "source": return { v: sourceType(l) };
+        case "sourceNo": return { v: sourceNo(l) };
+        case "party": return { v: l.party };
+        case "desc": return { v: l.status !== "posted" && at.status == null ? `${l.desc} [${STATUS_LABEL[l.status]}]` : l.desc };
+        case "status": return { v: STATUS_LABEL[l.status] };
+        case "currency": return { v: l.currency };
+        case "debit": return { v: money(l.dc), s: "num" };
+        case "credit": return { v: money(l.cc), s: "num" };
+        case "balance": return { v: bal(l.balance), s: "num" };
+        default: return { v: null };
+      }
+    };
+    const header = exportHeader(scopeLabel, true);
+    const out = [
+      ...header.map((r, i) => (i === 0 ? [{ v: r[0], s: "bold" }] : i === 1 ? [{ v: r[0], s: "title" }] : r)),
+      [],
+      cols.map((c) => ({ v: c.label, s: c.num ? "headNum" : "head" })),
+    ];
+    let totalD = 0, totalC = 0;
+    const closingRows = [];
+    for (const b of blocks) {
+      const g = GROUP_BY_KEY[b.meta.group];
+      out.push([{ v: `${b.meta.code}  ${b.meta.name}`, s: "bold" }, { v: `${g.lbl} · ${b.meta.creditNormal ? "credit-normal" : "debit-normal"}`, s: "muted" }]);
+      out.push(row({ desc: `Opening balance · ${formatDateEn(from)}`, balance: b.opening / 100 }, "muted"));
+      const openRow = out.length;
+      // Draft and pending lines are listed but left out of the sums, as on screen.
+      const posted = [];
+      for (const l of b.rows) {
+        out.push(cols.map((c) => valueOf(c, l)));
+        if (l.status === "posted") posted.push(out.length);
+      }
+      const closeRow = out.length + 1;
+      const [plus, minus] = b.meta.creditNormal ? [C, D] : [D, C];
+      // A search keeps only some of an account's lines while its closing stays
+      // the whole account's: there the figures go in as values, not sums.
+      const whole = b.rows.length === b.count;
+      out.push(row(
+        { desc: `Closing balance · ${formatDateEn(to)}`, debit: b.debit / 100, credit: b.credit / 100, balance: b.closing / 100 },
+        "bold",
+        whole ? { debit: sumOf(D, posted), credit: sumOf(C, posted), balance: `${B}${openRow}+${plus}${closeRow}-${minus}${closeRow}` } : {},
+      ));
+      out.push([]);
+      closingRows.push(closeRow);
+      totalD += b.debit; totalC += b.credit;
+    }
+    if (blocks.length > 1) {
+      out.push(row(
+        { desc: "Total, all accounts", debit: totalD / 100, credit: totalC / 100 },
+        "bold",
+        { debit: sumOf(D, closingRows), credit: sumOf(C, closingRows) },
+      ));
+    }
+    downloadXlsx(`${fileBase("visible")}_report.xlsx`, {
+      sheet: "General Ledger",
+      rows: out,
+      widths: cols.map((c) => REPORT_W[c.key] || 14),
+      freeze: header.length + 2,
+    });
+    showToast(`Exported ${blocks.length} account${blocks.length === 1 ? "" : "s"}, ${lineRows.length} lines`);
+  }
+
+  // Report layout, PDF: the print dialog (which saves to PDF) on a print-only
+  // table of the same blocks, landscape. Mounted only while printing.
+  const [printing, setPrinting] = useState(false);
+  useEffect(() => {
+    if (!printing) return;
+    window.print();
+    setPrinting(false);
+  }, [printing]);
 
   // ── Reclassification (§3.5) ────────────────────────────────────────────
   const today = isoOf(TODAY);
@@ -450,16 +549,23 @@ export default function GeneralLedgerPage() {
     switch (c.key) {
       case "date": return <span key={c.key} className="gl-date">{formatDateEn(l.date)}</span>;
       case "entry": return <span key={c.key}><button type="button" className="gl-link mono" onClick={() => openDrawer(l)}>{l.je_number}</button></span>;
-      case "source": return <span key={c.key} className="gl-src"><button type="button" className="gl-link gl-src-link" onClick={() => openDrawer(l)}>{sourceText(l)}</button></span>;
-      case "account": return (
-        <span key={c.key} className="gl-acct">
-          <button type="button" className="gl-link mono gl-code-link" onClick={() => setParam({ account: l.code })}>{l.code}</button>
-          <span className="gl-name">{l.name}</span>
+      case "source": return <span key={c.key} className="gl-ellip">{sourceType(l)}</span>;
+      case "sourceNo": return (
+        <span key={c.key} className="gl-src">
+          {sourceNo(l) ? <button type="button" className="gl-link gl-src-link mono" onClick={() => openDrawer(l)}>{sourceNo(l)}</button> : <span className="gl-muted">—</span>}
         </span>
       );
-      case "type": return <span key={c.key} className="gl-type"><span className="gl-acct-dot" style={{ background: GROUP_BY_KEY[l.meta.group].color }} />{GROUP_BY_KEY[l.meta.group].lbl}</span>;
+      case "currency": return (
+        <span key={c.key} className="gl-ccy" title={l.rate !== 1 ? `${l.currency} ${((l.dc || l.cc) / 100 / l.rate).toLocaleString("id-ID", { maximumFractionDigits: 2 })} @ ${l.rate.toLocaleString("id-ID")}` : undefined}>
+          {l.currency}
+        </span>
+      );
       case "desc": return <span key={c.key} className="gl-desc" title={l.memo}><span className="gl-desc-text">{l.desc}</span>{lineTags(l)}</span>;
-      case "party": return <span key={c.key} className="gl-ellip">{l.party || "—"}</span>;
+      case "party": return (
+        <span key={c.key} className="gl-ellip" title={l.party ? `${l.partyKind ? `${l.partyKind} · ` : ""}${l.party}` : undefined}>
+          {l.party || <span className="gl-muted">—</span>}
+        </span>
+      );
       case "status": return <span key={c.key}><span className={`badge badge-${STATUS_BADGE_CLASS[l.status]}`}>{STATUS_LABEL[l.status]}</span></span>;
       case "debit": return <span key={c.key} className={`num${unposted ? " gl-unposted" : ""}`}>{fmtAmt(l.dc)}</span>;
       case "credit": return <span key={c.key} className={`num${unposted ? " gl-unposted" : ""}`}>{fmtAmt(l.cc)}</span>;
@@ -470,8 +576,8 @@ export default function GeneralLedgerPage() {
     }
   }
 
-  const spanRow = (label, value, extra = {}) => (
-    <div className="gl-row gl-line-row gl-bal-row" style={grid}>
+  const spanRow = (key, label, value, extra = {}, cls = "") => (
+    <div key={key} className={`gl-row gl-line-row gl-bal-row${cls}`} style={grid}>
       {cols.map((c) => {
         if (c.key === "desc") return <span key={c.key}>{label}</span>;
         if (c.key === "balance") return <span key={c.key} className="num strong">{value}</span>;
@@ -482,17 +588,66 @@ export default function GeneralLedgerPage() {
     </div>
   );
 
-  const shownRows = lineRows.slice(0, limit);
+  function lineRow(l) {
+    const block = canReclass ? reclassBlock(l) : null;
+    return (
+      <div key={l.key} className={`gl-row gl-line-row${l.status !== "posted" ? " is-unposted" : ""}`} style={grid}>
+        {cols.map((c) => cell(c, l))}
+        {canReclass && (
+          <span className="gl-act">
+            {l.status === "posted" && (
+              <button type="button" className="gl-act-btn" disabled={!!block} title={block || "Reclassify this line"} aria-label="Reclassify this line" onClick={() => setReclass(l)}>
+                <svg viewBox="0 0 16 16"><path d="M2 5h9l-2.5-2.5M14 11H5l2.5 2.5" /></svg>
+              </button>
+            )}
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  // The blocks as rows — header (across accounts only), opening, lines,
+  // closing. Every line of every block: the ledger is read whole.
+  const renderRows = [];
+  for (const b of blocks) {
+    const g = GROUP_BY_KEY[b.meta.group];
+    if (view !== "account") {
+      renderRows.push(
+        <div key={`h:${b.meta.code}`} className="gl-block-head">
+          <button type="button" className="gl-link mono gl-code-link" onClick={() => { setParam({ account: b.meta.code }); setSearch(""); }}>{b.meta.code}</button>
+          <span className="gl-block-name">{b.meta.name}</span>
+          <span className="gl-type"><span className="gl-acct-dot" style={{ background: g.color }} />{g.lbl}</span>
+          <span className="gl-block-side">{b.meta.creditNormal ? "Credit-normal" : "Debit-normal"}</span>
+        </div>,
+      );
+    }
+    renderRows.push(spanRow(`o:${b.meta.code}`, `Opening balance · ${formatDateEn(from)}`, fmtBal(b.opening)));
+    renderRows.push(...b.rows.map(lineRow));
+    if (view === "account" && b.rows.length === 0) {
+      renderRows.push(
+        <div key={`e:${b.meta.code}`} className="gl-empty">
+          No postings to this account in {periodLbl}{filterCount || q ? " that match." : "."}
+        </div>,
+      );
+    }
+    renderRows.push(spanRow(
+      `c:${b.meta.code}`,
+      <>Closing balance · {formatDateEn(to)}{b.unposted ? <span className="gl-unposted-note"> · {fmtBal(b.unposted)} not yet posted</span> : null}</>,
+      fmtBal(b.closing),
+      { debit: fmtAmt(b.debit), credit: fmtAmt(b.credit) },
+      " gl-close-row",
+    ));
+  }
 
   return (
     <div className="lg-page">
       <div className="lg-scroll-container">
-        <div className="lg-head lg-head-plain">
+        <div className="lg-head lg-head-plain no-print">
           <div className="lg-head-top">
             <div style={{ flex: 1, minWidth: 0 }}>
               <h1 className="lg-title">General Ledger</h1>
               <p className="gl-sub">
-                Every journal line, in date order. Entries are created and posted on the{" "}
+                Every journal line, by account in code order, then by date. Entries are created and posted on the{" "}
                 <button type="button" className="gl-link" onClick={() => navigate("/journal-entry")}>Journal Entry</button> page;
                 balances by account are on the{" "}
                 <button type="button" className="gl-link" onClick={() => navigate("/trial-balance")}>Trial Balance</button>.
@@ -509,13 +664,32 @@ export default function GeneralLedgerPage() {
                 {(close) => (
                   <div className="gl-pop gl-export" role="menu">
                     <div className="gl-pop-lbl">This view</div>
-                    <div className="gl-pop-hint">{periodLbl}{filterCount ? `, ${filterCount} filter${filterCount > 1 ? "s" : ""}` : ""}{q ? ", searched" : ""}</div>
-                    <button type="button" className="gl-menu-item" onClick={() => { close(); runExport("visible", "xlsx"); }}>Excel (.xlsx)</button>
-                    <button type="button" className="gl-menu-item" onClick={() => { close(); runExport("visible", "csv"); }}>CSV</button>
+                    <div className="gl-pop-hint">
+                      {view === "account" ? `${accountView.meta.code} ${accountView.meta.name}` : "All accounts"} · {periodLbl}
+                      {filterCount ? `, ${filterCount} filter${filterCount > 1 ? "s" : ""}` : ""}{q ? ", searched" : ""}
+                    </div>
+                    <div className="gl-export-kind">
+                      <span className="gl-export-name">Report</span>
+                      <span className="gl-export-what">As on screen — account headers, opening and closing balances</span>
+                    </div>
+                    <div className="gl-export-btns">
+                      <button type="button" className="gl-menu-item" onClick={() => { close(); runReportExcel(); }}>Excel (.xlsx)</button>
+                      <button type="button" className="gl-menu-item" onClick={() => { close(); setPrinting(true); }}>PDF / Print</button>
+                    </div>
+                    <div className="gl-export-kind">
+                      <span className="gl-export-name">Data</span>
+                      <span className="gl-export-what">One row per line, account and partner on every row — for filters and pivots</span>
+                    </div>
+                    <div className="gl-export-btns">
+                      <button type="button" className="gl-menu-item" onClick={() => { close(); runDataExport("visible", "xlsx"); }}>Excel (.xlsx)</button>
+                      <button type="button" className="gl-menu-item" onClick={() => { close(); runDataExport("visible", "csv"); }}>CSV</button>
+                    </div>
                     <div className="gl-pop-lbl gl-pop-lbl-gap">Everything</div>
-                    <div className="gl-pop-hint">Every posted line, all accounts and dates</div>
-                    <button type="button" className="gl-menu-item" onClick={() => { close(); runExport("all", "xlsx"); }}>Excel (.xlsx)</button>
-                    <button type="button" className="gl-menu-item" onClick={() => { close(); runExport("all", "csv"); }}>CSV</button>
+                    <div className="gl-pop-hint">Every posted line, all accounts and dates · data layout</div>
+                    <div className="gl-export-btns">
+                      <button type="button" className="gl-menu-item" onClick={() => { close(); runDataExport("all", "xlsx"); }}>Excel (.xlsx)</button>
+                      <button type="button" className="gl-menu-item" onClick={() => { close(); runDataExport("all", "csv"); }}>CSV</button>
+                    </div>
                   </div>
                 )}
               </PopButton>
@@ -523,7 +697,7 @@ export default function GeneralLedgerPage() {
           </div>
         </div>
 
-        <div className="gl-wrap">
+        <div className="gl-wrap no-print">
           <div className="gl-controls">
             <label className="gl-field">
               <span>Period</span>
@@ -552,7 +726,7 @@ export default function GeneralLedgerPage() {
             <div className="gl-field gl-field-grow">
               <span>Account</span>
               <AccountPicker
-                accounts={summary}
+                accounts={ledger}
                 value={account}
                 periodLbl={periodLbl}
                 onChange={(code) => { setParam({ account: code }); setSearch(""); }}
@@ -577,7 +751,7 @@ export default function GeneralLedgerPage() {
             <div className="lg-search gl-search">
               <svg viewBox="0 0 16 16" aria-hidden><circle cx="7" cy="7" r="5" /><path d="M11 11l3 3" /></svg>
               <input
-                placeholder="Search entry, account, description, party…"
+                placeholder="Search entry, account, description, partner…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
@@ -599,48 +773,83 @@ export default function GeneralLedgerPage() {
               {cols.map((c) => <span key={c.key} className={c.num ? "num" : ""}>{c.label}</span>)}
               {canReclass && <span />}
             </div>
-            {view === "account" && spanRow("Opening balance", fmtBal(accountView.opening))}
-            {lineRows.length === 0 && (
+            {blocks.length === 0 && (
               <div className="gl-empty">
-                {view === "account" ? `No postings to this account in ${periodLbl}` : `No lines in ${periodLbl}`}
-                {filterCount || q ? " that match." : "."}
+                No lines in {periodLbl}{filterCount || q ? " that match." : "."}
               </div>
             )}
-            {shownRows.map((l) => {
-              const block = canReclass ? reclassBlock(l) : null;
-              return (
-                <div key={l.key} className={`gl-row gl-line-row${l.status !== "posted" ? " is-unposted" : ""}`} style={grid}>
-                  {cols.map((c) => cell(c, l))}
-                  {canReclass && (
-                    <span className="gl-act">
-                      {l.status === "posted" && (
-                        <button type="button" className="gl-act-btn" disabled={!!block} title={block || "Reclassify this line"} aria-label="Reclassify this line" onClick={() => setReclass(l)}>
-                          <svg viewBox="0 0 16 16"><path d="M2 5h9l-2.5-2.5M14 11H5l2.5 2.5" /></svg>
-                        </button>
-                      )}
-                    </span>
-                  )}
-                </div>
-              );
-            })}
-            {lineRows.length > limit && (
-              <div className="gl-more">
-                Showing {limit.toLocaleString("id-ID")} of {lineRows.length.toLocaleString("id-ID")} lines
-                <button type="button" className="gl-link" onClick={() => setLimit((n) => n + PAGE)}>Show {Math.min(PAGE, lineRows.length - limit)} more</button>
-              </div>
-            )}
-            {view === "account" && spanRow(
-              <>Closing balance{accountView.unposted ? <span className="gl-unposted-note"> · {fmtBal(accountView.unposted)} not yet posted</span> : null}</>,
-              fmtBal(accountView.closing),
-              { debit: fmtAmt(accountView.debit), credit: fmtAmt(accountView.credit) },
-            )}
+            {renderRows}
           </div>
         </div>
+        {printing && (
+          <div className="gl-print print-only">
+            <div className="gl-print-head">
+              {exportHeader(scopeLabel, true).map((r, i) => (
+                i === 1 ? <h1 key={i}>{r[0]}</h1> : <div key={i} className={i === 0 ? "co" : "meta"}>{r[0]}</div>
+              ))}
+            </div>
+            <table className="gl-print-table">
+              <thead>
+                <tr>{cols.map((c) => <th key={c.key} className={c.num ? "num" : ""}>{c.label}</th>)}</tr>
+              </thead>
+              <tbody>
+                {blocks.map((b) => {
+                  const balCells = (label, figures, cls) => (
+                    <tr key={`${cls}:${b.meta.code}`} className={cls}>
+                      {cols.map((c) => (
+                        <td key={c.key} className={c.num ? "num" : ""}>{c.key === "desc" ? label : figures[c.key] ?? ""}</td>
+                      ))}
+                    </tr>
+                  );
+                  return [
+                    <tr key={`h:${b.meta.code}`} className="acct">
+                      <td colSpan={cols.length}>
+                        {b.meta.code}  {b.meta.name}
+                        <span className="side">{GROUP_BY_KEY[b.meta.group].lbl} · {b.meta.creditNormal ? "credit-normal" : "debit-normal"}</span>
+                      </td>
+                    </tr>,
+                    balCells(`Opening balance · ${formatDateEn(from)}`, { balance: fmtBal(b.opening) }, "bal"),
+                    ...b.rows.map((l) => (
+                      <tr key={l.key}>
+                        {cols.map((c) => {
+                          let v;
+                          if (c.key.startsWith("dim:")) v = l.dims[c.key.slice(4)] || "";
+                          else {
+                            v = {
+                              date: formatDateEn(l.date), entry: l.je_number, source: sourceType(l), sourceNo: sourceNo(l),
+                              party: l.party, status: STATUS_LABEL[l.status], currency: l.currency,
+                              desc: l.status !== "posted" && !statusCol ? `${l.desc} [${STATUS_LABEL[l.status]}]` : l.desc,
+                              debit: l.dc ? fmtAmt(l.dc) : "", credit: l.cc ? fmtAmt(l.cc) : "",
+                              balance: l.balance == null ? "—" : fmtBal(l.balance),
+                            }[c.key];
+                          }
+                          return <td key={c.key} className={c.num ? "num" : ["date", "entry", "sourceNo"].includes(c.key) ? "nowrap" : ""}>{v}</td>;
+                        })}
+                      </tr>
+                    )),
+                    balCells(`Closing balance · ${formatDateEn(to)}`, { debit: fmtAmt(b.debit), credit: fmtAmt(b.credit), balance: fmtBal(b.closing) }, "close"),
+                  ];
+                })}
+                {blocks.length > 1 && (
+                  <tr className="grand">
+                    {cols.map((c) => (
+                      <td key={c.key} className={c.num ? "num" : ""}>
+                        {c.key === "desc" ? "Total, all accounts"
+                          : c.key === "debit" ? fmtAmt(blocks.reduce((n, b) => n + b.debit, 0))
+                            : c.key === "credit" ? fmtAmt(blocks.reduce((n, b) => n + b.credit, 0)) : ""}
+                      </td>
+                    ))}
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>{/* /lg-scroll-container */}
 
       {/* ── Sticky footer — the same bar as Journal Entries and the Trial
           Balance: what is shown, and whether it ties. ───────────────────── */}
-      <div className="lg-footer">
+      <div className="lg-footer no-print">
         <div className="lg-footer-left">
           <span>Showing <span className="lg-footer-num">{lineRows.length.toLocaleString("id-ID")}</span> lines</span>
           {lineTotals.unposted > 0 && (
