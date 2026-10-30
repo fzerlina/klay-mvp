@@ -354,7 +354,7 @@ export function FiltersPopover({ filters, onChange, parties }) {
       </div>
 
       <div className="gl-pop-sec">
-        <div className="gl-pop-lbl">Vendor / customer</div>
+        <div className="gl-pop-lbl">Partner</div>
         <select className="dje-input" value={filters.party} onChange={(e) => set({ party: e.target.value })}>
           <option value="">Anyone</option>
           {parties.map((p) => <option key={p} value={p}>{p}</option>)}
@@ -393,14 +393,14 @@ export function FiltersPopover({ filters, onChange, parties }) {
 export function ColumnsPopover({ columns, shown, onChange }) {
   return (
     <div className="gl-pop gl-columns" role="dialog" aria-label="Columns">
-      <div className="gl-pop-lbl">Extra columns</div>
+      <div className="gl-pop-lbl">Columns</div>
       {columns.map((c) => (
         <label key={c.key} className="gl-pop-check">
           <input type="checkbox" checked={shown.includes(c.key)} onChange={() => onChange(toggleIn(shown, c.key))} />
           {c.label}
         </label>
       ))}
-      <div className="gl-pop-hint">Currency, FX rate, quantity and reconciliation status join when entries carry them — every entry here is in IDR.</div>
+      <div className="gl-pop-hint">Date, entry, source, description, debit, credit and balance always show. The Report export (Excel and PDF) uses the columns shown here; the Data export always carries every column.</div>
     </div>
   );
 }
