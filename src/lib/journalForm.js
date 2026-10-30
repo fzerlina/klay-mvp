@@ -62,6 +62,20 @@ export function totalsOf(lines) {
   return { active, debit, credit, diff: debit - credit, balanced: debit > 0 && debit === credit };
 }
 
+// The amount that would balance the entry, for a line that has none yet:
+// { field: "debit" | "credit", value } or null when it already balances.
+// Counts every line with an amount, account or not — people often type the
+// amounts first. A line's `side` (from a template) wins: no fill when the
+// shortfall is on the other side.
+export function balancingAmount(lines, line) {
+  const others = lines.filter((l) => l.id !== line.id);
+  const diff = others.reduce((s, l) => s + amountOf(l.debit) - amountOf(l.credit), 0);
+  if (diff === 0) return null;
+  const field = diff > 0 ? "credit" : "debit";
+  if (line.side && line.side !== field) return null;
+  return { field, value: String(Math.abs(diff)) };
+}
+
 export function validateForm({ lines, memo, jeDate, closedThrough, reversal, recurrence = null }) {
   const totals = totalsOf(lines);
   const lineErrors = {};

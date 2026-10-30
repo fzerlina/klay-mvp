@@ -12,11 +12,12 @@ import {
   canEdit, canSubmit, canApprove, selfPostCheck, approvedEntry, manualPostBlock, withEvent, isoOf, periodOf,
 } from "../lib/journalLifecycle";
 import {
-  blankLine, templateLines, seedLines, applicableDims, dimValues, validateForm, buildEntry, defaultReversalDate,
+  blankLine, templateLines, seedLines, applicableDims, dimValues, validateForm, buildEntry, defaultReversalDate, balancingAmount,
 } from "../lib/journalForm";
 import AccountCombobox from "../components/AccountCombobox";
 import JournalTemplateMenu from "../components/JournalTemplateMenu";
 import RecurrenceFields from "../components/RecurrenceFields";
+import PayeeCombobox from "../components/PayeeCombobox";
 import { defaultRecurrence } from "../lib/recurringJournals";
 import "./modules.css";
 import "./invoices-ledger.css";
@@ -143,20 +144,30 @@ export default function JournalEntryFormPage() {
 
   // ── Line edits ─────────────────────────────────────────────────────────
   const patchLine = (id, patch) => setLines((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
+  // Auto-balance: a line that gets its account with no amount yet, and a new
+  // line, take whatever balances the entry, on the side that's short (debit
+  // 20.000 and a 10.000 credit → the next line credits 10.000). It's only a
+  // starting value: `auto` marks it until someone types over or clears it.
+  const withBalance = (all, l) => {
+    if (l.debit || l.credit) return l;
+    const fill = balancingAmount(all, l);
+    return fill ? { ...l, [fill.field]: fill.value, auto: true } : l;
+  };
   const onAccountChange = touch((id, code) => setLines((prev) => prev.map((l) => {
     if (l.id !== id) return l;
     const keys = code ? applicableDims(code) : [];
     const dims = {};
     for (const k of keys) if (l.dims[k]) dims[k] = l.dims[k];
-    return { ...l, account_code: code, dims };
+    const next = { ...l, account_code: code, dims };
+    return code && !l.account_code ? withBalance(prev, next) : next;
   })));
   const onAmountChange = touch((id, field, raw) => {
     const val = raw.replace(/[^\d]/g, "");
     const other = field === "debit" ? "credit" : "debit";
-    patchLine(id, { [field]: val, ...(val ? { [other]: "" } : {}) });
+    patchLine(id, { [field]: val, ...(val ? { [other]: "" } : {}), auto: false });
   });
   const setDim = touch((id, key, value) => setLines((prev) => prev.map((l) => (l.id === id ? { ...l, dims: { ...l.dims, [key]: value } } : l))));
-  const addLine = touch(() => setLines((prev) => [...prev, blankLine()]));
+  const addLine = touch(() => setLines((prev) => [...prev, withBalance(prev, blankLine())]));
   const removeLine = touch((id) => setLines((prev) => (prev.length <= 2 ? prev.map((l) => (l.id === id ? blankLine() : l)) : prev.filter((l) => l.id !== id))));
 
   // `id` "" is a blank journal. Anything other than what's already there
@@ -394,17 +405,19 @@ export default function JournalEntryFormPage() {
                       onChange={(e) => { setDirty(true); patchLine(l.id, { description: e.target.value }); }}
                     />
                     <input
-                      className={`jef-input jef-amt${l.side === "debit" && !l.debit && !l.credit ? " expected" : ""}`}
+                      className={`jef-input jef-amt${l.side === "debit" && !l.debit && !l.credit ? " expected" : ""}${l.auto && l.debit ? " auto" : ""}`}
                       inputMode="numeric"
                       placeholder="0"
+                      title={l.auto && l.debit ? "Filled to balance the entry — change or clear it" : undefined}
                       aria-label={`Line ${i + 1} debit`}
                       value={l.debit ? Number(l.debit).toLocaleString("id-ID") : ""}
                       onChange={(e) => onAmountChange(l.id, "debit", e.target.value)}
                     />
                     <input
-                      className={`jef-input jef-amt${l.side === "credit" && !l.debit && !l.credit ? " expected" : ""}`}
+                      className={`jef-input jef-amt${l.side === "credit" && !l.debit && !l.credit ? " expected" : ""}${l.auto && l.credit ? " auto" : ""}`}
                       inputMode="numeric"
                       placeholder="0"
+                      title={l.auto && l.credit ? "Filled to balance the entry — change or clear it" : undefined}
                       aria-label={`Line ${i + 1} credit`}
                       value={l.credit ? Number(l.credit).toLocaleString("id-ID") : ""}
                       onChange={(e) => onAmountChange(l.id, "credit", e.target.value)}
@@ -437,10 +450,12 @@ export default function JournalEntryFormPage() {
                           Employees are set up as vendors. */}
                       <div className="jef-payee">
                         <span className="jef-sub-lbl">Payee</span>
-                        <select className={`jef-input jef-payee-sel${l.payee ? " set" : ""}`} value={l.payee} onChange={(e) => { setDirty(true); patchLine(l.id, { payee: e.target.value }); }} aria-label={`Line ${i + 1} payee`}>
-                          <option value="">None</option>
-                          {payeeVendors.map((vd) => <option key={vd.id} value={`vendor:${vd.id}`}>{vd.name}</option>)}
-                        </select>
+                        <PayeeCombobox
+                          value={l.payee}
+                          vendors={payeeVendors}
+                          onChange={(key) => { setDirty(true); patchLine(l.id, { payee: key }); }}
+                          ariaLabel={`Line ${i + 1} payee`}
+                        />
                         {toPayment && <span className="jef-hint">Goes to Payment once posted.</span>}
                       </div>
                     </div>
