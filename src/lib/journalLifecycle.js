@@ -176,6 +176,13 @@ export function canDelete(je, { closedThrough } = {}) {
   return OK;
 }
 
+// Where a reversal is dated unless someone changes it: the 1st of the month
+// after the original, or of the first open month when that one is closed.
+export function defaultReversalDateFor(je, closedThrough) {
+  const first = firstOfNextMonth(je.je_date);
+  return isClosedDate(first, closedThrough) ? firstOfNextMonth(`${closedThrough}-01`) : first;
+}
+
 // A reversing date has to be on or after the original and in an open period.
 export function reversalDateCheck(je, date, { closedThrough } = {}) {
   if (!date) return no("Pick a date.");
@@ -189,24 +196,32 @@ export function withEvent(je, action, by, note) {
   return { ...je, history: [...(je.history || []), { at: isoOf(TODAY), action, by, note: note || "" }] };
 }
 
-// The reversing entry: same accounts, sides swapped, pointing back at the
-// original. Posted directly — reversing a posted entry is a posting act.
-export function buildReversal(je, { jeNumber, date, by, today }) {
+// A reversing entry's lines: same accounts, dimensions and payees, sides swapped.
+export const reversalLines = (je) => (je.lines || []).map((l) => ({
+  ...l,
+  debit: l.credit || 0,
+  credit: l.debit || 0,
+  description: l.description ? `Reverse: ${l.description}` : "Reversal",
+}));
+
+export const reversalMemo = (je) => `Reversal of ${je.je_number} — ${je.memo}`;
+
+// The reversing entry, pointing back at the original. Posted directly —
+// reversing a posted entry is a posting act. The form's preview may change the
+// memo and reference and add attachments; the lines always mirror the original.
+export function buildReversal(je, { jeNumber, date, by, today, memo, reference = null, attachments = [] }) {
   return withEvent({
     je_number: jeNumber,
     je_date: date,
     status: "posted",
-    memo: `Reversal of ${je.je_number} — ${je.memo}`,
+    memo: memo || reversalMemo(je),
+    reference,
     reference_type: "reversal",
     reference_id: je.je_number,
     reversal_of: je.je_number,
     created_by: by, created_date: today,
     posted_by: by, posted_date: today,
-    lines: (je.lines || []).map((l) => ({
-      ...l,
-      debit: l.credit || 0,
-      credit: l.debit || 0,
-      description: l.description ? `Reverse: ${l.description}` : "Reversal",
-    })),
+    attachments,
+    lines: reversalLines(je),
   }, "posted", by, `Reverses ${je.je_number}`);
 }
