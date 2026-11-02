@@ -5,12 +5,13 @@ import { useCurrentUser } from "../state/CurrentUserContext";
 import { useAssets } from "../state/AssetsContext";
 import { useAccountingSettings } from "../state/AccountingSettingsContext";
 import { scheduledEntries, postedFromSchedule } from "../lib/scheduledJournals";
-import { draftFromRecurring, canRepeat, describeRecurrence, monthLabel } from "../lib/recurringJournals";
+import { canRepeat, describeRecurrence, repeatLabel } from "../lib/recurringJournals";
+import { formatDate } from "../lib/format";
 import {
   canEdit, canSubmit, canApprove as canApproveEntry, canReturn, canVoid, canReverse,
-  isSystemEntry, reversibleHere, withEvent, buildReversal, approvedEntry, isoOf,
+  isSystemEntry, reversibleHere, withEvent, approvedEntry, isoOf,
 } from "../lib/journalLifecycle";
-import { ReturnDialog, ReverseDialog, RepeatDialog } from "./JeActionDialogs";
+import { ReturnDialog, RepeatDialog } from "./JeActionDialogs";
 import { TODAY } from "../lib/clock";
 
 // What the Journal Entry list and the Journal Entry detail page share: the
@@ -41,11 +42,11 @@ export const STATUS_BADGE_CLASS = { posted: "approved", reversed: "reversed", dr
 // Posted tab, as posted: it is still in the ledger, netted off by its reversal.
 export const displayStatus = (je) => (je.status === "posted" && je.reversed_by ? "reversed" : je.status);
 
-// A journal that repeats monthly, or a month one drafted (scheduled or
-// stored) — marked with an icon rather than a Source of its own.
+// A journal that repeats, or a copy one made (scheduled or stored) — marked
+// with an icon rather than a Source of its own.
 export function recurringNote(je) {
-  if (je.recurring_of) return `Recurring — the monthly copy of ${je.recurring_of}`;
-  if (je.recurrence && je.recurrence.status !== "ended") return `Repeats monthly${je.recurrence.status === "paused" ? " (paused)" : ""}`;
+  if (je.recurring_of) return `Recurring — a copy of ${je.recurring_of}`;
+  if (je.recurrence && je.recurrence.status !== "ended") return `${repeatLabel(je.recurrence)}${je.recurrence.status === "paused" ? " (paused)" : ""}`;
   return null;
 }
 export function RecurringIcon({ je }) {
@@ -108,7 +109,7 @@ export const ACTION_ICON = {
 };
 
 // Every row the Journal Entry screens show: stored entries plus the Scheduled
-// entries derived from the asset register and auto-reversals.
+// entries derived from the asset register and recurring journals.
 export function useJournalRows() {
   const { entries } = useJournalEntries();
   const { assets, closedThrough } = useAssets();
@@ -149,7 +150,6 @@ export function useJournalActions({ showToast, fromTab = null, onPostedScheduled
   function sourceOf(je) {
     const id = je.reference_id;
     if (je.status === "scheduled" && je.schedule) {
-      if (je.schedule.kind === "reversal") return { label: `Entry ${je.schedule.reverses}`, open: () => openEntry(je.schedule.reverses) };
       if (je.schedule.kind === "recurring") return { label: `Entry ${je.recurring_of}`, open: () => openEntry(je.recurring_of) };
       return { label: "Fixed asset register", open: () => navigate("/assets") };
     }
@@ -171,14 +171,6 @@ export function useJournalActions({ showToast, fromTab = null, onPostedScheduled
   function actionsFor(row) {
     if (row.status === "scheduled") {
       const src = sourceOf(row);
-      // A recurring month never posts itself: it becomes a draft on its date,
-      // or now by hand.
-      if (row.schedule?.kind === "recurring") {
-        return [
-          ...(canTransact ? [{ key: "draft_recurring", label: "Draft now", icon: "edit", primary: true, check: { ok: true } }] : []),
-          ...(src ? [{ key: "open_source", label: `Open ${src.label.replace(/^Entry/, "entry")}`, icon: "link", check: { ok: true } }] : []),
-        ];
-      }
       return [
         // A due one posts itself; only a future one can be posted early.
         ...(canApprove && !row.schedule?.due ? [{ key: "post_scheduled", label: "Post early", icon: "check", primary: true, check: { ok: true } }] : []),
@@ -199,7 +191,7 @@ export function useJournalActions({ showToast, fromTab = null, onPostedScheduled
     if (je.status === "posted" && reversibleHere(je)) out.push({ key: "reverse", label: "Reverse", icon: "reverse", check: canReverse(je, { canReverse: hasCapability("gl.je.reverse") }) });
     // Offered on posted manual journals that don't already repeat.
     if (je.status === "posted" && (je.reference_type || "manual") === "manual" && !je.reversal_of && !(je.recurrence && je.recurrence.status !== "ended")) {
-      out.push({ key: "repeat", label: "Repeat monthly", icon: "repeat", check: canRepeat(je, { canTransact }) });
+      out.push({ key: "repeat", label: "Repeat", icon: "repeat", check: canRepeat(je, { canPost: canApprove }) });
     }
     const src = sourceOf(je);
     if (src) out.push({ key: "open_source", label: "Open source", icon: "link", check: { ok: true } });
@@ -224,20 +216,8 @@ export function useJournalActions({ showToast, fromTab = null, onPostedScheduled
   function postScheduled(je) {
     const jeNumber = peekNextJeNumber();
     addJournalEntry(postedFromSchedule(je, { jeNumber, by: actor, today: todayIso }));
-    if (je.reversal_of) {
-      updateJournalEntry(je.reversal_of, (cur) => withEvent({ ...cur, reversed_by: jeNumber }, "reversed", actor, `By ${jeNumber}`));
-    }
     onPostedScheduled?.(jeNumber, je);
     showToast(`${je.memo} posted as ${jeNumber}`);
-  }
-
-  // A recurring month drafted ahead of its date, by hand. The same draft its
-  // date would have made (state/ScheduledAutoPost.jsx).
-  function draftRecurring(row) {
-    const jeNumber = peekNextJeNumber();
-    addJournalEntry(draftFromRecurring(row, { jeNumber, by: actor, today: todayIso }));
-    onPostedScheduled?.(jeNumber, row);
-    showToast(`${row.schedule.periodLabel} drafted as ${jeNumber} — review and submit it`);
   }
 
   function confirmRepeat(je, recurrence) {
@@ -246,7 +226,7 @@ export function useJournalActions({ showToast, fromTab = null, onPostedScheduled
       "set to repeat", actor, describeRecurrence(recurrence),
     ));
     setDialog(null);
-    showToast(`${je.je_number} now repeats monthly from ${monthLabel(recurrence.start)}`);
+    showToast(`${je.je_number} now ${repeatLabel(recurrence).toLowerCase()}, from ${formatDate(recurrence.start)}`);
   }
 
   // Pause, resume or end a schedule (the detail page's Recurring card).
@@ -265,7 +245,6 @@ export function useJournalActions({ showToast, fromTab = null, onPostedScheduled
   // is already there).
   function runAction(action, row) {
     if (action === "post_scheduled") { postScheduled(row); return; }
-    if (action === "draft_recurring") { draftRecurring(row); return; }
     if (action === "open_source") { sourceOf(row.status === "scheduled" ? row : storedOf(row))?.open(); return; }
     const je = storedOf(row);
     if (action === "submit") { const c = submitQuiet(je); showToast(c.ok ? `${je.je_number} submitted for approval` : c.reason); }
@@ -276,9 +255,15 @@ export function useJournalActions({ showToast, fromTab = null, onPostedScheduled
       navigate(`/journal-entry/${encodeURIComponent(je.je_number)}/edit`, { state: { fromTab } });
     }
     else if (action === "return") setDialog({ kind: "return", je });
-    else if (action === "reverse") setDialog({ kind: "reverse", je });
+    // A reversal opens as a preview on the journal form, posted from there
+    // (JournalEntryFormPage, mode "reverse").
+    else if (action === "reverse") {
+      const check = canReverse(je, { canReverse: hasCapability("gl.je.reverse") });
+      if (!check.ok) { showToast(check.reason); return; }
+      navigate(`/journal-entry/${encodeURIComponent(je.je_number)}/reverse`, { state: { fromTab } });
+    }
     else if (action === "repeat") {
-      const check = canRepeat(je, { canTransact });
+      const check = canRepeat(je, { canPost: canApprove });
       if (!check.ok) { showToast(check.reason); return; }
       setDialog({ kind: "repeat", je });
     }
@@ -309,16 +294,6 @@ export function useJournalActions({ showToast, fromTab = null, onPostedScheduled
     showToast(`${je.je_number} sent back to ${je.created_by}`);
   }
 
-  function confirmReverse(je, date) {
-    const check = canReverse(je, { canReverse: hasCapability("gl.je.reverse") });
-    if (!check.ok) { showToast(check.reason); return; }
-    const jeNumber = peekNextJeNumber();
-    addJournalEntry(buildReversal(je, { jeNumber, date, by: actor, today: todayIso }));
-    updateJournalEntry(je.je_number, (cur) => withEvent({ ...cur, reversed_by: jeNumber }, "reversed", actor, `By ${jeNumber}`));
-    setDialog(null);
-    showToast(`${je.je_number} reversed by ${jeNumber}`);
-  }
-
   const dialogs = (
     <>
       {dialog?.kind === "return" && (
@@ -326,9 +301,6 @@ export function useJournalActions({ showToast, fromTab = null, onPostedScheduled
       )}
       {dialog?.kind === "repeat" && (
         <RepeatDialog je={dialog.je} onClose={() => setDialog(null)} onConfirm={(r) => confirmRepeat(dialog.je, r)} />
-      )}
-      {dialog?.kind === "reverse" && (
-        <ReverseDialog je={dialog.je} closedThrough={closedThrough} onClose={() => setDialog(null)} onConfirm={(date) => confirmReverse(dialog.je, date)} />
       )}
     </>
   );

@@ -158,6 +158,8 @@ export default function App() {
                 <Route path="/journal-entry/new" element={<RequireLevel module="gl" level="transact" action="prepare journal entries"><JournalEntryFormPage /></RequireLevel>} />
                 <Route path="/journal-entry/:jeNumber" element={<JournalEntryDetailPage />} />
                 <Route path="/journal-entry/:jeNumber/edit" element={<RequireLevel module="gl" level="transact" action="prepare journal entries"><JournalEntryFormPage /></RequireLevel>} />
+                {/* Reverse preview — the page checks the gl.je.reverse capability itself. */}
+                <Route path="/journal-entry/:jeNumber/reverse" element={<JournalEntryFormPage mode="reverse" />} />
                 <Route path="/chart-of-accounts" element={<ChartOfAccountsPage />} />
                 <Route path="/dimensions" element={<DimensionsPage />} />
                 <Route path="/locations" element={<LocationsPage />} />

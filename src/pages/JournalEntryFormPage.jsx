@@ -10,9 +10,11 @@ import { useVendors } from "../state/VendorsContext";
 import { TODAY } from "../lib/clock";
 import {
   canEdit, canSubmit, canApprove, selfPostCheck, approvedEntry, manualPostBlock, withEvent, isoOf, periodOf,
+  canReverse, reversalDateCheck, defaultReversalDateFor, reversalLines, reversalMemo, buildReversal,
 } from "../lib/journalLifecycle";
+import { formatDate } from "../lib/format";
 import {
-  blankLine, templateLines, seedLines, applicableDims, dimValues, validateForm, buildEntry, defaultReversalDate, balancingAmount,
+  blankLine, templateLines, seedLines, applicableDims, dimValues, validateForm, buildEntry, balancingAmount,
 } from "../lib/journalForm";
 import AccountCombobox from "../components/AccountCombobox";
 import JournalTemplateMenu from "../components/JournalTemplateMenu";
@@ -37,6 +39,12 @@ import "./journal-entry-form.css";
 //     (Settings → General Ledger → Preferences).
 // Every check is the shared one (lib/journalForm.js, lib/journalLifecycle.js),
 // so the list page's Submit and Approve say the same thing.
+//
+// mode "reverse" (/journal-entry/:jeNumber/reverse, from a posted entry's
+// Reverse — 2 Nov 2026) is the same page as a preview of the reversal: the
+// lines mirror the original with every side swapped and can't be changed; the
+// posting date, memo, reference and attachments can. Post reversal posts it at
+// once — reversing a posted entry is a posting act.
 
 const ACCOUNTS = getActiveAccounts().slice().sort((a, b) => a.code.localeCompare(b.code));
 const fmtRp = (n) => (n || 0).toLocaleString("id-ID", { maximumFractionDigits: 0 });
@@ -44,29 +52,36 @@ const TODAY_ISO = isoOf(TODAY);
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const periodLabel = (iso) => (iso ? `${MONTHS[parseInt(iso.slice(5, 7), 10) - 1]} ${iso.slice(0, 4)}` : "—");
 
-export default function JournalEntryFormPage() {
-  const { jeNumber: editNumber } = useParams();
+export default function JournalEntryFormPage({ mode = "edit" }) {
+  const { jeNumber: routeNumber } = useParams();
+  const reversing = mode === "reverse";
+  const editNumber = reversing ? undefined : routeNumber;
   const { state: navState } = useLocation();
   const navigate = useNavigate();
   const { entries, addJournalEntry, updateJournalEntry, peekNextJeNumber, pendingDraft, clearPendingDraft } = useJournalEntries();
-  const { user, hasLevel } = useCurrentUser();
+  const { user, hasLevel, hasCapability } = useCurrentUser();
   const { closedThrough } = useClosePeriod();
   const { reconcilableAccounts, journalTemplates, selfPost } = useAccountingSettings();
   const { vendors } = useVendors();
 
   const editing = editNumber ? entries.find((e) => e.je_number === editNumber) : null;
   const editCheck = editing ? canEdit(editing) : null;
+  // The posted entry being reversed, in reverse mode.
+  const original = reversing ? entries.find((e) => e.je_number === routeNumber) : null;
+  const reverseCheck = original ? canReverse(original, { canReverse: hasCapability("gl.je.reverse") }) : null;
   const actor = user?.name || "You";
   const canPostGl = hasLevel("gl", "approve+post");
-  const backTo = `/journal-entry${navState?.fromTab ? `?tab=${navState.fromTab}` : ""}`;
+  const backTo = reversing
+    ? `/journal-entry/${encodeURIComponent(routeNumber)}`
+    : `/journal-entry${navState?.fromTab ? `?tab=${navState.fromTab}` : ""}`;
 
   // A draft staged by another page (a stock adjustment) opens here pre-filled.
-  const [staged] = useState(() => (!editNumber ? pendingDraft : null));
+  const [staged] = useState(() => (!routeNumber ? pendingDraft : null));
   useEffect(() => { if (staged) clearPendingDraft(); }, [staged, clearPendingDraft]);
 
   // A new journal can start from a journal template: picked on the list's
   // New Manual Journal split button, or later from the chip in the header.
-  const canPickTemplate = !editing && !staged?.lines?.length && journalTemplates.length > 0;
+  const canPickTemplate = !editing && !reversing && !staged?.lines?.length && journalTemplates.length > 0;
   const [templateId, setTemplateId] = useState(() => (
     canPickTemplate && journalTemplates.some((t) => t.id === navState?.templateId) ? navState.templateId : ""
   ));
@@ -74,21 +89,20 @@ export default function JournalEntryFormPage() {
   const startTemplate = journalTemplates.find((t) => t.id === templateId) || null;
 
   const [jeNumber] = useState(() => editing?.je_number || peekNextJeNumber());
-  const [jeDate, setJeDate] = useState(editing?.je_date || TODAY_ISO);
-  const [memo, setMemo] = useState(editing?.memo || staged?.memo || navState?.memo || startTemplate?.name || "");
+  const [jeDate, setJeDate] = useState(editing?.je_date || (original ? defaultReversalDateFor(original, closedThrough) : TODAY_ISO));
+  const [memo, setMemo] = useState(editing?.memo || (original && reversalMemo(original)) || staged?.memo || navState?.memo || startTemplate?.name || "");
   const [reference, setReference] = useState(editing?.reference || "");
   // An older draft may carry its payee on the header; it moves onto the lines
   // that would have read it, the payable ones.
   const [lines, setLines] = useState(() => (startTemplate ? templateLines(startTemplate) : seedLines(
-    editing?.payee
+    original ? reversalLines(original)
+    : editing?.payee
       ? editing.lines.map((l) => (l.payee || !reconcilableAccounts.includes(l.account_code) ? l : { ...l, payee: editing.payee }))
       : editing?.lines || staged?.lines,
   )));
-  const [reversalOn, setReversalOn] = useState(!!editing?.auto_reverse);
-  const [reversalDate, setReversalDate] = useState(editing?.reversal_date || defaultReversalDate(editing?.je_date || TODAY_ISO));
-  // Repeat monthly (lib/recurringJournals.js). A month a schedule drafted
-  // can't itself repeat.
-  const canRepeatHere = !editing?.recurring_of;
+  // Repeat (lib/recurringJournals.js). A copy a schedule made can't itself
+  // repeat.
+  const canRepeatHere = !reversing && !editing?.recurring_of;
   const [repeatOn, setRepeatOn] = useState(!!editing?.recurrence);
   const [repeat, setRepeat] = useState(() => editing?.recurrence || defaultRecurrence(editing?.je_date || TODAY_ISO));
   const [attachments, setAttachments] = useState(() => editing?.attachments || []);
@@ -122,19 +136,19 @@ export default function JournalEntryFormPage() {
     return seen;
   }, [entries, actor]);
 
-  const reversal = { on: reversalOn, date: reversalDate };
   const recurrence = repeatOn && canRepeatHere ? {
     ...repeat,
+    every: parseInt(repeat.every, 10) || 0,
     end: { ...repeat.end, count: parseInt(repeat.end.count, 10) || 0 },
     status: editing?.recurrence?.status || "active",
     set_by: editing?.recurrence?.set_by || actor,
     set_date: editing?.recurrence?.set_date || TODAY_ISO,
   } : null;
-  const v = validateForm({ lines, memo, jeDate, closedThrough, reversal, recurrence });
+  const v = validateForm({ lines, memo, jeDate, closedThrough, recurrence });
   const { totals } = v;
 
   const draft = () => buildEntry({
-    editing, jeNumber, jeDate, memo, reference, reversal, recurrence, attachments, lines,
+    editing, jeNumber, jeDate, memo, reference, recurrence, attachments, lines,
     createdBy: actor, today: TODAY_ISO, payeeOf,
   });
 
@@ -194,12 +208,11 @@ export default function JournalEntryFormPage() {
 
   function onDateChange(next) {
     setDirty(true);
-    // The reversal date follows the entry date until someone sets it by hand.
-    if (reversalDate === defaultReversalDate(jeDate)) setReversalDate(defaultReversalDate(next));
-    // So do the repeat's first month and day.
-    const was = defaultRecurrence(jeDate);
+    // The repeat's first date (and day of the month) follows the entry date
+    // until someone sets it by hand.
+    const was = defaultRecurrence(jeDate, repeat);
     if (next && repeat.start === was.start && repeat.day === was.day) {
-      const now = defaultRecurrence(next);
+      const now = defaultRecurrence(next, repeat);
       setRepeat((r) => ({ ...r, start: now.start, day: now.day }));
     }
     setJeDate(next);
@@ -237,15 +250,33 @@ export default function JournalEntryFormPage() {
     done(je, `${je.je_number} ${verb}`);
   }
 
+  // Reverse mode: the first thing stopping the post, or null.
+  const revDateCheck = original ? reversalDateCheck(original, jeDate, { closedThrough }) : null;
+  const revBlock = !original ? null
+    : !revDateCheck.ok ? revDateCheck.reason
+    : !memo.trim() ? "Add a memo — the business reason for the reversal."
+    : null;
+
+  function postReversal() {
+    const check = canReverse(original, { canReverse: hasCapability("gl.je.reverse") });
+    if (!check.ok || revBlock) { setShowErrors(true); return; }
+    addJournalEntry(buildReversal(original, {
+      jeNumber, date: jeDate, by: actor, today: TODAY_ISO, memo: memo.trim(), reference: reference.trim() || null, attachments,
+    }));
+    updateJournalEntry(original.je_number, (cur) => withEvent({ ...cur, reversed_by: jeNumber }, "reversed", actor, `By ${jeNumber}`));
+    done({ je_number: jeNumber }, `${original.je_number} reversed by ${jeNumber}`);
+  }
+
   // ── Render ─────────────────────────────────────────────────────────────
-  if (editNumber && (!editing || !editCheck.ok)) {
+  if ((editNumber && (!editing || !editCheck.ok)) || (reversing && (!original || !reverseCheck.ok))) {
+    const found = reversing ? original : editing;
     return (
       <div className="lg-page">
         <div className="lg-scroll-container jef">
-          <button type="button" className="jef-back" onClick={() => navigate(backTo)}>← Journal Entries</button>
+          <button type="button" className="jef-back" onClick={() => navigate(backTo)}>← {reversing && found ? found.je_number : "Journal Entries"}</button>
           <div className="jef-blocked">
-            <div className="jef-blocked-title">{editing ? `${editNumber} can't be edited` : `${editNumber} not found`}</div>
-            <p>{editing ? editCheck.reason : "There is no journal entry with this number."}</p>
+            <div className="jef-blocked-title">{found ? `${routeNumber} can't be ${reversing ? "reversed" : "edited"}` : `${routeNumber} not found`}</div>
+            <p>{found ? (reversing ? reverseCheck : editCheck).reason : "There is no journal entry with this number."}</p>
           </div>
         </div>
       </div>
@@ -258,18 +289,56 @@ export default function JournalEntryFormPage() {
     ? "Enter amounts"
     : totals.balanced ? "Balanced" : `Out by Rp ${fmtRp(Math.abs(totals.diff))}`;
 
+  // Reverse mode: the original's lines, sides swapped, shown as locked cells
+  // in the same grid as the editable form.
+  const reversalRows = original && reversalLines(original).map((line, i) => {
+    const l = { ...line, account_name: line.account_name || ACCOUNTS.find((a) => a.code === line.account_code)?.name || "" };
+    const dims = Object.entries(l.dimensions || {}).filter(([k, val]) => val && DIM_BY_KEY[k]);
+    return (
+      <div key={i} className="jef-line">
+        <div className="jef-row jef-row-ro" role="row">
+          <span className="jef-idx">{i + 1}</span>
+          <span className="jef-ro" title={l.account_name}><span className="jef-mono">{l.account_code}</span> {l.account_name}</span>
+          <span className="jef-ro jef-ro-desc" title={l.description}>{l.description}</span>
+          <span className="jef-ro jef-amt">{l.debit ? fmtRp(l.debit) : ""}</span>
+          <span className="jef-ro jef-amt">{l.credit ? fmtRp(l.credit) : ""}</span>
+          <span />
+        </div>
+        {(dims.length > 0 || l.payee) && (
+          <div className="jef-sub-row">
+            {dims.length > 0 && (
+              <div className="jef-dims">
+                <span className="jef-sub-lbl">Dimensions</span>
+                {dims.map(([k, val]) => {
+                  const pal = paletteFor(DIM_BY_KEY[k].cls);
+                  return (
+                    <span key={k} className="jef-dim set jef-dim-ro" style={{ background: pal.bg, color: pal.fg, borderColor: pal.bg }}>
+                      <span className="jef-dim-dot" style={{ background: pal.dot }} />
+                      {DIM_BY_KEY[k].label}: {val}
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+            {l.payee && <div className="jef-payee"><span className="jef-sub-lbl">Payee</span><span className="jef-ro-payee">{l.payee.name}</span></div>}
+          </div>
+        )}
+      </div>
+    );
+  });
+
   return (
     <div className="lg-page jef-page">
       <div className="lg-scroll-container jef">
         <div className="jef-head">
-          <button type="button" className="jef-back" onClick={leave}>← Journal Entries</button>
+          <button type="button" className="jef-back" onClick={leave}>← {original ? original.je_number : "Journal Entries"}</button>
           <div className="jef-head-main">
             <div>
-              <h1 className="jef-title">{editing ? `Edit ${editing.je_number}` : "New manual journal"}</h1>
+              <h1 className="jef-title">{original ? `Reverse ${original.je_number}` : editing ? `Edit ${editing.je_number}` : "New manual journal"}</h1>
               <div className="jef-sub">
                 <span className="jef-mono">{jeNumber}</span>
-                <span className="badge badge-draft">Draft</span>
-                <span>Manual journal</span>
+                <span className="badge badge-draft">{original ? "Preview" : "Draft"}</span>
+                <span>{original ? "Reversing journal" : "Manual journal"}</span>
                 {canPickTemplate && (
                   <span className="jef-tpl-wrap">
                     <button
@@ -304,14 +373,34 @@ export default function JournalEntryFormPage() {
           </div>
         </div>
 
+        {original && (
+          <div className="jef-rev-note">
+            <strong>Nothing is posted yet.</strong> This preview reverses {original.je_number} ({original.memo}): every debit and
+            credit swapped, on the same accounts, dimensions and payees — the lines can't be changed. {original.je_number} stays in
+            the ledger, marked Reversed. Check the posting date, then Post reversal.
+          </div>
+        )}
+
         {/* ── Details ─────────────────────────────────────────────────── */}
         <section className="jef-card">
           <div className="jef-card-title">Details</div>
           <div className="jef-grid">
             <label className="jef-field">
               <span className="jef-lbl">Posting date</span>
-              <input type="date" className="jef-input" value={jeDate} onChange={(e) => onDateChange(e.target.value)} />
-              <span className="jef-field-hint">The day it hits the ledger — sets the period ({periodLabel(jeDate)}).</span>
+              <input
+                type="date"
+                className={`jef-input${original && !revDateCheck.ok ? " invalid" : ""}`}
+                value={jeDate}
+                min={original?.je_date}
+                onChange={(e) => onDateChange(e.target.value)}
+              />
+              <span className="jef-field-hint">
+                {original && !revDateCheck.ok
+                  ? revDateCheck.reason
+                  : original
+                    ? `Sets the period (${periodLabel(jeDate)}). ${original.je_number} posted on ${formatDate(original.je_date)}.`
+                    : `The day it hits the ledger — sets the period (${periodLabel(jeDate)}).`}
+              </span>
             </label>
             <label className="jef-field jef-field-wide">
               <span className="jef-lbl">Memo <em>required</em></span>
@@ -327,34 +416,19 @@ export default function JournalEntryFormPage() {
               <input className="jef-input" placeholder="Document no. (optional)" value={reference} onChange={(e) => { setDirty(true); setReference(e.target.value); }} />
             </label>
           </div>
-          {periodClosed && (
+          {periodClosed && !original && (
             <div className="jef-warn">
               {periodLabel(jeDate)} is closed. You can save a draft here, but it can only be submitted or posted once its posting date is in an open period.
             </div>
           )}
-          <div className="jef-reversal">
-            <label className="jef-check">
-              <input type="checkbox" checked={reversalOn} onChange={(e) => { setDirty(true); setReversalOn(e.target.checked); }} />
-              <span>
-                <strong>Reverse this entry automatically</strong>
-                <span className="jef-hint">For accruals: once posted, a reversing entry is scheduled on this date (Scheduled tab).</span>
-              </span>
-            </label>
-            {reversalOn && (
-              <label className="jef-field jef-field-inline">
-                <span className="jef-lbl">Reversal date</span>
-                <input type="date" className="jef-input" value={reversalDate} min={jeDate} onChange={(e) => { setDirty(true); setReversalDate(e.target.value); }} />
-              </label>
-            )}
-          </div>
           {canRepeatHere && (
             <div className="jef-reversal jef-repeat">
               <label className="jef-check">
                 <input type="checkbox" checked={repeatOn} onChange={(e) => { setDirty(true); setRepeatOn(e.target.checked); }} />
                 <span>
-                  <strong>Repeat this entry every month</strong>
+                  <strong>Repeat this entry</strong>
                   <span className="jef-hint">
-                    Once this entry is posted, each month's copy arrives as a draft for {editing?.recurrence?.set_by && editing.recurrence.set_by !== actor ? editing.recurrence.set_by : "you"} to review and submit — nothing posts by itself.
+                    Approved once with this entry: after it posts, each copy posts itself on its date — no further approval. Pause or end it from the entry any time.
                   </span>
                 </span>
               </label>
@@ -371,14 +445,18 @@ export default function JournalEntryFormPage() {
         <section className="jef-card jef-card-lines">
           <div className="jef-card-head">
             <div className="jef-card-title">Lines</div>
-            <span className="jef-hint">Pick an account — the dimensions it requires appear under the line.</span>
+            <span className="jef-hint">
+              {original
+                ? `${original.je_number}'s lines with debits and credits swapped — locked, so the reversal nets it off exactly.`
+                : "Pick an account — the dimensions it requires appear under the line."}
+            </span>
           </div>
 
           <div className="jef-lines" role="table" aria-label="Journal lines">
             <div className="jef-row jef-row-head" role="row">
               <span>#</span><span>Account</span><span>Description</span><span className="num">Debit</span><span className="num">Credit</span><span />
             </div>
-            {lines.map((l, i) => {
+            {original ? reversalRows : lines.map((l, i) => {
               const keys = applicableDims(l.account_code);
               // A line says what it still needs once it has an amount.
               const errs = showErrors || l.debit || l.credit ? v.lineErrors[l.id] : null;
@@ -469,7 +547,7 @@ export default function JournalEntryFormPage() {
               );
             })}
           </div>
-          <button type="button" className="jef-add" onClick={addLine}>+ Add line</button>
+          {!original && <button type="button" className="jef-add" onClick={addLine}>+ Add line</button>}
         </section>
 
         {/* ── Attachments ─────────────────────────────────────────────── */}
@@ -500,10 +578,20 @@ export default function JournalEntryFormPage() {
           <span>Cr <strong>Rp {fmtRp(totals.credit)}</strong></span>
           <span className={`jef-bal ${totals.balanced ? "ok" : totals.debit || totals.credit ? "off" : "idle"}`}>{balanceLabel}</span>
           {/* Why Submit is still disabled — the first thing to fix. */}
-          {(showErrors || totals.debit > 0 || totals.credit > 0) && v.submitBlocks[0] && (
-            <span className="jef-bar-why">{v.submitBlocks[0]}</span>
-          )}
+          {original
+            ? revBlock && <span className="jef-bar-why">{revBlock}</span>
+            : (showErrors || totals.debit > 0 || totals.credit > 0) && v.submitBlocks[0] && (
+              <span className="jef-bar-why">{v.submitBlocks[0]}</span>
+            )}
         </div>
+        {original ? (
+          <div className="jef-bar-actions">
+            <button type="button" className="jef-btn" onClick={leave}>Cancel</button>
+            <button type="button" className="jef-btn primary" onClick={postReversal} disabled={!!revBlock} title={revBlock || `Post the reversal, dated ${formatDate(jeDate)}`}>
+              Post reversal
+            </button>
+          </div>
+        ) : (
         <div className="jef-bar-actions">
           <button type="button" className="jef-btn" onClick={leave}>Cancel</button>
           <button type="button" className="jef-btn" onClick={() => save("draft")} disabled={!v.canSave} title={v.draftBlocks[0] || "Save without sending for approval"}>
@@ -524,6 +612,7 @@ export default function JournalEntryFormPage() {
             </button>
           )}
         </div>
+        )}
       </div>
     </div>
   );

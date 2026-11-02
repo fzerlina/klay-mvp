@@ -91,12 +91,9 @@ function JeRow({ r, isChecked, onCheck, onClick, onKebab, isSelected, isAlt, clo
         </div>
         {r.status === "scheduled" && r.schedule && (
           <div className={`je-desc-sched${r.schedule.due ? " due" : ""}`}>
-            {/* A recurring month becomes a draft for review; the rest post themselves. */}
-            {r.schedule.kind === "recurring"
-              ? (r.schedule.due ? `Due — drafting for ${r.created_by}` : `Drafts for review on ${formatDate(r.schedule.postsOn)}`)
-              : r.schedule.due
-                ? `Due — was to post on ${formatDate(r.schedule.postsOn)}`
-                : `Posts itself on ${formatDate(r.schedule.postsOn)}`}
+            {r.schedule.due
+              ? `Due — was to post on ${formatDate(r.schedule.postsOn)}`
+              : `Posts itself on ${formatDate(r.schedule.postsOn)}`}
             {" · "}{r.schedule.source}
           </div>
         )}
@@ -195,14 +192,13 @@ function SortPopover({ value, onPick, onClose }) {
 }
 
 // "Show only" filters for what a status or a source doesn't say: a journal
-// that repeats (or a month one drafted), a posted entry since reversed, one
-// its preparer posted, an accrual set to undo itself, and a manual journal
-// with no evidence attached. Picking several shows entries that are any of them.
+// that repeats (or a copy one made), a posted entry since reversed, one its
+// preparer posted, and a manual journal with no evidence attached. Picking
+// several shows entries that are any of them.
 const JE_FLAGS = [
-  { key: "recurring", label: "Recurring", hint: "Journals that repeat monthly, and the months they draft", test: (r) => !!recurringNote(r) },
+  { key: "recurring", label: "Recurring", hint: "Journals that repeat, and the copies they post", test: (r) => !!recurringNote(r) },
   { key: "reversed", label: "Reversed", hint: "Posted entries that have since been reversed", test: (r) => displayStatus(r) === "reversed" },
   { key: "selfposted", label: "Self-posted", hint: "Prepared and posted by the same person", test: (r) => !!r.self_approved },
-  { key: "autoreverse", label: "Auto-reverse", hint: "Accruals set to reverse themselves", test: (r) => !!r.auto_reverse },
   { key: "noattach", label: "No attachment", hint: "Manual journals with no supporting file attached", test: (r) => r.status !== "scheduled" && entrySource(r) === "manual" && !(r.attachments || []).length },
 ];
 
@@ -215,6 +211,7 @@ const monthRange = (ym) => {
 };
 const THIS_MONTH = ymOf(TODAY);
 const LAST_MONTH = ymOf(new Date(TODAY.getFullYear(), TODAY.getMonth() - 1, 1));
+const NEXT_MONTH = ymOf(new Date(TODAY.getFullYear(), TODAY.getMonth() + 1, 1));
 // The month a date range covers exactly, or null.
 const wholeMonthOf = ({ dateFrom, dateTo }) => {
   if (!dateFrom || dateFrom.slice(0, 7) !== String(dateTo).slice(0, 7)) return null;
@@ -225,7 +222,9 @@ const MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "S
 const monthName = (ym) => `${MONTHS_SHORT[parseInt(ym.slice(5, 7), 10) - 1]} ${ym.slice(0, 4)}`;
 const JE_FLAG_LABEL = Object.fromEntries(JE_FLAGS.map((f) => [f.key, f.label]));
 
-function FilterPopover({ values, onChange, onClose, creators = [], posters = [], accounts = [] }) {
+// The Scheduled tab only reaches into the next period, so its month picks are
+// this period and the next; the other tabs look back to last month.
+function FilterPopover({ values, onChange, onClose, creators = [], posters = [], accounts = [], scheduled = false }) {
   const ref = useRef(null);
   useClickOutside(ref, onClose);
   const [draft, setDraft] = useState(values);
@@ -252,6 +251,9 @@ function FilterPopover({ values, onChange, onClose, creators = [], posters = [],
     return { ...d, posters: next };
   });
   const pickedMonth = wholeMonthOf(draft);
+  const quickMonths = scheduled
+    ? [{ ym: THIS_MONTH, label: "This period" }, { ym: NEXT_MONTH, label: "Next period" }]
+    : [{ ym: THIS_MONTH, label: "This month" }, { ym: LAST_MONTH, label: "Last month" }];
   const pickMonth = (ym) => update(pickedMonth === ym ? { dateFrom: "", dateTo: "" } : monthRange(ym));
   const reset = () => setDraft({ sources: new Set(), creators: new Set(), posters: new Set(), flags: new Set(), account: "", minAmt: "", maxAmt: "", dateFrom: "", dateTo: "" });
   const apply = () => { onChange(draft); onClose(); };
@@ -309,15 +311,16 @@ function FilterPopover({ values, onChange, onClose, creators = [], posters = [],
         <div className="lg-filter-fld">
           <div className="lg-filter-fld-lbl">Posting date</div>
           <div className="lg-toggle-row lg-filter-months">
-            <button className={`lg-toggle${pickedMonth === THIS_MONTH ? " on" : ""}`} onClick={() => pickMonth(THIS_MONTH)}>This month</button>
-            <button className={`lg-toggle${pickedMonth === LAST_MONTH ? " on" : ""}`} onClick={() => pickMonth(LAST_MONTH)}>Last month</button>
-            <input
+            {quickMonths.map((q) => (
+              <button key={q.ym} className={`lg-toggle${pickedMonth === q.ym ? " on" : ""}`} title={monthName(q.ym)} onClick={() => pickMonth(q.ym)}>{q.label}</button>
+            ))}
+            {!scheduled && <input
               type="month"
-              className={`lg-filter-input lg-filter-month${pickedMonth && pickedMonth !== THIS_MONTH && pickedMonth !== LAST_MONTH ? " on" : ""}`}
+              className={`lg-filter-input lg-filter-month${pickedMonth && !quickMonths.some((q) => q.ym === pickedMonth) ? " on" : ""}`}
               value={pickedMonth || ""}
               onChange={(e) => update(e.target.value ? monthRange(e.target.value) : { dateFrom: "", dateTo: "" })}
               aria-label="Pick a month"
-            />
+            />}
           </div>
           <div className="lg-filter-row2">
             <input type="date" className="lg-filter-input" value={draft.dateFrom} onChange={(e) => update({ dateFrom: e.target.value })} />
@@ -546,18 +549,22 @@ export default function JournalEntryPage() {
       case "balanced":
       case "unbalanced":
       case "largestPosted":  selectTab("posted"); break;
-      // Voided entries have no tab of their own; they sit in All.
-      case "voids":          selectTab("semua"); break;
+      // Voided entries aren't listed, so "voids" goes to Klay AI like the rest.
       default:               askAi(task.question);
     }
   }
 
+  // What the list shows. Void (cancelled) and deleted entries aren't listed —
+  // no tab of their own and not in All either (2 Nov 2026); they still open by
+  // number, and deleted ones are kept in Settings › General Ledger.
+  const listRows = useMemo(() => allRows.filter((r) => r.status !== "void" && r.status !== "deleted"), [allRows]);
+
   // ── KPIs ───────────────────────────────────────────────────────────────
   const counts = useMemo(() => {
-    const c = { posted: 0, draft: 0, pending: 0, void: 0, scheduled: 0, deleted: 0 };
-    allRows.forEach((r) => { c[r.status] = (c[r.status] || 0) + 1; });
+    const c = { posted: 0, draft: 0, pending: 0, scheduled: 0 };
+    listRows.forEach((r) => { c[r.status] = (c[r.status] || 0) + 1; });
     return c;
-  }, [allRows]);
+  }, [listRows]);
 
   const jeStats = useMemo(() => {
     const draftSum   = allRows.filter((r) => r.status === "draft").reduce((s, r) => s + (r.debit || 0), 0);
@@ -566,27 +573,27 @@ export default function JournalEntryPage() {
   }, [allRows]);
 
   const tabCounts = useMemo(() => ({
-    semua:   allRows.length,
+    semua:   listRows.length,
     scheduled: counts.scheduled,
     pending: counts.pending,
     draft:   counts.draft,
     posted:  counts.posted,
-  }), [allRows, counts]);
+  }), [listRows, counts]);
   const tabs = [
     { k: "semua",   lbl: "All",     count: tabCounts.semua },
     { k: "scheduled", lbl: "Scheduled", count: tabCounts.scheduled },
     { k: "pending", lbl: "Pending Review", count: tabCounts.pending },
     { k: "draft",   lbl: "Draft",   count: tabCounts.draft },
     { k: "posted",  lbl: "Posted",  count: tabCounts.posted },
-    // Void and deleted entries have no tab of their own; they sit in All.
   ];
 
   // ── Corpus ─────────────────────────────────────────────────────────────
+  // Scheduled rows already stop at the next period (lib/scheduledJournals.js).
   const corpus = useMemo(() => {
-    let list = allRows;
+    let list = listRows;
     if (filter.kind === "tab" && filter.value !== "semua") list = list.filter((r) => r.status === filter.value);
     return list;
-  }, [allRows, filter]);
+  }, [listRows, filter]);
 
   const klayFilterKeys = useMemo(() => Object.keys(klayFilters), [klayFilters]);
 
@@ -777,6 +784,12 @@ export default function JournalEntryPage() {
       const hit = allRows.find((r) => r.je_number.toUpperCase() === upper);
       if (!hit) {
         showToast(`${q} not found`);
+        return;
+      }
+      // Not listed (void or deleted) — open it instead.
+      if (!listRows.includes(hit)) {
+        setKlayQuery("");
+        openEntry(hit.je_number);
         return;
       }
       // Clear filter state so the row is guaranteed visible
@@ -995,7 +1008,7 @@ export default function JournalEntryPage() {
                     Filter
                     {activeFilterCount > 0 && <span className="lg-filter-badge">{activeFilterCount}</span>}
                   </button>
-                  {filterPopOpen && <FilterPopover values={filterValues} creators={creatorOptions} posters={posterOptions} accounts={accountOptions} onChange={setFilterValues} onClose={() => setFilterPopOpen(false)} />}
+                  {filterPopOpen && <FilterPopover values={filterValues} creators={creatorOptions} posters={posterOptions} accounts={accountOptions} scheduled={isTabActive("scheduled")} onChange={setFilterValues} onClose={() => setFilterPopOpen(false)} />}
                 </div>
                 <div className="lg-meta-btn-wrap">
                   <button className="lg-meta-btn" onClick={() => { setSortPopOpen(!sortPopOpen); setFilterPopOpen(false); }}>
