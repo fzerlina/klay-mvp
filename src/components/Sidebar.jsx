@@ -249,6 +249,12 @@ const navSections = [
         module: "gl",
         icon: <svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/><path d="M6 15h4M14 15h4"/></svg>,
       },
+      {
+        label: "Non-Bank Reconciliation",
+        to: "/non-bank-reconciliation",
+        module: "gl",
+        icon: <svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="12" rx="2"/><circle cx="12" cy="13" r="2.5"/><path d="M6 10v6M18 10v6"/></svg>,
+      },
     ],
   },
   {

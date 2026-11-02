@@ -37,6 +37,7 @@ import GeneralLedgerPage from "./pages/GeneralLedgerPage";
 import TrialBalancePage from "./pages/TrialBalancePage";
 import ApCloseCommandCenterPage from "./pages/ApCloseCommandCenterPage";
 import BankReconciliationPage from "./pages/BankReconciliationPage";
+import NonBankReconciliationPage from "./pages/NonBankReconciliationPage";
 import BankAccountsSettingsPage from "./pages/BankAccountsSettingsPage";
 import UsersPage from "./pages/UsersPage";
 import RolesPage from "./pages/RolesPage";
@@ -51,6 +52,7 @@ import { InvoicesProvider } from "./state/InvoicesContext";
 import { BillsProvider } from "./state/BillsContext";
 import { PaymentsProvider } from "./state/PaymentsContext";
 import { BankReconProvider } from "./state/BankReconContext";
+import { NonBankReconProvider } from "./state/NonBankReconContext";
 import { VendorsProvider } from "./state/VendorsContext";
 import { CustomersProvider } from "./state/CustomersContext";
 import { ItemsProvider } from "./state/ItemsContext";
@@ -141,6 +143,7 @@ export default function App() {
             <AssetsProvider>
             <PaymentsProvider>
             <BankReconProvider>
+            <NonBankReconProvider>
             {/* Scheduled journal entries post themselves on their date. */}
             <ScheduledAutoPost />
             <Routes>
@@ -193,6 +196,7 @@ export default function App() {
                 <Route path="/trial-balance" element={<TrialBalancePage />} />
                 <Route path="/close" element={<ApCloseCommandCenterPage />} />
                 <Route path="/bank-reconciliation" element={<BankReconciliationPage />} />
+                <Route path="/non-bank-reconciliation" element={<NonBankReconciliationPage />} />
                 <Route path="/bank-accounts" element={<Navigate to="/settings/reconciliation/bank-accounts" replace />} />
                 <Route path="/settings/reconciliation/bank-accounts" element={<BankAccountsSettingsPage />} />
                 <Route path="/company-settings" element={<CompanyProfilePage />} />
@@ -221,6 +225,7 @@ export default function App() {
                 <Route path="*" element={<RoleLanding />} />
               </Route>
             </Routes>
+            </NonBankReconProvider>
             </BankReconProvider>
             </PaymentsProvider>
             </AssetsProvider>
