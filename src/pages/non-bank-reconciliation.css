@@ -1,0 +1,100 @@
+/* Non-Bank Reconciliation — on top of bank-reconciliation.css, which gives it
+   the period bar, the account cards, the state pills, the modals and the
+   dark footer bar. Only what differs lives here. */
+
+.nbr-intro{font-size:12.5px;color:var(--color-text-tertiary);margin-top:4px}
+
+/* Account cards: every account at once — there are a handful, not dozens. */
+.nbr-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:10px;padding:0 24px 4px}
+.nbr-card{flex:none}
+.nbr-logo{font-size:11px;letter-spacing:0}
+.nbr-card .bank-card-head .recon-state-pill{margin-left:auto;align-self:flex-start;font-size:9.5px;padding:2px 8px}
+
+/* The selected account */
+.nbr-panel{overflow:hidden}
+.nbr-head{display:flex;align-items:flex-start;gap:16px;padding:14px 18px;border-bottom:1px solid var(--color-border-default)}
+.nbr-head-id{flex:1;min-width:0}
+.nbr-head-title{display:flex;align-items:center;gap:10px;font-family:var(--font-display);font-size:17px;font-weight:700;color:var(--color-text-primary);letter-spacing:-.01em}
+.nbr-head-meta{font-size:11.5px;color:var(--color-text-tertiary);margin-top:3px;line-height:1.5}
+.nbr-head-actions{display:flex;gap:8px;flex-shrink:0}
+.nbr-head-actions .lg-btn-ghost:disabled{opacity:.55;cursor:not-allowed}
+
+.nbr-banner{display:flex;align-items:center;gap:12px;margin:12px 18px 0;padding:10px 14px;border-radius:8px;border:1px solid;font-size:12px;line-height:1.55}
+.nbr-banner-text{flex:1;min-width:0}
+.nbr-banner-actions{display:flex;gap:8px;flex-shrink:0}
+.nbr-banner.info{background:var(--color-surface-sunken);border-color:var(--color-border-default);color:var(--color-text-secondary)}
+.nbr-banner.warn{background:var(--color-warning-surface);border-color:var(--color-warning-border);color:var(--color-warning-text)}
+.nbr-banner.danger{background:var(--color-danger-surface);border-color:var(--color-danger-border);color:var(--color-danger-text)}
+.nbr-banner.success{background:var(--color-success-surface);border-color:var(--color-success-border);color:var(--color-success-text)}
+
+.nbr-empty{display:flex;flex-direction:column;align-items:center;gap:8px;padding:36px 24px}
+.nbr-empty>div:nth-child(2){max-width:520px}
+.nbr-empty-sub{font-family:var(--font-mono);font-size:11px;color:var(--color-text-tertiary)}
+
+/* What the month rests on */
+.nbr-evidence{display:flex;flex-wrap:wrap;gap:10px 28px;padding:14px 18px;border-bottom:1px solid var(--color-border-default)}
+.nbr-ev{display:flex;flex-direction:column;gap:3px;min-width:0}
+.nbr-ev>span{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--color-text-tertiary)}
+.nbr-ev>strong{font-family:var(--font-mono);font-size:13px;font-weight:700;color:var(--color-text-primary)}
+.nbr-ev>em{font-style:normal;font-size:11px;color:var(--color-text-tertiary)}
+.nbr-ev-grow{flex:1;min-width:240px}
+.nbr-ev-grow>strong{font-family:var(--font-sans);font-size:12.5px;font-weight:500;color:var(--color-text-secondary)}
+.nbr-file{display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:11.5px;color:var(--color-text-primary);background:var(--color-surface-sunken);border:1px solid var(--color-border-default);border-radius:6px;padding:2px 8px}
+.nbr-file::before{content:"";width:9px;height:11px;border:1.4px solid var(--color-text-tertiary);border-radius:2px;flex-shrink:0}
+
+.nbr-toolbar{justify-content:space-between}
+.nbr-toolbar-right{display:flex;gap:8px;align-items:center}
+
+/* GL lines */
+.nbr-table{display:flex;flex-direction:column}
+.nbr-row{display:grid;grid-template-columns:36px 64px 110px minmax(0,1fr) 128px 128px;gap:10px;align-items:start;padding:9px 18px;border-bottom:1px solid var(--color-border-subtle);font-size:12.5px;color:var(--color-text-primary)}
+.nbr-row.on{background:linear-gradient(90deg,var(--color-success-surface) 0,transparent 40%)}
+.nbr-row-head{position:sticky;top:0;z-index:1;background:var(--color-surface-sunken);font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--color-text-tertiary);padding-top:7px;padding-bottom:7px}
+.nbr-row .num,.nbr-row-head .num{text-align:right;font-family:var(--font-mono)}
+.nbr-row-head .num{font-family:var(--font-sans)}
+.nbr-date{font-family:var(--font-mono);font-size:11.5px;color:var(--color-text-secondary)}
+.nbr-je-link{font-family:var(--font-mono);font-size:11.5px;color:var(--color-action);text-decoration:none}
+.nbr-je-link:hover{text-decoration:underline}
+.nbr-desc{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;min-width:0}
+.nbr-memo{min-width:0}
+.nbr-tag{font-size:10px;font-weight:700;padding:1px 7px;border-radius:9999px;background:var(--color-surface-sunken);border:1px solid var(--color-border-default);color:var(--color-text-tertiary);white-space:nowrap}
+.nbr-tag.diff{background:var(--color-brand-wash);border-color:var(--color-brand-subtle);color:var(--color-brand)}
+.nbr-note{flex-basis:100%;max-width:420px;box-sizing:border-box;padding:4px 8px;border:1px dashed var(--color-border-strong);border-radius:var(--radius-sm);background:transparent;font-family:var(--font-sans);font-size:11.5px;color:var(--color-text-secondary)}
+.nbr-note:focus{outline:none;border-style:solid;border-color:var(--color-action-subtle);background:var(--color-surface-raised)}
+.nbr-note-text{flex-basis:100%;font-size:11.5px;color:var(--color-text-tertiary);font-style:italic}
+.nbr-in{color:var(--color-success-text)}
+.nbr-out{color:var(--color-text-primary)}
+.nbr-group{padding:8px 18px 6px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--color-text-tertiary);background:var(--color-surface-raised);border-bottom:1px solid var(--color-border-subtle)}
+
+.nbr-log{padding:14px 18px 18px;border-top:1px solid var(--color-border-default);background:var(--color-surface-sunken)}
+.nbr-log-title{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--color-text-tertiary);margin-bottom:8px}
+.nbr-log-row{display:flex;gap:14px;font-size:12px;color:var(--color-text-secondary);padding:3px 0}
+.nbr-log-at{font-family:var(--font-mono);font-size:11px;color:var(--color-text-tertiary);width:92px;flex-shrink:0}
+
+.nbr-zero{color:#8BD69B}
+
+/* Modals */
+.nbr-modal{width:min(560px,calc(100vw - 32px));max-height:calc(100vh - 48px)}
+.nbr-modal.wide{width:min(680px,calc(100vw - 32px))}
+.bank-upload-backdrop:has(.nbr-modal){padding-top:6vh}
+.nbr-modal-body{padding:16px 18px;display:flex;flex-direction:column;gap:14px;overflow-y:auto}
+.nbr-modal .bank-upload-foot{align-items:center}
+.nbr-modal .bank-upload-btn:disabled{opacity:.45;cursor:not-allowed}
+.nbr-foot-problem{flex:1;font-size:11.5px;color:var(--color-text-tertiary)}
+.nbr-textarea{box-sizing:border-box;width:100%;padding:8px;border:1px solid var(--color-border-default);border-radius:var(--radius-sm);font-family:var(--font-sans);font-size:12.5px;resize:vertical}
+
+.nbr-count{border:1px solid var(--color-border-subtle);border-radius:var(--radius-sm);overflow:hidden}
+.nbr-count-row{display:grid;grid-template-columns:minmax(0,1fr) 110px 150px;gap:10px;align-items:center;padding:5px 12px;border-bottom:1px solid var(--color-border-subtle);font-size:12.5px}
+.nbr-count-row em{font-style:normal;font-size:11px;color:var(--color-text-tertiary);margin-left:4px}
+.nbr-count-row .num{text-align:right;font-family:var(--font-mono)}
+.nbr-count-row input{box-sizing:border-box;width:100%;padding:4px 8px;border:1px solid var(--color-border-default);border-radius:var(--radius-sm);font-family:var(--font-mono);font-size:12px}
+.nbr-count-head{background:var(--color-surface-sunken);font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--color-text-tertiary)}
+.nbr-count-head .num{font-family:var(--font-sans)}
+.nbr-count-total{border-bottom:0;background:var(--color-surface-sunken);font-weight:700}
+.nbr-count-meta{font-size:12px;color:var(--color-text-secondary)}
+
+.nbr-attach{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px}
+.nbr-attach-lbl{font-size:11px;font-weight:600;color:var(--color-text-secondary)}
+.nbr-attach-none{color:var(--color-text-tertiary)}
+.nbr-attach .lg-btn-ghost{margin-left:auto}
+.nbr-je .rj-line{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) 110px 110px 44px}

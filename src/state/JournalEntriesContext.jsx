@@ -2,6 +2,7 @@ import { createContext, useContext, useMemo, useState, useCallback } from "react
 import { JOURNAL_ENTRIES as SEED_JES } from "../data/seed/journalEntries";
 import { PAYMENT_HISTORY_JES } from "../data/seed/paymentHistory";
 import { LEDGER_BACKFILL_JES } from "../data/seed/ledgerBackfill";
+import { NON_BANK_JES } from "../data/seed/nonBankAccounts";
 import { TODAY } from "../lib/clock";
 
 const JournalEntriesContext = createContext(null);
@@ -34,8 +35,9 @@ export function JournalEntriesProvider({ children }) {
   // The seeded ledger plus the entries the seeded payments wrote, so a payment
   // row on Bill Detail can link to an entry that is actually here, plus the
   // bill postings, bill payments and opening balances the seed implies but
-  // never wrote (seed/ledgerBackfill.js) so the General Ledger adds up.
-  const [entries, setEntries] = useState(() => [...SEED_JES, ...PAYMENT_HISTORY_JES, ...LEDGER_BACKFILL_JES]);
+  // never wrote (seed/ledgerBackfill.js) so the General Ledger adds up, plus the
+  // petty cash, e-wallet, gateway and clearing journals (seed/nonBankAccounts.js).
+  const [entries, setEntries] = useState(() => [...SEED_JES, ...PAYMENT_HISTORY_JES, ...LEDGER_BACKFILL_JES, ...NON_BANK_JES]);
   // A draft staged from another page (e.g. a stock adjustment) for the Journal
   // Entry page to open pre-filled: { memo, lines: [{account_code, debit, credit, description}] }.
   const [pendingDraft, setPendingDraft] = useState(null);

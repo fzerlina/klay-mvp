@@ -26,6 +26,11 @@ export const COA = [
   // points each at its code here), so a payment or bank journal posts to a real
   // ledger account rather than to a code the chart does not contain.
   { id: '1-1210', code: '1-1210', name: 'Petty Cash — Mandiri',          type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-cash',  level: 3, is_active: true },
+  // Cash with no bank statement behind it — reconciled in Non-Bank
+  // Reconciliation (seed/nonBankAccounts.js).
+  { id: '1-1220', code: '1-1220', name: 'E-Wallet — GoPay Corporate',    type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-cash',  level: 3, is_active: true },
+  { id: '1-1230', code: '1-1230', name: 'Payment Gateway — Xendit',      type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-cash',  level: 3, is_active: true },
+  { id: '1-1240', code: '1-1240', name: 'Cash in Transit',               type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-cash',  level: 3, is_active: true },
   { id: '1-1410', code: '1-1410', name: 'Bank — BNI Operating',          type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-cash',  level: 3, is_active: true },
   { id: '1-1420', code: '1-1420', name: 'Bank — CIMB Operating',         type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-cash',  level: 3, is_active: true },
   { id: '1-1430', code: '1-1430', name: 'Bank — BRI Operating',          type: 'asset', normal_balance: 'debit',  fs: 'BS', section: 'Current Asset', parent: 'g-cash',  level: 3, is_active: true },
@@ -217,7 +222,8 @@ export const COA = [
   { id: '6-2800', code: '6-2800', name: 'Insurance',                     type: 'expense', normal_balance: 'debit', fs: 'PL', section: 'OpEx', parent: 'g-ga', level: 2, is_active: true },
   { id: '6-2900', code: '6-2900', name: 'Telecommunications',            type: 'expense', normal_balance: 'debit', fs: 'PL', section: 'OpEx', parent: 'g-ga', level: 2, is_active: true },
   { id: '6-3000', code: '6-3000', name: 'Bank Charges',                  type: 'expense', normal_balance: 'debit', fs: 'PL', section: 'OpEx', parent: 'g-ga', level: 2, is_active: true },
-  { id: '6-3100', code: '6-3100', name: 'Postage & Courier',             type: 'expense', normal_balance: 'debit', fs: 'PL', section: 'OpEx', parent: 'g-ga', level: 2, is_active: true },
+  { id: '6-3010', code: '6-3010', name: 'Payment Gateway Fees',          type: 'expense', normal_balance: 'debit', fs: 'PL', section: 'OpEx', parent: 'g-ga', level: 2, is_active: true },
+  { id: '6-3100', code: '6-3100', name: 'Postage & Courier',            type: 'expense', normal_balance: 'debit', fs: 'PL', section: 'OpEx', parent: 'g-ga', level: 2, is_active: true },
   { id: '6-3200', code: '6-3200', name: 'Repairs & Maintenance',         type: 'expense', normal_balance: 'debit', fs: 'PL', section: 'OpEx', parent: 'g-ga', level: 2, is_active: true },
   { id: '6-3300', code: '6-3300', name: 'Training & Development',        type: 'expense', normal_balance: 'debit', fs: 'PL', section: 'OpEx', parent: 'g-ga', level: 2, is_active: true },
   { id: '6-3400', code: '6-3400', name: 'Depreciation Expense',          type: 'expense', normal_balance: 'debit', fs: 'PL', section: 'OpEx', parent: 'g-ga', level: 2, is_active: true },
@@ -238,6 +244,8 @@ export const COA = [
   { id: '7-1300', code: '7-1300', name: 'Loss on Asset Disposal',        type: 'expense', normal_balance: 'debit', fs: 'PL', section: 'Other', parent: 'g-other-exp', level: 1, is_active: true },
   { id: '7-1400', code: '7-1400', name: 'Bank Loan Origination Fees',    type: 'expense', normal_balance: 'debit', fs: 'PL', section: 'Other', parent: 'g-other-exp', level: 1, is_active: true },
   { id: '7-1500', code: '7-1500', name: 'Miscellaneous Other Expense',   type: 'expense', normal_balance: 'debit', fs: 'PL', section: 'Other', parent: 'g-other-exp', level: 1, is_active: true },
+  // A cash count that doesn't agree with the books (Non-Bank Reconciliation).
+  { id: '7-1600', code: '7-1600', name: 'Cash Over/Short',               type: 'expense', normal_balance: 'debit', fs: 'PL', section: 'Other', parent: 'g-other-exp', level: 1, is_active: true },
   // Bank fees charged on the statement (bank reconciliation).
   { id: '72050', code: '72050', name: 'Other Non-Operating Expenses',    type: 'expense', normal_balance: 'debit', fs: 'PL', section: 'Other', parent: 'g-other-exp', level: 1, is_active: true },
 
