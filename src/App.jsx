@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import Layout, { NoAccess } from "./layout/Layout";
 import { CurrentUserProvider, useCurrentUser } from "./state/CurrentUserContext";
 import { RolesProvider } from "./state/RolesContext";
@@ -98,6 +98,13 @@ function RoleLanding() {
   return <Navigate to={landingPath} replace />;
 }
 
+// The General Ledger moved under Reports; old links keep their account and
+// period.
+function GeneralLedgerRedirect() {
+  const { search } = useLocation();
+  return <Navigate to={`/reports/general-ledger${search}`} replace />;
+}
+
 // Route guard for actions that need more than view access (e.g. creating a
 // bill needs transact on AP). View-level personas can reach the list but get
 // a permission panel if they deep-link into a create page.
@@ -153,7 +160,7 @@ export default function App() {
                 {/* Retired routes — Your Tasks + Insights merged into Command Center. */}
                 <Route path="/dashboard" element={<Navigate to="/command-center" replace />} />
                 <Route path="/insights" element={<Navigate to="/command-center?tab=insights" replace />} />
-                <Route path="/general-ledger" element={<GeneralLedgerPage />} />
+                <Route path="/general-ledger" element={<GeneralLedgerRedirect />} />
                 <Route path="/journal-entry" element={<JournalEntryPage />} />
                 <Route path="/journal-entry/new" element={<RequireLevel module="gl" level="transact" action="prepare journal entries"><JournalEntryFormPage /></RequireLevel>} />
                 <Route path="/journal-entry/:jeNumber" element={<JournalEntryDetailPage />} />
@@ -192,6 +199,7 @@ export default function App() {
                 <Route path="/inventory/new" element={<Navigate to="/items/new" replace />} />
                 <Route path="/inventory/:id" element={<Navigate to="/items" replace />} />
                 <Route path="/reports" element={<ReportsPage />} />
+                <Route path="/reports/general-ledger" element={<GeneralLedgerPage />} />
                 <Route path="/reports/cashflow" element={<CashflowReportPage />} />
                 <Route path="/reports/profit-loss" element={<ProfitLossPage />} />
                 <Route path="/reports/tax-register" element={<TaxRegisterPage />} />

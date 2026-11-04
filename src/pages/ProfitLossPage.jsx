@@ -163,7 +163,7 @@ export default function ProfitLossPage() {
     return null;
   };
 
-  const openLedger = (code, ym) => navigate(`/general-ledger?account=${encodeURIComponent(code)}&period=${ym}`);
+  const openLedger = (code, ym) => navigate(`/reports/general-ledger?account=${encodeURIComponent(code)}&period=${ym}`);
 
   // ── Export ────────────────────────────────────────────────────────────────
   const exportCsv = () => {

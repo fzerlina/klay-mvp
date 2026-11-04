@@ -8,6 +8,8 @@ import { useAccountingSettings } from "../state/AccountingSettingsContext";
 import JournalTemplateMenu from "../components/JournalTemplateMenu";
 import AccountCombobox from "../components/AccountCombobox";
 import { COA_BY_CODE } from "../data/seed/coa";
+import { DIMENSIONS, DIM_BY_KEY, dimensionsForAccount, sampleDimensionValue } from "../data/seed/dimensions";
+import { downloadXlsx } from "../lib/xlsxExport";
 import {
   fmtRp, STATUS_LABEL, STATUS_BADGE_CLASS, ACTION_ICON, KlaySparkleIcon, useJournalRows, useJournalActions,
   displayStatus, RecurringIcon, recurringNote,
@@ -191,6 +193,20 @@ function SortPopover({ value, onPick, onClose }) {
   );
 }
 
+// The footer's Export menu — it opens upwards, the footer being at the bottom.
+function ExportPopover({ onPick, onClose }) {
+  const ref = useRef(null);
+  useClickOutside(ref, onClose);
+  return (
+    <div className="lg-popover lg-popover-up" ref={ref} role="menu">
+      <div className="lg-popover-list">
+        <button className="lg-popover-item" role="menuitem" onClick={() => onPick("xlsx")}>Excel (.xlsx)</button>
+        <button className="lg-popover-item" role="menuitem" onClick={() => onPick("csv")}>CSV</button>
+      </div>
+    </div>
+  );
+}
+
 // "Show only" filters for what a status or a source doesn't say: a journal
 // that repeats (or a copy one made), a posted entry since reversed, one its
 // preparer posted, and a manual journal with no evidence attached. Picking
@@ -222,9 +238,30 @@ const MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "S
 const monthName = (ym) => `${MONTHS_SHORT[parseInt(ym.slice(5, 7), 10) - 1]} ${ym.slice(0, 4)}`;
 const JE_FLAG_LABEL = Object.fromEntries(JE_FLAGS.map((f) => [f.key, f.label]));
 
+const EMPTY_FILTERS = { sources: new Set(), creators: new Set(), posters: new Set(), flags: new Set(), account: "", dimKey: "", dimValue: "", payee: "", minAmt: "", maxAmt: "", dateFrom: "", dateTo: "" };
+const emptyFilters = () => ({ ...EMPTY_FILTERS, sources: new Set(), creators: new Set(), posters: new Set(), flags: new Set() });
+
+// Dimension and Payee (second-tier filters, built 3 Nov 2026): an entry
+// matches when any of its lines carries the value. A line's dimensions are
+// read the way the detail page shows them: the ones its account takes, with
+// the simulated value where the line predates per-line tagging.
+function lineDimensions(r, l) {
+  const out = {};
+  for (const k of dimensionsForAccount(COA_BY_CODE[l.account_code])) {
+    const v = l.dimensions?.[k] ?? sampleDimensionValue(k, `${r.je_number}|${l.account_code}|${k}`);
+    if (v && v !== "—") out[k] = v;
+  }
+  return out;
+}
+const hasDimension = (r, key, value) => (r.lines || []).some((l) => {
+  const v = lineDimensions(r, l)[key];
+  return value ? v === value : !!v;
+});
+const hasPayee = (r, id) => (r.lines || []).some((l) => l.payee?.id === id);
+
 // The Scheduled tab only reaches into the next period, so its month picks are
 // this period and the next; the other tabs look back to last month.
-function FilterPopover({ values, onChange, onClose, creators = [], posters = [], accounts = [], scheduled = false }) {
+function FilterPopover({ values, onChange, onClose, creators = [], posters = [], accounts = [], dimensions = [], payees = [], scheduled = false }) {
   const ref = useRef(null);
   useClickOutside(ref, onClose);
   const [draft, setDraft] = useState(values);
@@ -255,7 +292,8 @@ function FilterPopover({ values, onChange, onClose, creators = [], posters = [],
     ? [{ ym: THIS_MONTH, label: "This period" }, { ym: NEXT_MONTH, label: "Next period" }]
     : [{ ym: THIS_MONTH, label: "This month" }, { ym: LAST_MONTH, label: "Last month" }];
   const pickMonth = (ym) => update(pickedMonth === ym ? { dateFrom: "", dateTo: "" } : monthRange(ym));
-  const reset = () => setDraft({ sources: new Set(), creators: new Set(), posters: new Set(), flags: new Set(), account: "", minAmt: "", maxAmt: "", dateFrom: "", dateTo: "" });
+  const reset = () => setDraft(emptyFilters());
+  const dimValues = dimensions.find((d) => d.key === draft.dimKey)?.values || [];
   const apply = () => { onChange(draft); onClose(); };
 
   return (
@@ -283,6 +321,26 @@ function FilterPopover({ values, onChange, onClose, creators = [], posters = [],
             {draft.account && <button type="button" className="lg-filter-clear" onClick={() => update({ account: "" })}>Any account</button>}
           </div>
           <AccountCombobox value={draft.account} onChange={(code) => update({ account: code || "" })} accounts={accounts} placeholder="Any account" />
+        </div>
+        <div className="lg-filter-fld">
+          <div className="lg-filter-fld-lbl">Dimension</div>
+          <div className="lg-filter-row2">
+            <select className="lg-filter-input" aria-label="Dimension" value={draft.dimKey} onChange={(e) => update({ dimKey: e.target.value, dimValue: "" })}>
+              <option value="">Any dimension</option>
+              {dimensions.map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}
+            </select>
+            <select className="lg-filter-input" aria-label="Dimension value" value={draft.dimValue} disabled={!draft.dimKey} onChange={(e) => update({ dimValue: e.target.value })}>
+              <option value="">{draft.dimKey ? "Any value" : "—"}</option>
+              {dimValues.map((v) => <option key={v} value={v}>{v}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="lg-filter-fld">
+          <div className="lg-filter-fld-lbl">Payee</div>
+          <select className="lg-filter-input" aria-label="Payee" value={draft.payee} onChange={(e) => update({ payee: e.target.value })}>
+            <option value="">Any payee</option>
+            {payees.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
         </div>
         <div className="lg-filter-fld">
           <div className="lg-filter-fld-lbl">Created by ({draft.creators.size > 0 ? `${draft.creators.size} selected` : "all"})</div>
@@ -438,6 +496,23 @@ export default function JournalEntryPage() {
     for (const r of allRows) for (const l of r.lines || []) codes.add(l.account_code);
     return [...codes].map((c) => COA_BY_CODE[c]).filter(Boolean).sort((a, b) => a.code.localeCompare(b.code));
   }, [allRows]);
+  // "Dimension" and "Payee" choices, the same way: only the dimension values
+  // and payees some line is actually tagged with.
+  const dimensionOptions = useMemo(() => {
+    const used = new Map();
+    for (const r of allRows) for (const l of r.lines || []) for (const [k, v] of Object.entries(lineDimensions(r, l))) {
+      if (!used.has(k)) used.set(k, new Set());
+      used.get(k).add(v);
+    }
+    return DIMENSIONS.filter((d) => used.has(d.key)).map((d) => ({
+      key: d.key, label: d.label, values: d.values.filter((v) => used.get(d.key).has(v)),
+    }));
+  }, [allRows]);
+  const payeeOptions = useMemo(() => {
+    const byId = new Map();
+    for (const r of allRows) for (const l of r.lines || []) if (l.payee?.id) byId.set(l.payee.id, l.payee.name);
+    return [...byId.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [allRows]);
 
   const [searchParams] = useSearchParams();
   const initialTab = (() => {
@@ -454,7 +529,6 @@ export default function JournalEntryPage() {
     if (t && valid.includes(t)) setFilter({ kind: "tab", value: t });
   }, [searchParams]);
   const [sortChoice, setSortChoice] = useState(null);
-  const emptyFilters = { sources: new Set(), creators: new Set(), posters: new Set(), flags: new Set(), account: "", minAmt: "", maxAmt: "", dateFrom: "", dateTo: "" };
   const [filterValues, setFilterValues] = useState(emptyFilters);
 
   // Klay command bar state
@@ -487,6 +561,7 @@ export default function JournalEntryPage() {
 
   const [sortPopOpen, setSortPopOpen] = useState(false);
   const [filterPopOpen, setFilterPopOpen] = useState(false);
+  const [exportPopOpen, setExportPopOpen] = useState(false);
   const [templateMenuOpen, setTemplateMenuOpen] = useState(false);
   const { journalTemplates } = useAccountingSettings();
 
@@ -541,7 +616,7 @@ export default function JournalEntryPage() {
     if (!task) return;
     clearChecks();
     setKlayFilters({});
-    setFilterValues(emptyFilters);
+    setFilterValues(emptyFilters());
     switch (task.id) {
       case "drafts":         selectTab("draft"); break;
       case "pending":
@@ -602,6 +677,8 @@ export default function JournalEntryPage() {
     filterValues.creators.size > 0 ||
     filterValues.posters.size > 0 ||
     filterValues.account !== "" ||
+    filterValues.dimKey !== "" ||
+    filterValues.payee !== "" ||
     filterValues.flags.size > 0 ||
     filterValues.minAmt !== "" ||
     filterValues.maxAmt !== "" ||
@@ -618,6 +695,8 @@ export default function JournalEntryPage() {
     if (filterValues.flags.size > 0) n++;
     if (filterValues.posters.size > 0) n++;
     if (filterValues.account) n++;
+    if (filterValues.dimKey) n++;
+    if (filterValues.payee) n++;
     if (filterValues.minAmt !== "" || filterValues.maxAmt !== "") n++;
     if (filterValues.dateFrom !== "" || filterValues.dateTo !== "") n++;
     return n;
@@ -641,6 +720,14 @@ export default function JournalEntryPage() {
       const a = COA_BY_CODE[filterValues.account];
       chips.push({ id: "manual:account", source: "manual", key: "account", label: `Account: ${filterValues.account}${a ? ` ${a.name}` : ""}` });
     }
+    if (filterValues.dimKey) {
+      const lbl = DIM_BY_KEY[filterValues.dimKey]?.label || filterValues.dimKey;
+      chips.push({ id: "manual:dimension", source: "manual", key: "dimension", label: `${lbl}: ${filterValues.dimValue || "any"}` });
+    }
+    if (filterValues.payee) {
+      const p = payeeOptions.find((x) => x.id === filterValues.payee);
+      chips.push({ id: "manual:payee", source: "manual", key: "payee", label: `Payee: ${p?.name || filterValues.payee}` });
+    }
     if (filterValues.creators.size > 0) {
       const list = Array.from(filterValues.creators).join(", ");
       chips.push({ id: "manual:creators", source: "manual", key: "creators", label: `Created by: ${list}` });
@@ -661,7 +748,7 @@ export default function JournalEntryPage() {
       chips.push({ id: "manual:date", source: "manual", key: "date", label: month ? monthName(month) : `Date ${from} → ${to}` });
     }
     return chips;
-  }, [klayFilters, klayFilterKeys, filterValues]);
+  }, [klayFilters, klayFilterKeys, filterValues, payeeOptions]);
 
   // ── Apply filters ─────────────────────────────────────────────────────
   const filteredRows = useMemo(() => {
@@ -670,6 +757,8 @@ export default function JournalEntryPage() {
     if (filterValues.creators.size > 0) list = list.filter((r) => filterValues.creators.has(r.created_by));
     if (filterValues.posters.size > 0) list = list.filter((r) => filterValues.posters.has(r.posted_by));
     if (filterValues.account) list = list.filter((r) => (r.lines || []).some((l) => l.account_code === filterValues.account));
+    if (filterValues.dimKey) list = list.filter((r) => hasDimension(r, filterValues.dimKey, filterValues.dimValue));
+    if (filterValues.payee) list = list.filter((r) => hasPayee(r, filterValues.payee));
     if (filterValues.flags.size > 0) {
       const on = JE_FLAGS.filter((f) => filterValues.flags.has(f.key));
       list = list.filter((r) => on.some((f) => f.test(r)));
@@ -769,7 +858,7 @@ export default function JournalEntryPage() {
 
   function resetAll() {
     setSortChoice(null);
-    setFilterValues(emptyFilters);
+    setFilterValues(emptyFilters());
     setKlayFilters({});
     setKlayQuery("");
   }
@@ -794,7 +883,7 @@ export default function JournalEntryPage() {
       }
       // Clear filter state so the row is guaranteed visible
       setFilter({ kind: "tab", value: "semua" });
-      setFilterValues(emptyFilters);
+      setFilterValues(emptyFilters());
       setKlayFilters({});
       setHighlightedRef(hit.je_number);
       setKlayQuery("");
@@ -826,6 +915,8 @@ export default function JournalEntryPage() {
       else if (chip.key === "flags") setFilterValues((v) => ({ ...v, flags: new Set() }));
       else if (chip.key === "posters") setFilterValues((v) => ({ ...v, posters: new Set() }));
       else if (chip.key === "account") setFilterValues((v) => ({ ...v, account: "" }));
+      else if (chip.key === "dimension") setFilterValues((v) => ({ ...v, dimKey: "", dimValue: "" }));
+      else if (chip.key === "payee") setFilterValues((v) => ({ ...v, payee: "" }));
       else if (chip.key === "amount") setFilterValues((v) => ({ ...v, minAmt: "", maxAmt: "" }));
       else if (chip.key === "date") setFilterValues((v) => ({ ...v, dateFrom: "", dateTo: "" }));
     }
@@ -833,7 +924,7 @@ export default function JournalEntryPage() {
 
   function clearAllChips() {
     setKlayFilters({});
-    setFilterValues(emptyFilters);
+    setFilterValues(emptyFilters());
   }
 
   // Listen for global launcher submissions
@@ -887,25 +978,52 @@ export default function JournalEntryPage() {
     setHighlightedRef(null);
   }, [highlightedRef]);
 
-  function exportCsv() {
+  // The rows shown (or the ticked ones), as CSV or Excel — the same columns
+  // either way. The Excel file carries real dates and numbers, a frozen
+  // header and filter buttons.
+  const EXPORT_COLS = [
+    { label: "Journal No.", value: (r) => r.je_number, w: 16 },
+    { label: "Posting date", value: (r) => r.je_date, s: "date", w: 12 },
+    { label: "Memo", value: (r) => r.memo, w: 48 },
+    { label: "Source", value: (r) => JE_SOURCE_LABEL[entrySource(r)], w: 13 },
+    { label: "Status", value: (r) => STATUS_LABEL[displayStatus(r)], w: 15 },
+    { label: "Lines", value: (r) => r.lines.length, w: 7 },
+    { label: "Debit", value: (r) => r.debit, s: "num", w: 18 },
+    { label: "Credit", value: (r) => r.credit, s: "num", w: 18 },
+    { label: "Created by", value: (r) => r.created_by, w: 20 },
+  ];
+  function exportRows(format) {
+    setExportPopOpen(false);
     const rowsToExport = checked.size > 0
       ? sortedRows.filter((r) => checked.has(r.je_number))
       : sortedRows;
-    const headers = ["Journal No.", "Posting date", "Memo", "Source", "Status", "Lines", "Debit", "Credit", "Dibuat oleh"];
+    const stamp = `${TODAY.getFullYear()}${String(TODAY.getMonth() + 1).padStart(2, "0")}${String(TODAY.getDate()).padStart(2, "0")}`;
+    const base = `klay-journal-${filter.value}-${stamp}`;
+    if (format === "xlsx") {
+      downloadXlsx(`${base}.xlsx`, {
+        sheet: "Journal Entries",
+        rows: [
+          EXPORT_COLS.map((c) => ({ v: c.label, s: c.s === "num" ? "headNum" : "head" })),
+          ...rowsToExport.map((r) => EXPORT_COLS.map((c) => ({ v: c.value(r), s: c.s || "text" }))),
+        ],
+        widths: EXPORT_COLS.map((c) => c.w),
+        freeze: 1,
+        filter: 1,
+      });
+      showToast(`${rowsToExport.length} journals exported to Excel`);
+      return;
+    }
     const esc = (v) => {
       const s = String(v == null ? "" : v);
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
-    const lines = [headers.join(",")];
-    for (const r of rowsToExport) {
-      lines.push([r.je_number, r.je_date, r.memo, JE_SOURCE_LABEL[entrySource(r)], r.status, r.lines.length, r.debit, r.credit, r.created_by].map(esc).join(","));
-    }
+    const lines = [EXPORT_COLS.map((c) => c.label).join(",")];
+    for (const r of rowsToExport) lines.push(EXPORT_COLS.map((c) => esc(c.value(r))).join(","));
     const blob = new Blob(["﻿" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    const stamp = `${TODAY.getFullYear()}${String(TODAY.getMonth() + 1).padStart(2, "0")}${String(TODAY.getDate()).padStart(2, "0")}`;
-    a.download = `klay-journal-${filter.value}-${stamp}.csv`;
+    a.download = `${base}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1008,7 +1126,7 @@ export default function JournalEntryPage() {
                     Filter
                     {activeFilterCount > 0 && <span className="lg-filter-badge">{activeFilterCount}</span>}
                   </button>
-                  {filterPopOpen && <FilterPopover values={filterValues} creators={creatorOptions} posters={posterOptions} accounts={accountOptions} scheduled={isTabActive("scheduled")} onChange={setFilterValues} onClose={() => setFilterPopOpen(false)} />}
+                  {filterPopOpen && <FilterPopover values={filterValues} creators={creatorOptions} posters={posterOptions} accounts={accountOptions} dimensions={dimensionOptions} payees={payeeOptions} scheduled={isTabActive("scheduled")} onChange={setFilterValues} onClose={() => setFilterPopOpen(false)} />}
                 </div>
                 <div className="lg-meta-btn-wrap">
                   <button className="lg-meta-btn" onClick={() => { setSortPopOpen(!sortPopOpen); setFilterPopOpen(false); }}>
@@ -1080,10 +1198,13 @@ export default function JournalEntryPage() {
           )}
         </div>
         <div className="lg-footer-right">
-          <button className="lg-footer-export" onClick={exportCsv} title="Export the rows shown above to CSV">
-            <svg viewBox="0 0 12 12"><path d="M6 2v6M3 6l3 3 3-3M2 10.5h8" strokeLinecap="round" strokeLinejoin="round"/></svg>
-            Export {checked.size > 0 ? `${checked.size} selected` : `${filteredRows.length} visible`}
-          </button>
+          <div className="lg-meta-btn-wrap">
+            <button className="lg-footer-export" onClick={() => setExportPopOpen((o) => !o)} title="Export the rows shown above" aria-haspopup="menu" aria-expanded={exportPopOpen}>
+              <svg viewBox="0 0 12 12"><path d="M6 2v6M3 6l3 3 3-3M2 10.5h8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              Export {checked.size > 0 ? `${checked.size} selected` : `${filteredRows.length} visible`}
+            </button>
+            {exportPopOpen && <ExportPopover onPick={exportRows} onClose={() => setExportPopOpen(false)} />}
+          </div>
           <span className="lg-footer-sep">·</span>
           <span className="lg-footer-lbl">{checked.size > 0 ? "Amount selected" : "Amount on page"}</span>
           <span className="lg-footer-total">Rp {fmtRp(checked.size > 0 ? selectedDebit : pageDebit)}</span>

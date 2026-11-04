@@ -1,14 +1,28 @@
 import { useNavigate } from "react-router-dom";
+import { useCurrentUser } from "../state/CurrentUserContext";
 import "./modules.css";
 import "./reports.css";
 
 // Reports — a hub, not a report. Each financial statement lives on its own
 // route; this page is the single nav entry that indexes them. AP Aging folds
 // in here too (it was a top-level nav item before the /reports consolidation).
-// MVP shows four reports; the General Ledger (/general-ledger) lives in the
-// sidebar's General Ledger section, and the Inventory Sub-Ledger (/inventory)
-// page still exists but isn't listed.
+// The General Ledger leads: it is where every other report drills down to.
+// It is still read on GL access (`module`), so a role without it doesn't see
+// the card. The Inventory Sub-Ledger (/inventory) page still exists but isn't
+// listed.
 const REPORTS = [
+  {
+    key: "general-ledger",
+    title: "General Ledger",
+    blurb: "Every journal line by account — opening balance, each posting by date and the running balance to close.",
+    to: "/reports/general-ledger",
+    module: "gl",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" /><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
+      </svg>
+    ),
+  },
   {
     key: "trial-balance",
     title: "Trial Balance",
@@ -57,6 +71,7 @@ const REPORTS = [
 
 export default function ReportsPage() {
   const navigate = useNavigate();
+  const { can } = useCurrentUser();
   return (
     <div className="lg-page">
       <div className="lg-scroll-container">
@@ -70,7 +85,7 @@ export default function ReportsPage() {
         </div>
 
         <div className="rp-grid">
-          {REPORTS.map((r) => (
+          {REPORTS.filter((r) => can(r.module)).map((r) => (
             <button
               key={r.key}
               type="button"

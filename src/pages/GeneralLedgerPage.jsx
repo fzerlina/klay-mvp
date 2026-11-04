@@ -13,7 +13,12 @@
 // account narrows the page to its block. Every line names its partner (vendor,
 // customer or payee) so an exported ledger can be traced line by line.
 // There is no per-account summary here: that is the Trial Balance (§0, §6),
-// which links into this page by account.
+// which links into this page by account. It is listed under Reports, beside it.
+//
+// Amounts are in the base (reporting) currency. A line booked in a foreign
+// currency also shows its original amount and the rate it was converted at,
+// so the converted figure can be traced back (as Accurate's ledger does).
+// Accounts with no balance and no movement in the period are left out.
 //
 // Every filter (§3.4) stacks across both. Only posted lines move a balance;
 // draft and pending lines show, tagged, when the user asks for them.
@@ -45,6 +50,7 @@ import {
 import "./modules.css";
 import "./invoices-ledger.css";
 import "./general-ledger.css";
+import "./cashflow-report.css";
 
 const pad = (n) => String(n).padStart(2, "0");
 const CURRENT_YM = `${TODAY.getFullYear()}-${pad(TODAY.getMonth() + 1)}`;
@@ -80,20 +86,27 @@ const LINE_COLUMNS = [
   { key: "desc", label: "Description", w: "minmax(190px, 1.4fr)" },
   ...FILTER_DIMS.map((k) => ({ key: `dim:${k}`, label: DIM_BY_KEY[k]?.label || k, w: "100px", opt: true })),
   { key: "status", label: "Status", w: "104px", opt: true },
-  { key: "currency", label: "Currency", w: "64px", opt: true },
+  { key: "original", label: "Original amount", w: "124px", num: true, opt: true },
+  { key: "rate", label: "Rate", w: "76px", num: true, opt: true },
   { key: "debit", label: "Debit", w: "116px", num: true },
   { key: "credit", label: "Credit", w: "116px", num: true },
   { key: "balance", label: "Balance", w: "128px", num: true, grouped: true },
 ];
 // Lines across accounts, in the order they happened.
 const byDate = (a, b) => a.date.localeCompare(b.date) || a.je_number.localeCompare(b.je_number) || a.lineIndex - b.lineIndex;
-// Source no., Partner and Currency show by default and can be switched off;
+// Source no., Partner, Original amount and Rate show by default and can be
+// switched off;
 // the Report export follows what is shown. Status is off by default, like
 // Odoo, Xero and Accurate: the ledger shows posted lines unless Filters →
 // Status asks for more, and an unposted line then carries its own badge. The
 // key is versioned so an earlier saved choice doesn't hide the new defaults.
-const DEFAULT_SHOWN = ["sourceNo", "party", "currency"];
-const COLS_KEY = "klay.gl.columns.v3";
+const DEFAULT_SHOWN = ["sourceNo", "party", "original", "rate"];
+const COLS_KEY = "klay.gl.columns.v4";
+// A foreign-currency line's amount in its own currency ("SGD 8.000") and the
+// rate it was booked at; blank on base-currency lines.
+const isForeign = (l) => l.rate !== 1;
+const fmtOrig = (l) => `${l.currency} ${fmtAmt(Math.round((l.dc || l.cc) / l.rate))}`;
+const fmtRate = (l) => l.rate.toLocaleString("id-ID", { maximumFractionDigits: 4 });
 function loadShown() {
   try {
     const v = JSON.parse(window.localStorage.getItem(COLS_KEY));
@@ -328,6 +341,10 @@ export default function GeneralLedgerPage() {
   const grid = { gridTemplateColumns: cols.map((c) => c.w).join(" ") };
   const statusCol = cols.some((c) => c.key === "status");
   const optionalCols = LINE_COLUMNS.filter((c) => c.opt);
+  // With the original amounts beside them, Debit, Credit and Balance say
+  // which currency they are in.
+  const fxShown = cols.some((c) => c.key === "original" || c.key === "rate");
+  const colLabel = (c) => (fxShown && ["debit", "credit", "balance"].includes(c.key) ? `${c.label} (${baseCurrency})` : c.label);
 
   // ── Export (§3.5) ──────────────────────────────────────────────────────
   // Two layouts, the way the ledgers we benchmark against offer them:
@@ -423,7 +440,7 @@ export default function GeneralLedgerPage() {
   // posted lines and rolls the opening balance forward, the last row sums the
   // closing rows — so they follow if someone edits a figure in the sheet.
   // Ungrouped, it is the lines by date with one total row.
-  const REPORT_W = { date: 11, entry: 14, account: 34, source: 15, sourceNo: 14, party: 28, desc: 44, status: 12, currency: 9, debit: 18, credit: 18, balance: 18 };
+  const REPORT_W = { date: 11, entry: 14, account: 34, source: 15, sourceNo: 14, party: 28, desc: 44, status: 12, original: 16, rate: 10, debit: 18, credit: 18, balance: 18 };
   function runReportExcel() {
     if (lineRows.length > EXPORT_CAP) { tooBig(); return; }
     const at = Object.fromEntries(cols.map((c, i) => [c.key, i]));
@@ -455,7 +472,8 @@ export default function GeneralLedgerPage() {
         case "party": return { v: l.party };
         case "desc": return { v: l.status !== "posted" && at.status == null ? `${l.desc} [${STATUS_LABEL[l.status]}]` : l.desc };
         case "status": return { v: STATUS_LABEL[l.status] };
-        case "currency": return { v: l.currency };
+        case "original": return { v: isForeign(l) ? fmtOrig(l) : null, s: "num" };
+        case "rate": return { v: isForeign(l) ? l.rate : null, s: "num" };
         case "debit": return { v: money(l.dc), s: "num" };
         case "credit": return { v: money(l.cc), s: "num" };
         case "balance": return { v: bal(l.balance), s: "num" };
@@ -466,7 +484,7 @@ export default function GeneralLedgerPage() {
     const out = [
       ...header.map((r, i) => (i === 0 ? [{ v: r[0], s: "bold" }] : i === 1 ? [{ v: r[0], s: "title" }] : r)),
       [],
-      cols.map((c) => ({ v: c.label, s: c.num ? "headNum" : "head" })),
+      cols.map((c) => ({ v: colLabel(c), s: c.num ? "headNum" : "head" })),
     ];
     let totalD = 0, totalC = 0;
     const closingRows = [];
@@ -554,9 +572,10 @@ export default function GeneralLedgerPage() {
           {sourceNo(l) ? <button type="button" className="gl-link gl-src-link mono" onClick={() => openDrawer(l)}>{sourceNo(l)}</button> : <span className="gl-muted">—</span>}
         </span>
       );
-      case "currency": return (
-        <span key={c.key} className="gl-ccy" title={l.rate !== 1 ? `${l.currency} ${((l.dc || l.cc) / 100 / l.rate).toLocaleString("id-ID", { maximumFractionDigits: 2 })} @ ${l.rate.toLocaleString("id-ID")}` : undefined}>
-          {l.currency}
+      case "original": return <span key={c.key} className="num gl-ccy">{isForeign(l) ? fmtOrig(l) : ""}</span>;
+      case "rate": return (
+        <span key={c.key} className="num gl-ccy" title={isForeign(l) ? `1 ${l.currency} = Rp ${fmtRate(l)}` : undefined}>
+          {isForeign(l) ? fmtRate(l) : ""}
         </span>
       );
       case "account": return (
@@ -606,7 +625,8 @@ export default function GeneralLedgerPage() {
       {cols.map((c) => {
         const v = c.key.startsWith("dim:") ? l.dims[c.key.slice(4)] || "" : {
           date: formatDateEn(l.date), entry: l.je_number, account: `${l.code}  ${l.name}`, source: sourceType(l), sourceNo: sourceNo(l),
-          party: l.party, status: STATUS_LABEL[l.status], currency: l.currency,
+          party: l.party, status: STATUS_LABEL[l.status],
+          original: isForeign(l) ? fmtOrig(l) : "", rate: isForeign(l) ? fmtRate(l) : "",
           desc: l.status !== "posted" && !statusCol ? `${l.desc} [${STATUS_LABEL[l.status]}]` : l.desc,
           debit: l.dc ? fmtAmt(l.dc) : "", credit: l.cc ? fmtAmt(l.cc) : "",
           balance: l.balance == null ? "—" : fmtBal(l.balance),
@@ -656,12 +676,14 @@ export default function GeneralLedgerPage() {
         <div className="lg-head lg-head-plain no-print">
           <div className="lg-head-top">
             <div style={{ flex: 1, minWidth: 0 }}>
+              <button type="button" className="cfr-back" onClick={() => navigate("/reports")}>← Reports</button>
               <h1 className="lg-title">General Ledger</h1>
               <p className="gl-sub">
                 Every journal line, by account in code order, then by date. Entries are created and posted on the{" "}
                 <button type="button" className="gl-link" onClick={() => navigate("/journal-entry")}>Journal Entry</button> page;
                 balances by account are on the{" "}
                 <button type="button" className="gl-link" onClick={() => navigate("/trial-balance")}>Trial Balance</button>.
+                Amounts are in {baseCurrency}; a foreign-currency line also shows its original amount and the rate used.
               </p>
             </div>
             <div className="lg-head-actions">
@@ -789,7 +811,7 @@ export default function GeneralLedgerPage() {
               </div>
             )}
             <div className="gl-row gl-head gl-line-row" style={grid}>
-              {cols.map((c) => <span key={c.key} className={c.num ? "num" : ""}>{c.label}</span>)}
+              {cols.map((c) => <span key={c.key} className={c.num ? "num" : ""}>{colLabel(c)}</span>)}
             </div>
             {(flat ? lineRows.length === 0 : blocks.length === 0) && (
               <div className="gl-empty">
@@ -808,7 +830,7 @@ export default function GeneralLedgerPage() {
             </div>
             <table className="gl-print-table">
               <thead>
-                <tr>{cols.map((c) => <th key={c.key} className={c.num ? "num" : ""}>{c.label}</th>)}</tr>
+                <tr>{cols.map((c) => <th key={c.key} className={c.num ? "num" : ""}>{colLabel(c)}</th>)}</tr>
               </thead>
               <tbody>
                 {!flat && blocks.map((b) => {

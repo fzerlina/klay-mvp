@@ -64,7 +64,15 @@ export function endingSides(acct, closing) {
   return onDebit ? { ending_dr: Math.abs(c), ending_cr: 0 } : { ending_dr: 0, ending_cr: Math.abs(c) };
 }
 
-export function computeTrialBalance({ from, to, entries, fiscalYearStart = 1 }) {
+// A balance with debits positive and credits negative — the "Net" layout's
+// sign, whatever the account's normal side. Across the whole chart it sums to
+// zero when the ledger balances.
+export const drPositive = (acct, normalSigned) => (isDebitNormal(acct) ? normalSigned : -normalSigned);
+
+// `lineFilter(je, line)` keeps only the lines it returns true for — a
+// dimension filter. A filtered run leaves out the seeded opening balances
+// (they carry no tags), so it shows only what was tagged and needn't balance.
+export function computeTrialBalance({ from, to, entries, fiscalYearStart = 1, lineFilter = null }) {
   const fyStart = fiscalYearStartFor(from, fiscalYearStart);
   const acc = {};
   ACCOUNTS.forEach((a) => { acc[a.code] = { pre: 0, perDr: 0, perCr: 0, lines: [] }; });
@@ -76,6 +84,7 @@ export function computeTrialBalance({ from, to, entries, fiscalYearStart = 1 }) 
       const acct = COA_BY_CODE[line.account_code];
       const a = acc[line.account_code];
       if (!acct || !a) return;
+      if (lineFilter && !lineFilter(je, line)) return;
       const dr = line.debit || 0;
       const cr = line.credit || 0;
       if (je.je_date < from) {
@@ -102,21 +111,30 @@ export function computeTrialBalance({ from, to, entries, fiscalYearStart = 1 }) 
   return ACCOUNTS.map((acct) => {
     const a = acc[acct.code];
     const rolled = acct.code === DEFAULT_ACCOUNTS.retainedEarnings ? rolledPl : 0;
-    const opening = r2((SEED_OPENING[acct.code] || 0) + a.pre + rolled);
+    const seeded = lineFilter ? 0 : (SEED_OPENING[acct.code] || 0);
+    const opening = r2(seeded + a.pre + rolled);
     const closing = r2(opening + oriented(acct, a.perDr, a.perCr));
     const isZero = opening === 0 && closing === 0 && a.perDr === 0 && a.perCr === 0;
+    const openSides = endingSides(acct, opening);
     return {
       code: acct.code,
       name: acct.name,
       type: acct.type,
       fs: acct.fs,
       section: acct.section,
+      parent: acct.parent,
       normal_balance: acct.normal_balance,
       is_active: acct.is_active,
       opening_balance: opening,
+      opening_dr: openSides.ending_dr,
+      opening_cr: openSides.ending_cr,
+      opening_net: r2(drPositive(acct, opening)),
       period_debit: r2(a.perDr),
       period_credit: r2(a.perCr),
+      // The period's movement on the account's normal side (+ grows it).
+      movement: r2(oriented(acct, a.perDr, a.perCr)),
       closing_balance: closing,
+      closing_net: r2(drPositive(acct, closing)),
       ...endingSides(acct, closing),
       rolled_pl: r2(rolled),
       entries: a.lines.sort((x, y) => x.date.localeCompare(y.date) || x.je_ref.localeCompare(y.je_ref)),
@@ -132,6 +150,53 @@ export function ledgerBalance(rows) {
   dr = r2(dr); cr = r2(cr);
   const variance = r2(Math.abs(dr - cr));
   return { dr, cr, variance, balanced: variance < 1 };
+}
+
+// The footing a reviewer checks before trusting a TB, each on its own:
+//   opening   opening balances foot (Dr = Cr) — breaks on a bad migration
+//   period    the period's debits equal its credits — breaks on a one-sided post
+//   ending    ending balances foot — the headline check
+//   pl        the TB's P&L movement for the range equals Profit & Loss's net
+//             profit (a different code path over the same journals)
+// `netProfit` is netProfitForPeriod(...).netProfit for the same range.
+export function tieOut(rows, { netProfit }) {
+  let oDr = 0, oCr = 0, pDr = 0, pCr = 0, eDr = 0, eCr = 0, plNet = 0;
+  rows.forEach((r) => {
+    oDr += r.opening_dr; oCr += r.opening_cr;
+    pDr += r.period_debit; pCr += r.period_credit;
+    eDr += r.ending_dr; eCr += r.ending_cr;
+    if (r.fs === "PL") plNet += r.period_credit - r.period_debit;
+  });
+  const check = (key, label, a, b, aLbl, bLbl) => {
+    const diff = r2(Math.abs(a - b));
+    return { key, label, ok: diff < 1, diff, a: r2(a), b: r2(b), aLbl, bLbl };
+  };
+  return [
+    check("opening", "Opening balances foot", oDr, oCr, "Opening Dr", "Opening Cr"),
+    check("period", "Period debits = credits", pDr, pCr, "Period Dr", "Period Cr"),
+    check("ending", "Ending balances foot", eDr, eCr, "Ending Dr", "Ending Cr"),
+    check("pl", "Ties to Profit & Loss", plNet, netProfit, "TB net result", "P&L net profit"),
+  ];
+}
+
+// The chart's own hierarchy (seed/coa.js group nodes) as a tree over the given
+// rows, keeping their order: [{ id, label, level, groups, rows }], dropping
+// groups with nothing to show. An account whose parent isn't a known group sits
+// in an "Other accounts" group at the root.
+export function coaTree(rows) {
+  const groups = new Map();
+  COA.filter((n) => n.type === "group").forEach((g) => {
+    groups.set(g.id, { id: g.id, label: g.label, level: g.level, parent: g.parent || null, groups: [], rows: [] });
+  });
+  const other = { id: "g-other", label: "Other accounts", level: 0, parent: null, groups: [], rows: [] };
+  rows.forEach((r) => (groups.get(r.parent) || other).rows.push(r));
+  // Wire children in chart order, then prune empty branches bottom-up.
+  const roots = [];
+  groups.forEach((g) => (g.parent && groups.get(g.parent) ? groups.get(g.parent).groups.push(g) : roots.push(g)));
+  const prune = (g) => { g.groups = g.groups.filter(prune); return g.rows.length > 0 || g.groups.length > 0; };
+  const out = roots.filter(prune);
+  if (other.rows.length) out.push(other);
+  return out;
 }
 
 // One account's ledger balance at the end of a day, on its normal side: the
