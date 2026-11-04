@@ -175,7 +175,7 @@ export default function TaxRegisterPage() {
       case "rate": return rate(r.rate);
       case "tax": return num(r.tax);
       case "account": return r.account
-        ? <button type="button" className="pl-amt-link tr-mono" title={`Open ${r.account} in the General Ledger (${masaText})`} onClick={() => navigate(`/general-ledger?account=${r.account}&period=${ym}`)}>{r.account}</button>
+        ? <button type="button" className="pl-amt-link tr-mono" title={`Open ${r.account} in the General Ledger (${masaText})`} onClick={() => navigate(`/reports/general-ledger?account=${r.account}&period=${ym}`)}>{r.account}</button>
         : "—";
       default: return c.value(r);
     }

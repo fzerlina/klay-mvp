@@ -96,6 +96,8 @@ const ROUTE_MODULE = [
   ["/journal-entry", "gl"],
   ["/bank-reconciliation", "gl"],
   ["/non-bank-reconciliation", "gl"],
+  // The General Ledger sits in Reports but is still read on GL access.
+  ["/reports/general-ledger", "gl"],
   ["/reports", "reports"],
   ["/trial-balance", "reports"],
   ["/chart-of-accounts", "settings"],

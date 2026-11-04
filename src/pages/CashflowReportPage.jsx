@@ -49,7 +49,7 @@ function LedgerTie({ aging, ledger, code, asOf }) {
     <div className={`cfr-tie ${diff === 0 ? "ok" : "off"}`}>
       <span className="cfr-tie-mark" aria-hidden>{diff === 0 ? "✓" : "!"}</span>
       <span className="cfr-tie-state">{diff === 0 ? "Ties to ledger" : `Differs from ledger by ${formatRupiah(Math.abs(diff))}`}</span>
-      <button type="button" className="cfr-tie-link" onClick={() => navigate(`/general-ledger?account=${code}&period=${asOf.slice(0, 7)}`)}>
+      <button type="button" className="cfr-tie-link" onClick={() => navigate(`/reports/general-ledger?account=${code}&period=${asOf.slice(0, 7)}`)}>
         {code} {name}{diff !== 0 ? ` · ${formatRupiah(ledger)}` : ""}
       </button>
     </div>
