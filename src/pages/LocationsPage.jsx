@@ -7,7 +7,7 @@ import "./invoices-ledger.css";
 import "./settings-pages.css";
 import "./roles-users.css";
 
-// Settings → Accounting → General Ledger → Locations. Where items and assets
+// Settings → Accounting → General Settings → Locations. Where items and assets
 // are kept, as locations with sub-locations (components/LocationCards.jsx).
 // Editing needs the warehouse capability; deleting its own.
 
@@ -18,7 +18,7 @@ export default function LocationsPage() {
     <div className="lg-page">
       <div className="lg-scroll-container">
         <SettingsHeader
-          title="General Ledger"
+          title="General Settings"
           tabs={ACCOUNTING_TABS}
           intro="Where the company's items and assets are kept — each location with the sub-locations inside it."
         />

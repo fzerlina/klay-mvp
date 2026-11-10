@@ -89,6 +89,7 @@ function JeRow({ r, isChecked, onCheck, onClick, onKebab, isSelected, isAlt, clo
           {r.memo}
           {r.self_approved && <span className="je-self-chip" title="Prepared and posted by the same person (Self-posting)">Self-posted</span>}
           {r.system_posted && <span className="je-sys-chip" title="Posted automatically on its scheduled date — nobody clicked Post">Auto-posted</span>}
+          {r.is_adjusting && <span className="je-adj-chip" title="Adjusting entry (jurnal penyesuaian) — the Trial Balance can show it apart from regular postings">Adjusting</span>}
           {stale && <span className="je-stale-chip" title="Its posting date is in a closed period — send it back to be re-dated">Period closed — re-date to post</span>}
         </div>
         {r.status === "scheduled" && r.schedule && (
@@ -631,7 +632,7 @@ export default function JournalEntryPage() {
 
   // What the list shows. Void (cancelled) and deleted entries aren't listed —
   // no tab of their own and not in All either (2 Nov 2026); they still open by
-  // number, and deleted ones are kept in Settings › General Ledger.
+  // number, and deleted ones are kept in Settings › General Settings.
   const listRows = useMemo(() => allRows.filter((r) => r.status !== "void" && r.status !== "deleted"), [allRows]);
 
   // ── KPIs ───────────────────────────────────────────────────────────────

@@ -81,7 +81,7 @@ export default function CompanyProfilePage() {
       <div className="lg-scroll-container">
         <SettingsHeader
           title="Company"
-          intro={<>Your company's legal details. Klay prints them on invoices, purchase orders and tax documents. Base currency, fiscal year and time zone are in <Link to="/accounting-preferences" className="ru-inline-link">General Ledger › Preferences</Link>.</>}
+          intro={<>Your company's legal details. Klay prints them on invoices, purchase orders and tax documents. Base currency, fiscal year and time zone are in <Link to="/accounting-preferences" className="ru-inline-link">General Settings › Preferences</Link>.</>}
         />
 
         {!canEdit && <p className="cp-ro">Read only — only the Admin role can change the company profile.</p>}

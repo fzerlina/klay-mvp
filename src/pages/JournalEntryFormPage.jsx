@@ -36,7 +36,7 @@ import "./journal-entry-form.css";
 //   • A sticky balance bar: Submit stays disabled until debits equal credits.
 //   • Actions by role: anyone who prepares journals saves a draft or submits it
 //     for approval; an approver also gets Post when Self-posting allows it
-//     (Settings → General Ledger → Preferences).
+//     (Settings → General Settings → Preferences).
 // Every check is the shared one (lib/journalForm.js, lib/journalLifecycle.js),
 // so the list page's Submit and Approve say the same thing.
 //
@@ -106,6 +106,8 @@ export default function JournalEntryFormPage({ mode = "edit" }) {
   const [repeatOn, setRepeatOn] = useState(!!editing?.recurrence);
   const [repeat, setRepeat] = useState(() => editing?.recurrence || defaultRecurrence(editing?.je_date || TODAY_ISO));
   const [attachments, setAttachments] = useState(() => editing?.attachments || []);
+  // Adjusting entry (jurnal penyesuaian). A reversal inherits it from the original.
+  const [isAdjusting, setIsAdjusting] = useState(() => !!(editing?.is_adjusting || staged?.is_adjusting));
   const [showErrors, setShowErrors] = useState(false);
   const [dirty, setDirty] = useState(false);
   const touch = (fn) => (...args) => { setDirty(true); fn(...args); };
@@ -149,7 +151,7 @@ export default function JournalEntryFormPage({ mode = "edit" }) {
 
   const draft = () => buildEntry({
     editing, jeNumber, jeDate, memo, reference, recurrence, attachments, lines,
-    createdBy: actor, today: TODAY_ISO, payeeOf,
+    createdBy: actor, today: TODAY_ISO, payeeOf, isAdjusting,
   });
 
   // Post is offered to approvers only; it works when Self-posting allows it.
@@ -419,6 +421,20 @@ export default function JournalEntryFormPage({ mode = "edit" }) {
           {periodClosed && !original && (
             <div className="jef-warn">
               {periodLabel(jeDate)} is closed. You can save a draft here, but it can only be submitted or posted once its posting date is in an open period.
+            </div>
+          )}
+          {!original && (
+            <div className="jef-reversal jef-adjusting">
+              <label className="jef-check">
+                <input type="checkbox" checked={isAdjusting} onChange={(e) => { setDirty(true); setIsAdjusting(e.target.checked); }} />
+                <span>
+                  <strong>Adjusting entry</strong>
+                  <span className="jef-hint">
+                    A period-end or audit adjustment (jurnal penyesuaian) — an accrual, a provision, or a correction the auditor proposed.
+                    The Trial Balance can show these apart from regular postings, as an unadjusted and an adjusted balance.
+                  </span>
+                </span>
+              </label>
             </div>
           )}
           {canRepeatHere && (

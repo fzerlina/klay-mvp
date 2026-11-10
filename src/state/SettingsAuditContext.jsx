@@ -9,7 +9,7 @@ import { SETTINGS_AUDIT } from "../data/seed/settingsAudit";
 // History button, with a switch to see every section.
 //
 //   entry: { id, at (ISO date-time), by, area, page, summary }
-//     area — the Settings section ("Company", "General Ledger", "Payables"…)
+//     area — the Settings section ("Company", "General Settings", "Payables"…)
 //     page — the tab within it ("Tax", "Chart of accounts"…)
 
 const SettingsAuditContext = createContext(null);

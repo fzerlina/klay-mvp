@@ -3,6 +3,7 @@ import { JOURNAL_ENTRIES as SEED_JES } from "../data/seed/journalEntries";
 import { PAYMENT_HISTORY_JES } from "../data/seed/paymentHistory";
 import { LEDGER_BACKFILL_JES } from "../data/seed/ledgerBackfill";
 import { NON_BANK_JES } from "../data/seed/nonBankAccounts";
+import { ADJUSTING_JES } from "../data/seed/adjustingEntries";
 import { TODAY } from "../lib/clock";
 
 const JournalEntriesContext = createContext(null);
@@ -36,8 +37,9 @@ export function JournalEntriesProvider({ children }) {
   // row on Bill Detail can link to an entry that is actually here, plus the
   // bill postings, bill payments and opening balances the seed implies but
   // never wrote (seed/ledgerBackfill.js) so the General Ledger adds up, plus the
-  // petty cash, e-wallet, gateway and clearing journals (seed/nonBankAccounts.js).
-  const [entries, setEntries] = useState(() => [...SEED_JES, ...PAYMENT_HISTORY_JES, ...LEDGER_BACKFILL_JES, ...NON_BANK_JES]);
+  // petty cash, e-wallet, gateway and clearing journals (seed/nonBankAccounts.js),
+  // plus March 2025's adjusting entries (seed/adjustingEntries.js).
+  const [entries, setEntries] = useState(() => [...SEED_JES, ...PAYMENT_HISTORY_JES, ...LEDGER_BACKFILL_JES, ...NON_BANK_JES, ...ADJUSTING_JES]);
   // A draft staged from another page (e.g. a stock adjustment) for the Journal
   // Entry page to open pre-filled: { memo, lines: [{account_code, debit, credit, description}] }.
   const [pendingDraft, setPendingDraft] = useState(null);

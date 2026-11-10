@@ -4,7 +4,7 @@ import { useSettingsAudit } from "../state/SettingsAuditContext";
 import "../pages/roles.css";
 import "./location-cards.css";
 
-// Settings → Accounting → General Ledger → Locations. One card per top-level location, with
+// Settings → Accounting → General Settings → Locations. One card per top-level location, with
 // the locations inside it nested below — the tree in ModuleSettingsContext.
 // The card renders its tree recursively, so going deeper is one more name in
 // LOCATION_LEVELS: a node can take children until it reaches the last level.
