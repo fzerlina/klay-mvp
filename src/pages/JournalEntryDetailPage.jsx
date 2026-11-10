@@ -136,6 +136,7 @@ export default function JournalEntryDetailPage() {
                 <span className={`badge badge-${STATUS_BADGE_CLASS[displayStatus(stored)]}`}>{STATUS_LABEL[displayStatus(stored)]}</span>
                 {stored.self_approved && <span className="je-self-chip" title="Prepared and posted by the same person (Self-posting)">Self-posted</span>}
                 {stored.system_posted && <span className="je-sys-chip" title="Posted automatically on its scheduled date — nobody clicked Post">Auto-posted</span>}
+                {stored.is_adjusting && <span className="je-adj-chip" title="Adjusting entry (jurnal penyesuaian) — the Trial Balance can show it apart from regular postings">Adjusting</span>}
               </div>
               <div className="jed-sub">{row.memo}</div>
             </div>

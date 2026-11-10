@@ -9,7 +9,7 @@ import { useSettingsAudit } from "../state/SettingsAuditContext";
 import { TAX_CODES, TAX_KIND_LABELS, APPLIES_LABELS } from "../data/seed/taxCodes";
 import { COA } from "../data/seed/coa";
 
-// Settings → Accounting → General Ledger → Tax. One list of tax codes — VAT (PPN) and
+// Settings → Accounting → General Settings → Tax. One list of tax codes — VAT (PPN) and
 // withholding (PPh) — each with its rate, what it applies to, the GL account it
 // books to, and the dates it is valid for (as DualEntry's Tax Setup). A rate
 // change is a new dated code, not an edit, so past documents keep their rate.
@@ -124,7 +124,7 @@ export default function TaxSettingsPage() {
   // register read at call time.
   function save(t) {
     const i = editing === "new" ? -1 : TAX_CODES.findIndex((x) => x.code === editing.code);
-    if (i < 0) log("General Ledger", "Tax", `Added tax code ${t.name} — ${rateText(t)}${t.account ? `, books to ${t.account}` : ""}`);
+    if (i < 0) log("General Settings", "Tax", `Added tax code ${t.name} — ${rateText(t)}${t.account ? `, books to ${t.account}` : ""}`);
     else {
       const old = TAX_CODES[i];
       const changes = [];
@@ -132,7 +132,7 @@ export default function TaxSettingsPage() {
       if (rateText(old) !== rateText(t)) changes.push(`rate ${rateText(old)} → ${rateText(t)}`);
       if (old.appliesTo !== t.appliesTo) changes.push(`applies to ${APPLIES_LABELS[old.appliesTo]} → ${APPLIES_LABELS[t.appliesTo]}`);
       if (old.validFrom !== t.validFrom) changes.push(`valid from ${fmtDate(old.validFrom)} → ${fmtDate(t.validFrom)}`);
-      if (changes.length) log("General Ledger", "Tax", `${t.name}: ${changes.join("; ")}`);
+      if (changes.length) log("General Settings", "Tax", `${t.name}: ${changes.join("; ")}`);
     }
     if (i < 0) TAX_CODES.push(t);
     else TAX_CODES[i] = t;
@@ -144,7 +144,7 @@ export default function TaxSettingsPage() {
     <div className="lg-page">
       <div className="lg-scroll-container">
         <SettingsHeader
-          title="General Ledger"
+          title="General Settings"
           tabs={ACCOUNTING_TABS}
           intro="The tax codes people pick on bills, invoices and items — VAT (PPN) and withholding (PPh) — with the rate, the account each books to, and the dates it's valid for."
           actions={canEdit && (

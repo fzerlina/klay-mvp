@@ -219,6 +219,9 @@ export function buildReversal(je, { jeNumber, date, by, today, memo, reference =
     reference_type: "reversal",
     reference_id: je.je_number,
     reversal_of: je.je_number,
+    // Reversing an adjustment is itself an adjustment (e.g. an accrual
+    // reversed on the 1st), so the adjusted / unadjusted views stay consistent.
+    ...(je.is_adjusting ? { is_adjusting: true } : {}),
     created_by: by, created_date: today,
     posted_by: by, posted_date: today,
     attachments,

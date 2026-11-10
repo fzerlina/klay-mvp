@@ -6,7 +6,11 @@
 //                        split into Ending Dr / Ending Cr, so the two ending
 //                        columns foot to the same total when the ledger
 //                        balances. Built from POSTED journals only, plus the
-//                        seeded opening balances.
+//                        seeded opening balances. Adjusting journals
+//                        (je.is_adjusting — jurnal penyesuaian) dated in the
+//                        period are also totalled on their own (adj_debit /
+//                        adj_credit), with the balance before them
+//                        (unadj_*), for the adjusted / unadjusted views.
 //   netProfitForPeriod   Net profit over [from, to]: across every P&L account
 //                        (fs 'PL'), period credits less period debits.
 //                        Revenue is the same sum over the Revenue / Other
@@ -75,7 +79,7 @@ export const drPositive = (acct, normalSigned) => (isDebitNormal(acct) ? normalS
 export function computeTrialBalance({ from, to, entries, fiscalYearStart = 1, lineFilter = null }) {
   const fyStart = fiscalYearStartFor(from, fiscalYearStart);
   const acc = {};
-  ACCOUNTS.forEach((a) => { acc[a.code] = { pre: 0, perDr: 0, perCr: 0, lines: [] }; });
+  ACCOUNTS.forEach((a) => { acc[a.code] = { pre: 0, perDr: 0, perCr: 0, adjDr: 0, adjCr: 0, lines: [] }; });
   let rolledPl = 0; // prior fiscal years' profit, credit-positive
 
   for (const je of entries) {
@@ -94,6 +98,7 @@ export function computeTrialBalance({ from, to, entries, fiscalYearStart = 1, li
       }
       a.perDr += dr;
       a.perCr += cr;
+      if (je.is_adjusting) { a.adjDr += dr; a.adjCr += cr; }
       a.lines.push({
         key: `${je.je_number}:${i}`,
         je_ref: je.je_number,
@@ -116,6 +121,10 @@ export function computeTrialBalance({ from, to, entries, fiscalYearStart = 1, li
     const closing = r2(opening + oriented(acct, a.perDr, a.perCr));
     const isZero = opening === 0 && closing === 0 && a.perDr === 0 && a.perCr === 0;
     const openSides = endingSides(acct, opening);
+    // Before this period's adjusting journals: the unadjusted trial balance.
+    const adjMovement = r2(oriented(acct, a.adjDr, a.adjCr));
+    const unadjClosing = r2(closing - adjMovement);
+    const unadjSides = endingSides(acct, unadjClosing);
     return {
       code: acct.code,
       name: acct.name,
@@ -136,6 +145,13 @@ export function computeTrialBalance({ from, to, entries, fiscalYearStart = 1, li
       closing_balance: closing,
       closing_net: r2(drPositive(acct, closing)),
       ...endingSides(acct, closing),
+      adj_debit: r2(a.adjDr),
+      adj_credit: r2(a.adjCr),
+      adj_movement: adjMovement,
+      unadj_closing: unadjClosing,
+      unadj_net: r2(drPositive(acct, unadjClosing)),
+      unadj_dr: unadjSides.ending_dr,
+      unadj_cr: unadjSides.ending_cr,
       rolled_pl: r2(rolled),
       entries: a.lines.sort((x, y) => x.date.localeCompare(y.date) || x.je_ref.localeCompare(y.je_ref)),
       has_activity: !isZero,

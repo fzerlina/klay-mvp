@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getActiveAccounts } from "../data/seed/coa";
 import "./journal-template-menu.css";
 
-// Journal templates (Settings → General Ledger → Journal templates) as a menu:
+// Journal templates (Settings → General Settings → Journal templates) as a menu:
 // opened from the New Manual Journal split button on the list, and from the
 // template chip on the form. Each template shows its lines, so people pick by
 // what it books rather than by name alone. `id` "" is a blank journal.

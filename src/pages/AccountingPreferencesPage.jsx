@@ -15,7 +15,7 @@ import "./invoices-ledger.css";
 import "./settings-pages.css";
 import "./roles.css";
 
-// Settings → Accounting → General Ledger → Preferences. The small, company-wide accounting
+// Settings → Accounting → General Settings → Preferences. The small, company-wide accounting
 // choices, one section each — as DualEntry gathers its posting and record
 // preferences on one General preferences page. New one-off settings go here
 // rather than getting their own page.
@@ -23,6 +23,7 @@ import "./roles.css";
 //   • Posting — auto-assign late bills to the open period
 //   • Self-posting — whether an approver may post their own manual journal
 //   • Closing — the day of the next month each month's books close by
+//   • Trial Balance — when Needs review flags a big move (percentage + amount)
 //   • Delete journals — by JE number; only when Klay has turned it on
 // Costing method and reconciliation difference accounts moved to their module
 // settings (Settings → Inventory → Costing, Settings → Reconciliation); their
@@ -85,7 +86,7 @@ function BasicsSection() {
             <label className="cp-field">
               <span>Fiscal year starts</span>
               <select value={fiscalYearStart} disabled={!canEdit} onChange={(e) => {
-                log("General Ledger", "Preferences", `Fiscal year start: ${MONTHS[fiscalYearStart - 1]} → ${MONTHS[Number(e.target.value) - 1]}`);
+                log("General Settings", "Preferences", `Fiscal year start: ${MONTHS[fiscalYearStart - 1]} → ${MONTHS[Number(e.target.value) - 1]}`);
                 setFiscalYearStart(Number(e.target.value));
               }}>
                 {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
@@ -95,7 +96,7 @@ function BasicsSection() {
             <label className="cp-field">
               <span>Time zone</span>
               <select value={timezone} disabled={!canEdit} onChange={(e) => {
-                log("General Ledger", "Preferences", `Time zone: ${timezone} → ${e.target.value}`);
+                log("General Settings", "Preferences", `Time zone: ${timezone} → ${e.target.value}`);
                 setTimezone(e.target.value);
               }}>
                 <option value="Asia/Jakarta">WIB — Asia/Jakarta (UTC+7)</option>
@@ -119,16 +120,33 @@ function cutoffDate(period, day) {
   return next.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
 }
 
+const VARIANCE_PCTS = [0.1, 0.2, 0.25, 0.3, 0.4, 0.5];
+const rupiah = (v) => `Rp ${Number(v || 0).toLocaleString("id-ID")}`;
+
 function ClosingSection() {
-  const { closeCutoffDay, setCloseCutoffDay } = useAccountingSettings();
+  const { closeCutoffDay, setCloseCutoffDay, varianceThreshold, setVarianceThreshold } = useAccountingSettings();
   const canEdit = useCurrentUser().hasCapability("settings.period.lock");
   const { nextOpenPeriod } = useClosePeriod();
   const { log } = useSettingsAudit();
   const pick = (day) => {
-    log("General Ledger", "Preferences", `Closing cut-off: day ${closeCutoffDay} → day ${day} of the following month`);
+    log("General Settings", "Preferences", `Closing cut-off: day ${closeCutoffDay} → day ${day} of the following month`);
     setCloseCutoffDay(day);
   };
+  // The amount is typed as digits; it's saved (and logged) when the field loses focus.
+  const [amountText, setAmountText] = useState(String(varianceThreshold.amount));
+  const setPct = (pct) => {
+    log("General Settings", "Preferences", `Trial Balance variance: ${Math.round(varianceThreshold.pct * 100)}% → ${Math.round(pct * 100)}%`);
+    setVarianceThreshold((t) => ({ ...t, pct }));
+  };
+  const commitAmount = () => {
+    const amount = Math.max(0, parseInt(amountText.replace(/\D/g, ""), 10) || 0);
+    setAmountText(String(amount));
+    if (amount === varianceThreshold.amount) return;
+    log("General Settings", "Preferences", `Trial Balance variance amount: ${rupiah(varianceThreshold.amount)} → ${rupiah(amount)}`);
+    setVarianceThreshold((t) => ({ ...t, amount }));
+  };
   return (
+    <>
     <Section id="closing" title="Closing">
       <div className="pp-setting-card">
         <div className="pp-setting-pad">
@@ -150,6 +168,34 @@ function ClosingSection() {
         </div>
       </div>
     </Section>
+    {/* Its own section, so the Trial Balance's Needs review can link straight here. */}
+    <Section id="trial-balance" title="Trial Balance">
+      <div className="pp-setting-card">
+        <div className="pp-setting-pad">
+          <div className="pp-setting-title">Big moves in Needs review</div>
+          <p className="pp-setting-desc">
+            The Trial Balance flags an account that moved against the previous period by at least this much — both the percentage and the amount.
+            P&amp;L accounts compare the period's activity; balance-sheet accounts compare the ending balance.
+          </p>
+          <div className="cp-grid ap-basics">
+            <label className="cp-field">
+              <span>Change of at least</span>
+              <select value={varianceThreshold.pct} disabled={!canEdit} onChange={(e) => setPct(Number(e.target.value))}>
+                {VARIANCE_PCTS.map((p) => <option key={p} value={p}>{Math.round(p * 100)}%</option>)}
+              </select>
+            </label>
+            <label className="cp-field">
+              <span>And at least (IDR)</span>
+              <input inputMode="numeric" value={Number(amountText || 0).toLocaleString("id-ID")} disabled={!canEdit}
+                onChange={(e) => setAmountText(e.target.value.replace(/\D/g, ""))} onBlur={commitAmount}
+                onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()} aria-label="Minimum change in rupiah" />
+              <em>A {Math.round(varianceThreshold.pct * 100)}% move under {rupiah(varianceThreshold.amount)} isn't flagged.</em>
+            </label>
+          </div>
+        </div>
+      </div>
+    </Section>
+    </>
   );
 }
 
@@ -190,7 +236,7 @@ function DeleteJournalsSection() {
         "deleted", by, `Deleted from Settings → Preferences: ${why}`,
       ));
     }
-    log("General Ledger", "Preferences", `Deleted ${ready.map((r) => r.je.je_number).join(", ")} — ${why}`);
+    log("General Settings", "Preferences", `Deleted ${ready.map((r) => r.je.je_number).join(", ")} — ${why}`);
     setDone(`${ready.length} journal${ready.length === 1 ? "" : "s"} deleted. ${ready.length === 1 ? "It's" : "They're"} listed under Deleted on Journal Entry.`);
     setConfirming(false);
     setChecked(null);
@@ -294,7 +340,7 @@ function PostingSection() {
             className={`pp-switch${autoAssignLateBills ? " on" : ""}`}
             disabled={!canEdit}
             onClick={() => {
-              log("General Ledger", "Preferences", `Auto-assign late bills to the open period: ${autoAssignLateBills ? "off" : "on"}`);
+              log("General Settings", "Preferences", `Auto-assign late bills to the open period: ${autoAssignLateBills ? "off" : "on"}`);
               setAutoAssignLateBills(!autoAssignLateBills);
             }}
           >
@@ -325,14 +371,14 @@ function SelfPostingSection() {
   const fmt = (n) => `Rp ${n.toLocaleString("id-ID")}`;
 
   function toggle() {
-    log("General Ledger", "Preferences", `Self-posting of manual journals: ${selfPost.enabled ? "off" : `on, up to ${fmt(selfPost.limit)}`}`);
+    log("General Settings", "Preferences", `Self-posting of manual journals: ${selfPost.enabled ? "off" : `on, up to ${fmt(selfPost.limit)}`}`);
     setSelfPost({ ...selfPost, enabled: !selfPost.enabled });
   }
   function commitLimit() {
     const next = parseRp(limitText);
     setLimitText(next.toLocaleString("id-ID"));
     if (!next || next === selfPost.limit) { setLimitText(selfPost.limit.toLocaleString("id-ID")); return; }
-    log("General Ledger", "Preferences", `Self-posting limit: ${fmt(selfPost.limit)} → ${fmt(next)}`);
+    log("General Settings", "Preferences", `Self-posting limit: ${fmt(selfPost.limit)} → ${fmt(next)}`);
     setSelfPost({ ...selfPost, limit: next });
   }
 
@@ -571,9 +617,9 @@ export default function AccountingPreferencesPage() {
     <div className="lg-page">
       <div className="lg-scroll-container">
         <SettingsHeader
-          title="General Ledger"
+          title="General Settings"
           tabs={ACCOUNTING_TABS}
-          intro="Company-wide accounting choices: the basics set at company creation, how late bills post, who may post their own journals, and when each month's books close."
+          intro="Company-wide accounting choices: the basics set at company creation, how late bills post, who may post their own journals, when each month's books close, and what the Trial Balance flags for review."
         />
         <BasicsSection />
         <PostingSection />

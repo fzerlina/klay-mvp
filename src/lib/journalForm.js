@@ -112,10 +112,12 @@ export function validateForm({ lines, memo, jeDate, closedThrough, recurrence = 
 // lifecycle moves the page applies afterwards (lib/journalLifecycle.js).
 // A payee lives on its line only; an older draft's header payee is dropped
 // here (the form has already moved it onto the payable lines). `recurrence` is
-// the repeat schedule (lib/recurringJournals.js) or null.
-export function buildEntry({ editing, jeNumber, jeDate, memo, reference, recurrence, attachments, lines, createdBy, today, payeeOf }) {
+// the repeat schedule (lib/recurringJournals.js) or null. `isAdjusting` marks
+// an adjusting entry (jurnal penyesuaian): a period-end or audit adjustment,
+// which the Trial Balance can show apart from regular postings.
+export function buildEntry({ editing, jeNumber, jeDate, memo, reference, recurrence, attachments, lines, createdBy, today, payeeOf, isAdjusting = false }) {
   const active = lines.filter((l) => l.account_code);
-  const { auto_reverse: _ar, reversal_date: _rd, payee: _pe, recurrence: _rc, ...kept } = editing || {};
+  const { auto_reverse: _ar, reversal_date: _rd, payee: _pe, recurrence: _rc, is_adjusting: _ia, ...kept } = editing || {};
   return {
     ...kept,
     je_number: editing?.je_number || jeNumber,
@@ -130,6 +132,7 @@ export function buildEntry({ editing, jeNumber, jeDate, memo, reference, recurre
     posted_by: null,
     posted_date: null,
     ...(recurrence ? { recurrence } : {}),
+    ...(isAdjusting ? { is_adjusting: true } : {}),
     attachments,
     lines: active.map((l) => ({
       account_code: l.account_code,

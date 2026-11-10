@@ -9,7 +9,7 @@ import SettingsHeader, { ACCOUNTING_TABS } from "../components/SettingsHeader";
 import "./invoices-ledger.css";
 import "./settings-pages.css";
 
-// Settings → Accounting → General Ledger → Dimensions. A dimension (or value)
+// Settings → Accounting → General Settings → Dimensions. A dimension (or value)
 // that posted journals already carry can't be renamed or deleted — the posted
 // lines keep the tag they were booked with. New values can always be added.
 
@@ -30,7 +30,7 @@ export default function DimensionsPage() {
   const usedLines = (key) => usage[key]?.lines || 0;
   const valueLines = (key, v) => usage[key]?.values[v] || 0;
   const lockedTitle = (key) => `Used on ${plural(usedLines(key), "posted journal line")} — can't be renamed or deleted`;
-  const audit = (summary) => log("General Ledger", "Dimensions", summary);
+  const audit = (summary) => log("General Settings", "Dimensions", summary);
 
   // Editing state — only one row in edit mode at a time.
   // editingId: dim.id when renaming, or "__addval__:<dim.id>" when adding a value,
@@ -107,7 +107,7 @@ export default function DimensionsPage() {
     <div className="lg-page">
       <div className="lg-scroll-container">
       <SettingsHeader
-        title="General Ledger"
+        title="General Settings"
         tabs={ACCOUNTING_TABS}
         intro="Define the analytical tags you'll attach to accounts and transactions — like Department, Location, or Project. Each dimension has its own list of values. Once a posted journal uses a dimension or value, it can't be renamed or deleted."
       />

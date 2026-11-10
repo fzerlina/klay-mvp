@@ -18,6 +18,22 @@ Benchmarked against DualEntry, Rillet, Campfire, Digits, Puzzle, Xero, QuickBook
 
 ---
 
+## Decisions since the benchmark (9–10 Nov 2026)
+
+SME feedback from Fidya Ranita ([Slack thread](https://smplwrld.slack.com/archives/C0AQCTEUACE/p1794284892456209?thread_ts=1794237772.011189&cid=C0AQCTEUACE), 10 Nov), and what changed in the prototype:
+
+| Topic | Decision | In the prototype |
+|---|---|---|
+| **Layout** | A net Opening / Ending column with credits in brackets reads as negative: Liabilities, Equity and Revenue looked "all negative". Split Opening and Ending into Debit and Credit on screen, as in the export. Answers §7 Q1. | Six columns on screen (Opening · Movement · Ending, each Dr/Cr). Compare shows each period's Ending Dr/Cr plus Change. Screen and Excel now match. |
+| **Variance threshold** | Comparing with last month is right. Lower the percentage to **≥ 30%**. Use a **fixed amount set per company** (e.g. Rp 20M) rather than 1% of total debits, which came to ~Rp 900M on the sample data and let big moves through. Answers §7 Q4. | Settings › Accounting › General Settings › Preferences › **Trial Balance**: 30% and Rp 20.000.000 by default, editable; linked from the TB's Report settings menu. |
+| **Adjusting entries** | The KAP (external auditor) proposes audit adjustments and the **client posts them in its own books**, so the ledger matches the audited report. Adjustments do go into Klay. Answers §7 Q3: the adjusted TB (§6 #11) moves up from P2. | An **Adjusting entry** flag on manual journals (form checkbox, "Adjusting" chip on the list and detail; a reversal keeps it). On the TB, **Adjustments: Included** (adjusted TB, default) · **Excluded** (unadjusted) · **As columns** (Unadjusted · Adjustments · Adjusted, each Dr/Cr). Four sample March 2025 adjusting journals are seeded. |
+
+Earlier in the same review (9 Nov): no Summary/Detail tabs (the TB stays at account level, and journal lines live in the GL); the account name links to the GL for the same dates; the KPI bar was removed; only the variance and not-reconciled checks remain in Needs review; the ⓘ marker opens a popover instead of a side drawer.
+
+**Still open:** should system period-end journals (Fixed Assets depreciation, recurring prepaid amortisation) count as adjusting entries automatically? Today only journals someone flags do. The JE PRD needs an amendment for the flag: who can set it, and whether it's limited to manual journals.
+
+---
+
 ## 1. Who uses the TB and what for
 
 | Who | When | Job to be done | What they need from the screen |

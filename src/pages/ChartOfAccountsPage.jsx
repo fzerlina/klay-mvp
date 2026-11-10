@@ -10,7 +10,7 @@ import "./settings-pages.css";
 import "./roles.css";
 import SettingsHeader, { ACCOUNTING_TABS } from "../components/SettingsHeader";
 
-// Settings → Accounting → General Ledger → Chart of accounts. Every account,
+// Settings → Accounting → General Settings → Chart of accounts. Every account,
 // grouped by section. An account's name can be changed (with a warning: the new
 // name shows everywhere, posted journals included); its code and type can't.
 // The edit dialog also holds "settle through Payment" — journal lines crediting
@@ -148,12 +148,12 @@ export default function ChartOfAccountsPage() {
 
   function save(acct, name, payable) {
     if (name !== acct.name) {
-      log("General Ledger", "Chart of accounts", `Renamed ${acct.code}: ${acct.name} → ${name}`);
+      log("General Settings", "Chart of accounts", `Renamed ${acct.code}: ${acct.name} → ${name}`);
       acct.name = name; // write-through: every screen reads COA
     }
     if (payable !== reconcilableAccounts.includes(acct.code)) {
       toggleReconcilable(acct.code);
-      log("General Ledger", "Chart of accounts", `${acct.code} ${name}: settle through Payment ${payable ? "on" : "off"}`);
+      log("General Settings", "Chart of accounts", `${acct.code} ${name}: settle through Payment ${payable ? "on" : "off"}`);
     }
     setRev((n) => n + 1);
     setEditing(null);
@@ -165,7 +165,7 @@ export default function ChartOfAccountsPage() {
     <div className="lg-page">
       <div className="lg-scroll-container">
         <SettingsHeader
-          title="General Ledger"
+          title="General Settings"
           tabs={ACCOUNTING_TABS}
           intro="Every account in the ledger, by section. Rename an account from its row — the code, type and balances stay as they are. Locked tax and control accounts can be renamed too."
         />

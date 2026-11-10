@@ -10,7 +10,7 @@ import { useAccountingSettings } from "../state/AccountingSettingsContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
 import { useSettingsAudit } from "../state/SettingsAuditContext";
 
-// Settings → Accounting → General Ledger → Journal templates. The company's
+// Settings → Accounting → General Settings → Journal templates. The company's
 // common transaction types, each a list of debit and credit lines. Picking one
 // on a new manual journal (Journal Entry → Draft) fills in its lines; a line
 // with no account is chosen there ("Select account during journal creation").
@@ -95,10 +95,10 @@ export default function JournalTemplatesPage() {
 
   function save(t) {
     const old = journalTemplates.find((x) => x.id === t.id);
-    if (!old) log("General Ledger", "Journal templates", `Created template “${t.name}” — ${describe(t)}`);
+    if (!old) log("General Settings", "Journal templates", `Created template “${t.name}” — ${describe(t)}`);
     else {
-      if (old.name !== t.name) log("General Ledger", "Journal templates", `Renamed template “${old.name}” → “${t.name}”`);
-      if (describe(old) !== describe(t)) log("General Ledger", "Journal templates", `“${t.name}” lines: ${describe(old)} → ${describe(t)}`);
+      if (old.name !== t.name) log("General Settings", "Journal templates", `Renamed template “${old.name}” → “${t.name}”`);
+      if (describe(old) !== describe(t)) log("General Settings", "Journal templates", `“${t.name}” lines: ${describe(old)} → ${describe(t)}`);
     }
     saveJournalTemplate(t);
     setEditing(null);
@@ -106,7 +106,7 @@ export default function JournalTemplatesPage() {
 
   function remove(t) {
     deleteJournalTemplate(t.id);
-    log("General Ledger", "Journal templates", `Deleted template “${t.name}”`);
+    log("General Settings", "Journal templates", `Deleted template “${t.name}”`);
     setDeleting(null);
   }
 
@@ -114,7 +114,7 @@ export default function JournalTemplatesPage() {
     <div className="lg-page">
       <div className="lg-scroll-container">
         <SettingsHeader
-          title="General Ledger"
+          title="General Settings"
           tabs={ACCOUNTING_TABS}
           intro="Templates for your most common transaction types. When recording a manual journal, pick a template and its accounts are filled in — remove, edit or create templates as needed."
           actions={canEdit && (

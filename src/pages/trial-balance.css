@@ -1,23 +1,31 @@
 /* Trial Balance — on top of the shared ledger list (invoices-ledger.css).
    Scoped under .tb-report so the shared .lg-table-tb grid stays untouched. */
 
-/* Code · Account · 4 amount columns (Opening · Debit · Credit · Ending, or
-   the comparison's four) */
+/* Code · Account · 6 amount columns, each Debit / Credit under a super label
+   (Opening · Movement · Ending, Unadjusted · Adjustments · Adjusted, or the
+   comparison's) */
 .tb-report .lg-card.lg-table-tb .lg-row,
-.tb-report .lg-card.lg-table-tb .lg-col-header{grid-template-columns:72px minmax(200px,1.6fr) repeat(var(--tb-n,4),minmax(120px,1fr));min-width:calc(272px + var(--tb-n,4) * 120px)}
+.tb-report .lg-card.lg-table-tb .lg-col-header{grid-template-columns:72px minmax(190px,1.5fr) repeat(var(--tb-n,6),minmax(108px,1fr));min-width:calc(262px + var(--tb-n,6) * 108px)}
+/* Super header over each Debit / Credit pair */
+.tb-report .lg-col-header.tb-col-super{padding-top:8px;padding-bottom:0;border-bottom:none}
+.tb-report .lg-col-header.tb-col-super > div:not(:empty){text-align:center;border-bottom:1px solid var(--color-border-strong);padding-bottom:4px;margin:0 6px}
+/* Adjusting journals in the period, on the Adjustments button */
+.tb-adj-count{font-family:var(--font-mono);font-size:10px;font-weight:700;margin-left:3px;padding:0 6px;border-radius:9999px;background:var(--color-surface-sunken);color:var(--color-text-secondary)}
+.tb-adj-pop{min-width:330px}
 /* Account name and, when flagged, one small review marker */
-.tb-cell-name{min-width:0;display:flex;align-items:center;gap:6px}
+.tb-cell-name{min-width:0;display:flex;align-items:center;gap:6px;position:relative}
 .tb-name{font-size:12px;font-weight:500;color:var(--color-text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* Account rows don't navigate: the name is the link, the rest selects text */
 .tb-report .lg-row.tb-acct-row{cursor:default}
 .tb-acct-link{text-decoration:none;min-width:0}
 .tb-acct-link:hover,.tb-acct-link:focus-visible{color:var(--color-action);text-decoration:underline;text-underline-offset:2px;text-decoration-color:var(--color-action-subtle)}
 /* Explicit "General Ledger" button, shown on hover or keyboard focus */
-.tb-gl-btn{margin-left:auto;flex-shrink:0;display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border:1px solid var(--color-border-default);border-radius:9999px;background:var(--color-surface-raised);font-family:var(--font-sans);font-size:10.5px;font-weight:600;color:var(--color-text-secondary);text-decoration:none;white-space:nowrap;opacity:0;transition:opacity var(--transition-fast)}
+/* Overlays the end of the name cell, so it takes no width from the name while hidden */
+.tb-gl-btn{position:absolute;right:4px;top:50%;transform:translateY(-50%);pointer-events:none;flex-shrink:0;display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border:1px solid var(--color-border-default);border-radius:9999px;background:var(--color-surface-raised);font-family:var(--font-sans);font-size:10.5px;font-weight:600;color:var(--color-text-secondary);text-decoration:none;white-space:nowrap;opacity:0;transition:opacity var(--transition-fast)}
 .tb-gl-btn svg{width:10px;height:10px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
-.tb-acct-row:hover .tb-gl-btn,.tb-acct-row:focus-within .tb-gl-btn,.tb-acct-row.selected .tb-gl-btn{opacity:1}
+.tb-acct-row:hover .tb-gl-btn,.tb-acct-row:focus-within .tb-gl-btn,.tb-acct-row.selected .tb-gl-btn{opacity:1;pointer-events:auto;box-shadow:-10px 0 8px -2px var(--color-surface-raised)}
 .tb-gl-btn:hover,.tb-gl-btn:focus-visible{color:var(--color-action);border-color:var(--color-action-subtle);background:var(--color-action-wash)}
-@media (hover:none){.tb-gl-btn{opacity:1}}
+@media (hover:none){.tb-gl-btn{opacity:1;pointer-events:auto;position:static;transform:none;margin-left:auto}}
 .tb-flag{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;flex-shrink:0;padding:0;border:none;border-radius:9999px;background:transparent;color:var(--color-warning-text);cursor:pointer}
 .tb-flag svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
 .tb-flag:hover,.tb-flag.on{background:var(--color-warning-surface)}
@@ -65,7 +73,10 @@
 .tb-icon-btn:hover:not(:disabled),.tb-icon-btn.on{border-color:var(--color-border-strong);background:var(--color-surface-sunken);color:var(--color-text-primary)}
 .tb-icon-btn:disabled{opacity:.4;cursor:default}
 /* Report settings */
-.tb-settings-pop{width:260px}
+.tb-settings-pop{width:280px}
+.tb-settings-rule{display:flex;flex-direction:column;gap:4px;padding:2px 12px 12px;font-size:11.5px;line-height:1.45;color:var(--color-text-secondary)}
+.tb-settings-rule a{font-weight:600;color:var(--color-action);text-decoration:none}
+.tb-settings-rule a:hover{text-decoration:underline;text-underline-offset:2px}
 .tb-settings-pop .lg-popover-list + .lg-popover-section-lbl{border-top:1px solid var(--color-border-default)}
 .tb-switch-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 12px 10px;font-size:12.5px;color:var(--color-text-primary);cursor:pointer;border-bottom:1px solid var(--color-border-default)}
 .tb-switch{appearance:none;width:30px;height:17px;border-radius:9999px;background:var(--color-border-strong);position:relative;cursor:pointer;transition:background var(--transition-fast)}
@@ -136,7 +147,7 @@
   .tb-report .lg-head,.tb-report .lg-table-wrap{padding:0!important}
   .tb-report .lg-card.lg-table-tb{border:none;box-shadow:none;overflow:visible}
   .tb-report .lg-card.lg-table-tb .lg-row,
-  .tb-report .lg-card.lg-table-tb .lg-col-header{grid-template-columns:52px 1fr repeat(var(--tb-n,4),96px);padding:4px 0;position:static;min-width:0}
+  .tb-report .lg-card.lg-table-tb .lg-col-header{grid-template-columns:52px 1fr repeat(var(--tb-n,6),78px);padding:4px 0;position:static;min-width:0}
   .tb-report .lg-group-head{padding:4px 0!important}
   .tb-signoff{display:block!important;break-inside:avoid}
   .tb-report .lg-card.lg-table-tb .lg-cell-total{font-size:8.5px}

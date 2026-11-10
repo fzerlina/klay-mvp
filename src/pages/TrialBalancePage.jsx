@@ -84,40 +84,63 @@ function shiftYear(iso) {
 }
 
 // ── Columns ───────────────────────────────────────────────────────────────
-// On screen, four columns (Rillet's layout): Opening · Debit · Credit · Ending.
-// Opening and Ending are net Dr/(Cr) — debits positive, credits in brackets —
-// so each sums to zero when the ledger foots.
-//   compare  Ending Dr/(Cr) for the comparison period and this one, then the
-//            change on the account's normal side (brackets = it went down)
-//   six      Excel / CSV only: Opening · Movement · Ending, each split
-//            Debit / Credit — the Indonesian neraca saldo layout auditors load
-const NET_TITLE = "Debit balances positive, credit balances in brackets.";
+// Every layout splits balances into Debit and Credit, the way the Indonesian
+// neraca saldo and the Excel export do — a credit balance is never shown as a
+// bracketed "negative" (SME feedback: Liabilities, Equity and Revenue read as
+// negative otherwise).
+//   six      Opening · Movement · Ending, each Debit / Credit (Saldo Awal ·
+//            Mutasi · Saldo Akhir). With adjustments excluded, Movement and
+//            Ending leave out the period's adjusting journals.
+//   worksheet  Unadjusted · Adjustments · Adjusted, each Debit / Credit — the
+//            neraca saldo → jurnal penyesuaian → neraca saldo setelah
+//            penyesuaian columns of the neraca lajur.
+//   compare  Ending Debit / Credit for the comparison period and this one, then
+//            the change on the account's normal side (brackets = it went down)
 function columnsFor(layout, compareLbl, currentLbl) {
   if (layout === "compare") {
     return [
-      { key: "prev_closing_net", label: compareLbl, sum: true, muted: true, title: NET_TITLE },
-      { key: "closing_net",      label: currentLbl, sum: true, strong: true, title: NET_TITLE },
-      { key: "change",           label: "Change",   sum: true, title: "Ending balance now less the comparison period's, on the account's normal side. Brackets: the balance went down." },
-      { key: "change_pct",       label: "%",        pct: true },
+      { key: "prev_ending_dr", label: "Debit",  sup: compareLbl, sum: true, muted: true },
+      { key: "prev_ending_cr", label: "Credit", sup: compareLbl, sum: true, muted: true },
+      { key: "ending_dr",      label: "Debit",  sup: currentLbl, sum: true, strong: true },
+      { key: "ending_cr",      label: "Credit", sup: currentLbl, sum: true, strong: true },
+      { key: "change",         label: "Amount", sup: "Change",   sum: true, title: "Ending balance now less the comparison period's, on the account's normal side. Brackets: the balance went down." },
+      { key: "change_pct",     label: "%",      sup: "Change",   pct: true },
     ];
   }
-  if (layout === "six") {
+  if (layout === "worksheet") {
     return [
-      { key: "opening_dr",    label: "Debit",  sup: "Opening",  sum: true },
-      { key: "opening_cr",    label: "Credit", sup: "Opening",  sum: true },
-      { key: "period_debit",  label: "Debit",  sup: "Movement", sum: true },
-      { key: "period_credit", label: "Credit", sup: "Movement", sum: true },
-      { key: "ending_dr",     label: "Debit",  sup: "Ending",   sum: true },
-      { key: "ending_cr",     label: "Credit", sup: "Ending",   sum: true },
+      { key: "unadj_dr",    label: "Debit",  sup: "Unadjusted",  sum: true, muted: true, title: "Ending balance before this period's adjusting journals" },
+      { key: "unadj_cr",    label: "Credit", sup: "Unadjusted",  sum: true, muted: true, title: "Ending balance before this period's adjusting journals" },
+      { key: "adj_debit",   label: "Debit",  sup: "Adjustments", sum: true, title: "Adjusting journals dated in this period" },
+      { key: "adj_credit",  label: "Credit", sup: "Adjustments", sum: true, title: "Adjusting journals dated in this period" },
+      { key: "ending_dr",   label: "Debit",  sup: "Adjusted",    sum: true, strong: true },
+      { key: "ending_cr",   label: "Credit", sup: "Adjusted",    sum: true, strong: true },
     ];
   }
   return [
-    { key: "opening_net",   label: "Opening", sum: true, muted: true, title: NET_TITLE },
-    { key: "period_debit",  label: "Debit",   sum: true },
-    { key: "period_credit", label: "Credit",  sum: true },
-    { key: "closing_net",   label: "Ending",  sum: true, strong: true, title: NET_TITLE },
+    { key: "opening_dr",    label: "Debit",  sup: "Opening",  sum: true, muted: true },
+    { key: "opening_cr",    label: "Credit", sup: "Opening",  sum: true, muted: true },
+    { key: "period_debit",  label: "Debit",  sup: "Movement", sum: true },
+    { key: "period_credit", label: "Credit", sup: "Movement", sum: true },
+    { key: "ending_dr",     label: "Debit",  sup: "Ending",   sum: true, strong: true },
+    { key: "ending_cr",     label: "Credit", sup: "Ending",   sum: true, strong: true },
   ];
 }
+
+// Adjusting journals in the period: included (the adjusted TB), excluded (the
+// unadjusted TB) or shown as their own columns (the worksheet).
+const ADJ_LABELS = { included: "Included", excluded: "Excluded", columns: "As columns" };
+// A row as it stood before this period's adjusting journals.
+const unadjustedRow = (r) => ({
+  ...r,
+  period_debit: r2(r.period_debit - r.adj_debit),
+  period_credit: r2(r.period_credit - r.adj_credit),
+  movement: r2(r.movement - r.adj_movement),
+  closing_balance: r.unadj_closing,
+  closing_net: r.unadj_net,
+  ending_dr: r.unadj_dr,
+  ending_cr: r.unadj_cr,
+});
 
 // Consecutive columns sharing a super label → [{ label, span }].
 function superSpans(cols) {
@@ -158,17 +181,15 @@ const nodeRows = (n) => [...n.rows, ...n.groups.flatMap(nodeRows)];
 // account codes or amounts are hard-coded.
 //   variance    A big move against the previous period: a P&L account's
 //               activity, or a balance-sheet account's ending balance, changed
-//               by at least VARIANCE.pct AND a materiality amount (both, so
-//               small accounts don't trip on percentages and big ones don't
-//               trip on rounding). Materiality scales with the ledger, the way
-//               an auditor sets it: VARIANCE.share of total ending debits, never
-//               below VARIANCE.floor. Thresholds are a draft pending the SME.
+//               by at least `variancePct` AND a fixed amount, `materiality`
+//               (both, so small accounts don't trip on percentages and big ones
+//               don't trip on rounding). Both are the company's own settings
+//               (Accounting Preferences; defaults 30% and Rp 20.000.000, from
+//               the SME). A share of total debits was tried first, but on a
+//               large ledger it climbed to ~Rp 900M and missed big moves.
 //   unreconciled  A bank or cash account not reconciled to the end of a period
 //               that is already over.
-const VARIANCE = { pct: 0.5, share: 0.01, floor: 10_000_000 };
-const materialityFor = (totalDebits) => Math.max(VARIANCE.floor, Math.round(totalDebits * VARIANCE.share / 1_000_000) * 1_000_000);
-
-function reviewChecks(tb, { prevByCode, prevLabel, curLabel, reconByCode, dateTo, periodOver, materiality }) {
+function reviewChecks(tb, { prevByCode, prevLabel, curLabel, reconByCode, dateTo, periodOver, materiality, variancePct }) {
   const out = [];
   tb.forEach((r) => {
     const prev = prevByCode?.[r.code];
@@ -178,7 +199,7 @@ function reviewChecks(tb, { prevByCode, prevLabel, curLabel, reconByCode, dateTo
       const was = isPl ? prev.movement : prev.closing_balance;
       const delta = r2(cur - was);
       const pct = was ? delta / Math.abs(was) : null;
-      if (Math.abs(delta) >= materiality && (pct === null || Math.abs(pct) >= VARIANCE.pct)) {
+      if (Math.abs(delta) >= materiality && (pct === null || Math.abs(pct) >= variancePct)) {
         const what = isPl ? "activity" : "ending balance";
         out.push({
           code: r.code, kind: "variance",
@@ -360,7 +381,7 @@ const GROUP_ITEMS = [
   { k: "coa",  lbl: "COA hierarchy" },
   { k: "none", lbl: "No grouping" },
 ];
-function SettingsPopover({ excludeZero, onExcludeZero, group, onGroup, sort, sortItems, onSort, onClose }) {
+function SettingsPopover({ excludeZero, onExcludeZero, group, onGroup, sort, sortItems, onSort, reviewRule, onClose }) {
   const ref = useRef(null);
   useClickOutside(ref, onClose);
   return (
@@ -385,6 +406,13 @@ function SettingsPopover({ excludeZero, onExcludeZero, group, onGroup, sort, sor
             <span>{it.lbl}</span>{sort === it.k && <Check />}
           </button>
         ))}
+      </div>
+      {/* The big-move threshold is a company setting, not a view choice: say what
+          it is and link to where it's changed. */}
+      <div className="lg-popover-section-lbl">Needs review</div>
+      <div className="tb-settings-rule">
+        <span>Flags moves of {reviewRule} or more against the previous period.</span>
+        <Link to="/accounting-preferences#trial-balance" onClick={onClose}>Change in Settings</Link>
       </div>
     </div>
   );
@@ -472,7 +500,7 @@ function loadViews(userId) {
 
 export default function TrialBalancePage() {
   const navigate = useNavigate();
-  const { fiscalYearStart } = useAccountingSettings();
+  const { fiscalYearStart, varianceThreshold } = useAccountingSettings();
   const { user } = useCurrentUser();
   const { closedThrough } = useClosePeriod();
   const { resolutions } = useBankRecon();
@@ -488,6 +516,7 @@ export default function TrialBalancePage() {
   const [periodChoice, setPeriodChoice] = useState(DEFAULT_PERIOD);
   const [showZero, setShowZero] = useState(false);
   const [compare, setCompare] = useState("none");
+  const [adjMode, setAdjMode] = useState("included"); // included | excluded | columns
   const [dim, setDim] = useState(null); // { key, value }
   // A row the user clicked to keep their place across the columns.
   const [focusCode, setFocusCode] = useState(null);
@@ -536,11 +565,16 @@ export default function TrialBalancePage() {
     return null;
   }, [compare, prevRange, dateFrom, dateTo]);
   const compLabel = compRange ? rangeLabel(compRange.from, compRange.to) : "";
-  const layout = compRange ? "compare" : "net";
+  // A comparison lays ending balances side by side, with every posted journal
+  // in them; the adjustments choice applies when not comparing.
+  const adjEff = compRange ? "included" : adjMode;
+  const layout = compRange ? "compare" : adjEff === "columns" ? "worksheet" : "six";
+  const adjNote = { included: "Adjusted (adjusting journals included)", excluded: "Unadjusted (adjusting journals left out)", columns: "Unadjusted · Adjustments · Adjusted" }[adjEff];
   const cols = useMemo(() => columnsFor(layout, compLabel, periodRange), [layout, compLabel, periodRange]);
-  // Excel and CSV keep the six-column split (Saldo Awal · Mutasi · Saldo Akhir).
-  const exportCols = useMemo(() => (compRange ? cols : columnsFor("six")), [compRange, cols]);
-  const exportSpans = exportCols.some((c) => c.sup) ? superSpans(exportCols) : null;
+  const spans = useMemo(() => superSpans(cols), [cols]);
+  // Excel and CSV export exactly what's on screen.
+  const exportCols = cols;
+  const exportSpans = spans;
 
   // ── Numbers ──
   const { entries: JOURNAL_ENTRIES } = useJournalEntries();
@@ -560,22 +594,29 @@ export default function TrialBalancePage() {
 
   // Rows with the comparison laid on: the comparison period's ending sides,
   // and the change on the account's normal side.
+  // With adjustments excluded, every row reads as it stood before them.
   const ALL_TB = useMemo(() => {
-    if (!COMP_TB) return CUR_TB;
+    if (!COMP_TB) return adjEff === "excluded" ? CUR_TB.map(unadjustedRow) : CUR_TB;
     const byCode = Object.fromEntries(COMP_TB.map((r) => [r.code, r]));
     return CUR_TB.map((r) => {
       const p = byCode[r.code];
       const change = r2(r.closing_balance - (p?.closing_balance || 0));
       return {
         ...r,
-        prev_closing_net: p?.closing_net || 0,
+        prev_ending_dr: p?.ending_dr || 0,
+        prev_ending_cr: p?.ending_cr || 0,
         prev_closing: p?.closing_balance || 0,
         change,
         change_pct: p?.closing_balance ? change / Math.abs(p.closing_balance) : null,
         has_activity: r.has_activity || !!p?.has_activity,
       };
     });
-  }, [CUR_TB, COMP_TB]);
+  }, [CUR_TB, COMP_TB, adjEff]);
+  // Adjusting journals posted and dated in the period, for the Adjustments menu.
+  const adjustingCount = useMemo(
+    () => JOURNAL_ENTRIES.filter((je) => je.is_adjusting && je.status === "posted" && je.je_date >= dateFrom && je.je_date <= dateTo).length,
+    [JOURNAL_ENTRIES, dateFrom, dateTo],
+  );
 
   // Bank and cash accounts: how far each is reconciled (Bank and Non-Bank Reconciliation).
   const reconByCode = useMemo(() => {
@@ -600,15 +641,12 @@ export default function TrialBalancePage() {
   const netProfit = useMemo(() => netProfitForPeriod({ from: dateFrom, to: dateTo, entries: JOURNAL_ENTRIES }).netProfit, [dateFrom, dateTo, JOURNAL_ENTRIES]);
   const ties = useMemo(() => tieOut(CUR_TB, { netProfit }), [CUR_TB, netProfit]);
   const prevLabel = rangeLabel(prevRange.from, prevRange.to);
-  // Materiality comes from the full ledger, so a dimension filter doesn't shrink it.
-  const fullDebits = useMemo(
-    () => (dim ? ledgerBalance(computeTrialBalance({ from: dateFrom, to: dateTo, entries: JOURNAL_ENTRIES, fiscalYearStart })).dr : balance.dr),
-    [dim, balance.dr, dateFrom, dateTo, JOURNAL_ENTRIES, fiscalYearStart],
-  );
-  const materiality = materialityFor(fullDebits);
+  // The company's own variance thresholds (Settings → Accounting Preferences).
+  const variancePct = varianceThreshold.pct;
+  const materiality = varianceThreshold.amount;
   const findings = useMemo(
-    () => reviewChecks(CUR_TB, { prevByCode, prevLabel, curLabel: periodRange, reconByCode: dim ? null : reconByCode, dateTo, periodOver, materiality }),
-    [CUR_TB, prevByCode, prevLabel, periodRange, reconByCode, dim, dateTo, periodOver, materiality],
+    () => reviewChecks(CUR_TB, { prevByCode, prevLabel, curLabel: periodRange, reconByCode: dim ? null : reconByCode, dateTo, periodOver, materiality, variancePct }),
+    [CUR_TB, prevByCode, prevLabel, periodRange, reconByCode, dim, dateTo, periodOver, materiality, variancePct],
   );
   const findingsByCode = useMemo(() => {
     const m = {};
@@ -643,13 +681,13 @@ export default function TrialBalancePage() {
     return showZero ? ALL_TB : ALL_TB.filter((r) => r.has_activity);
   }, [reviewOnly, findings, showZero, ALL_TB]);
 
-  const viewState = { periodChoice, compare, groupChoice, sortChoice, showZero, dim };
+  const viewState = { periodChoice, compare, adjMode, groupChoice, sortChoice, showZero, dim };
   const viewSig = JSON.stringify(viewState);
   const activeViewId = views.find((v) => JSON.stringify(v.state) === viewSig)?.id || null;
 
   const hasActiveFilters = (
     periodChoice.key !== DEFAULT_PERIOD.key ||
-    showZero || compare !== "none" || dim || reviewOnly ||
+    showZero || compare !== "none" || adjMode !== "included" || dim || reviewOnly ||
     sortChoice !== null || groupChoice !== null || search.trim() !== ""
   );
 
@@ -741,6 +779,7 @@ export default function TrialBalancePage() {
     setPeriodChoice(DEFAULT_PERIOD);
     setShowZero(false);
     setCompare("none");
+    setAdjMode("included");
     setDim(null);
     setSearch("");
     setReviewOnly(false);
@@ -750,6 +789,7 @@ export default function TrialBalancePage() {
     const s = v.state;
     setPeriodChoice(s.periodChoice || DEFAULT_PERIOD);
     setCompare(s.compare || "none");
+    setAdjMode(s.adjMode || "included");
     setGroupChoice(s.groupChoice ?? null);
     setSortChoice(s.sortChoice ?? null);
     setShowZero(!!s.showZero);
@@ -785,7 +825,7 @@ export default function TrialBalancePage() {
   const dimLabel = dim ? `${DIM_BY_KEY[dim.key]?.label || dim.key}: ${dim.value}` : null;
   const colTitle = (c) => (c.sup ? `${c.sup} ${c.label}` : c.label);
   const viewNote = [
-    compRange ? `Compared with ${compLabel}` : "Six columns",
+    compRange ? `Compared with ${compLabel}` : adjNote,
     `Grouped by ${GROUP_LABELS[effectiveGroup] === "—" ? "nothing" : GROUP_LABELS[effectiveGroup]}`,
     dimLabel ? `Filtered to ${dimLabel}` : null,
   ].filter(Boolean).join(" · ");
@@ -945,8 +985,7 @@ export default function TrialBalancePage() {
   }
 
 
-  // Subtotals and the grand total. A zero total prints as 0, so a net column
-  // that foots reads as checked rather than empty.
+  // Subtotals and the grand total; a zero total reads "—", like a zero row.
   function TotalRow({ label, totals, depth = 0, className = "" }) {
     return (
       <div className={`lg-row subtotal ${className}`}>
@@ -954,7 +993,7 @@ export default function TrialBalancePage() {
         <div className="tb-total-lbl" style={{ paddingLeft: depth * INDENT }}>{label}</div>
         {cols.map((c) => (
           <div key={c.key} className={cellCls(c)}>
-            {c.sum && totals[c.key] != null ? amt(totals[c.key]) : ""}
+            {c.sum && totals[c.key] != null ? (totals[c.key] ? amt(totals[c.key]) : <span className="lg-cell-em-dash">—</span>) : ""}
           </div>
         ))}
       </div>
@@ -980,7 +1019,7 @@ export default function TrialBalancePage() {
           </div>
           {cols.map((c) => (
             <div key={c.key} className={cellCls(c)}>
-              {collapsed && c.sum && totals[c.key] != null ? amt(totals[c.key]) : ""}
+              {collapsed && c.sum && totals[c.key] != null ? (totals[c.key] ? amt(totals[c.key]) : <span className="lg-cell-em-dash">—</span>) : ""}
             </div>
           ))}
         </div>
@@ -997,6 +1036,11 @@ export default function TrialBalancePage() {
     unposted.pending ? plural(unposted.pending, "journal awaiting approval", "journals awaiting approval") : null,
   ].filter(Boolean);
 
+  const adjItems = [
+    { k: "included", lbl: "Included", hint: "adjusted trial balance" },
+    { k: "excluded", lbl: "Excluded", hint: "unadjusted trial balance" },
+    { k: "columns", lbl: "As columns", hint: "Unadjusted · Adjustments · Adjusted" },
+  ];
   const compareItems = [
     { k: "none", lbl: "No comparison" },
     { k: "prev", lbl: "Previous period", hint: rangeLabel(prevRange.from, prevRange.to) },
@@ -1014,7 +1058,7 @@ export default function TrialBalancePage() {
           <div className="tb-print-company">{COMPANY.legalName}</div>
           <div className="tb-print-title">Trial Balance</div>
           <div className="tb-print-period">
-            {periodRange}{compRange ? ` compared with ${compLabel}` : ""} · {dim ? `Filtered to ${dimLabel}` : balance.balanced ? "In balance" : `Out of balance by ${rp(balance.variance)}`} · Amounts in IDR
+            {periodRange}{compRange ? ` compared with ${compLabel}` : ` · ${adjNote}`} · {dim ? `Filtered to ${dimLabel}` : balance.balanced ? "In balance" : `Out of balance by ${rp(balance.variance)}`} · Amounts in IDR
           </div>
         </div>
 
@@ -1070,7 +1114,7 @@ export default function TrialBalancePage() {
               </span>
             )}
             <span className="tb-status-sep">·</span>
-            <span className="tb-unit-note">Amounts in IDR, credit balances in (brackets)</span>
+            <span className="tb-unit-note">Amounts in IDR</span>
           </div>
 
           {dim && (
@@ -1107,6 +1151,19 @@ export default function TrialBalancePage() {
                   )}
                 </div>
                 <div className="lg-meta-btn-wrap">
+                  <button className={`lg-meta-btn${adjEff !== "included" ? " active" : ""}`} onClick={() => togglePop("adj")} disabled={!!compRange}
+                    title={compRange ? "A comparison includes every posted journal. Turn Compare off to leave adjustments out or show them as columns." : `${plural(adjustingCount, "adjusting journal")} dated in this period`}
+                    aria-haspopup="menu" aria-expanded={openPop === "adj"}>
+                    <span className="meta-lbl">Adjustments:</span>
+                    <span className="meta-val">{ADJ_LABELS[adjEff]}</span>
+                    {adjustingCount > 0 && <span className="tb-adj-count">{adjustingCount}</span>}
+                  </button>
+                  {openPop === "adj" && (
+                    <ChoicePopover className="tb-adj-pop" items={adjItems} value={adjMode}
+                      onPick={(k) => { setAdjMode(k); closePop(); }} onClose={closePop} />
+                  )}
+                </div>
+                <div className="lg-meta-btn-wrap">
                   <button className={`lg-meta-btn${dim ? " active" : ""}`} onClick={() => togglePop("dim")}>
                     <span className="meta-lbl">Dimension:</span>
                     <span className="meta-val">{dimLabel || "All"}</span>
@@ -1120,7 +1177,7 @@ export default function TrialBalancePage() {
               </div>
               <div className="lg-filter-meta">
                 <button className={`lg-toggle${reviewOnly ? " on" : ""}`} onClick={() => setReviewOnly((v) => !v)} aria-pressed={reviewOnly} disabled={flaggedCount === 0 && !reviewOnly}
-                  title={`Moves of ${Math.round(VARIANCE.pct * 100)}% and ${rp(materiality)} (${VARIANCE.share * 100}% of total debits) or more against ${prevLabel}, and bank or cash accounts not reconciled to the end of a finished period.`}>
+                  title={`Moves of ${Math.round(variancePct * 100)}% and ${rp(materiality)} or more against ${prevLabel} (Settings › General Settings › Preferences), and bank or cash accounts not reconciled to the end of a finished period.`}>
                   Needs review <span className="tb-toggle-count">{flaggedCount}</span>
                 </button>
                 {tree && (
@@ -1143,6 +1200,7 @@ export default function TrialBalancePage() {
                       excludeZero={!showZero} onExcludeZero={(v) => setShowZero(!v)}
                       group={effectiveGroup} onGroup={(v) => { setGroupChoice(v); setCollapsedGroups(new Set()); }}
                       sort={effectiveSort} sortItems={sortItems} onSort={setSortChoice}
+                      reviewRule={`${Math.round(variancePct * 100)}% and ${rp(materiality)}`}
                       onClose={closePop} />
                   )}
                 </div>
@@ -1150,6 +1208,11 @@ export default function TrialBalancePage() {
               </div>
             </div>
 
+            <div className="lg-col-header tb-col-super" aria-hidden="true">
+              <div />
+              <div />
+              {spans.map((sp, i) => <div key={i} style={{ gridColumn: `span ${sp.span}` }}>{sp.label}</div>)}
+            </div>
             <div className="lg-col-header">
               <div>Code</div>
               <div>Account Name</div>

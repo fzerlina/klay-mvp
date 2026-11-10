@@ -1,4 +1,4 @@
-// Journal templates — Settings → Accounting → General Ledger → Journal
+// Journal templates — Settings → Accounting → General Settings → Journal
 // templates. Pre-loaded at migration setup for the company's common
 // transaction types; picking one on a new manual journal fills in its lines.
 //

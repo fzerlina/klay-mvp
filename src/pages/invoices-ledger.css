@@ -464,6 +464,8 @@
 .je-desc-memo{font-size:12px;color:var(--color-text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.35}
 .je-sys-chip{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:9999px;background:var(--color-surface-sunken);border:1px solid var(--color-border-default);color:var(--color-text-secondary);font-size:10px;font-weight:700;vertical-align:1px}
 .je-title-row .je-sys-chip,.jed-title-row .je-sys-chip{margin-left:0}
+/* Adjusting entry (jurnal penyesuaian) */
+.je-adj-chip{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:9999px;background:var(--color-action-wash);border:1px solid var(--color-action-subtle);color:var(--color-action);font-size:10px;font-weight:700;vertical-align:1px}
 .je-stale-chip{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:9999px;background:#FBF0F0;border:1px solid #F0CFCF;color:#A02020;font-size:10px;font-weight:700;vertical-align:1px}
 .je-self-chip{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:9999px;background:#FFF3DC;border:1px solid #EED7A6;color:#8A5A12;font-size:10px;font-weight:700;vertical-align:1px}
 .je-desc-ai{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--color-brand);font-style:italic;overflow:hidden;line-height:1.3}

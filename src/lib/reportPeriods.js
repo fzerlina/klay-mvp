@@ -1,7 +1,7 @@
 // Report periods — the presets the financial reports share (Trial Balance,
 // Profit & Loss): this month, last month, this quarter, year to date, last
 // year, plus custom. Built from the demo clock and the company's fiscal year
-// start (Settings → Accounting → General Ledger → Preferences), so nothing is
+// start (Settings → Accounting → General Settings → Preferences), so nothing is
 // hard-coded to a calendar year. Dates are ISO strings computed without time
 // zones (see clock.js on why).
 

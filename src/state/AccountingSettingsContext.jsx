@@ -58,6 +58,10 @@ export function AccountingSettingsProvider({ children }) {
   // Day of the following month by which a month's books close (Accounting →
   // Preferences → Closing).
   const [closeCutoffDay, setCloseCutoffDay] = useState(COMPANY.closeCutoffDay);
+  // When the Trial Balance flags a move against the previous period: at least
+  // this share AND this many rupiah (Accounting → Preferences → Closing).
+  // Defaults from the SME: 30% and Rp 20.000.000, set per company.
+  const [varianceThreshold, setVarianceThreshold] = useState({ pct: 0.3, amount: 20_000_000 });
   // Journal templates offered on a new manual journal (Accounting → Journal
   // templates).
   const [journalTemplates, setJournalTemplates] = useState(JOURNAL_TEMPLATES);
@@ -113,13 +117,14 @@ export function AccountingSettingsProvider({ children }) {
       journalDeletion,
       selfPost, setSelfPost,
       closeCutoffDay, setCloseCutoffDay,
+      varianceThreshold, setVarianceThreshold,
       journalTemplates, saveJournalTemplate, deleteJournalTemplate,
       baseCurrency: COMPANY.baseCurrency, fiscalYearStart, setFiscalYearStart, timezone, setTimezone,
     }),
     [inventoryCostingMethod, assetDepreciationMethod, reconDifferenceAccounts, reconcilableAccounts, toggleReconcilable, defaultAccounts,
       setDefaultAccount, movementAccounts, setMovementAccount,
       bookJournals, setBookJournalRole, depreciationJournals, setDepreciationRole, sodMode,
-      journalDeletion, selfPost, closeCutoffDay, journalTemplates, saveJournalTemplate, deleteJournalTemplate, fiscalYearStart, timezone],
+      journalDeletion, selfPost, closeCutoffDay, varianceThreshold, journalTemplates, saveJournalTemplate, deleteJournalTemplate, fiscalYearStart, timezone],
   );
   return (
     <AccountingSettingsContext.Provider value={value}>
