@@ -45,14 +45,58 @@
 .tb-review-link svg{width:10px;height:10px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
 .tb-report .tb-cell-muted{color:var(--color-text-tertiary)}
 /* Group heading row: label across Code + Account; amounts only when collapsed */
-.tb-report .lg-row.tb-group-row{background:var(--color-surface-base);border-bottom:1px solid var(--color-border-default);user-select:none}
-.tb-report .lg-row.tb-group-row:hover{background:#F8F4EF}
+.tb-report .lg-row.tb-group-row{background:var(--color-surface-raised);border-bottom:1px solid var(--color-border-subtle);user-select:none}
+.tb-report .lg-row.tb-group-row:hover{background:#FBF9F6}
 .tb-group-name{grid-column:1 / span 2;display:flex;align-items:center;gap:10px;min-width:0}
 .tb-group-name .lg-group-lbl{color:var(--color-text-secondary)}
 .tb-group-name .lg-group-count{background:var(--color-surface-sunken);color:var(--color-text-secondary)}
 .tb-report .lg-row.tb-group-row.collapsed .lg-cell-total{font-weight:700}
 .tb-report .lg-row.tb-group-row.tb-subgroup{background:var(--color-surface-raised);padding-top:8px;padding-bottom:8px}
-.tb-report .lg-row.tb-group-row.tb-subgroup .lg-group-lbl{letter-spacing:.08em;font-size:10.5px}
+.tb-report .lg-row.tb-group-row.tb-subgroup .lg-group-lbl{letter-spacing:0;font-size:10.5px}
+/* Group and total labels: uppercase without tracking */
+.tb-report .lg-row.tb-group-row .lg-group-lbl{letter-spacing:0}
+/* One surface (Trial Balance and Profit & Loss). Every row is white; the
+   hierarchy comes from type and rules, as on a printed statement: group
+   headings uppercase, accounts regular weight, Total rows semibold with a
+   rule above, the grand total bold with a heavy rule above and a double rule
+   below. Only hover and a clicked row tint. */
+.tb-report .lg-card.lg-table-tb .lg-row,
+.tb-report .lg-card.lg-table-tb .lg-row.alt,
+.tb-report .lg-card.lg-table-tb .lg-row.subtotal{background:var(--color-surface-raised)}
+.tb-report .lg-card.lg-table-tb .lg-row.tb-acct-row:hover{background:#FBF9F6}
+.tb-report .lg-card.lg-table-tb .lg-row.subtotal:hover{background:var(--color-surface-raised)}
+.tb-report .lg-card.lg-table-tb .lg-row.selected{background:var(--color-action-wash)}
+.tb-report .lg-row.tb-group-row .lg-group-lbl{color:var(--color-text-primary)}
+.tb-report .lg-row.tb-group-row.tb-subgroup .lg-group-lbl{color:var(--color-text-secondary)}
+.tb-report .lg-card.lg-table-tb .lg-row.tb-acct-row .lg-cell-total{font-weight:400}
+.tb-report .lg-card.lg-table-tb .lg-row.tb-acct-row .lg-cell-total.tb-cell-end{font-weight:600}
+.tb-report .lg-card.lg-table-tb .lg-row.subtotal{cursor:default;font-weight:600;border-top:1px solid var(--color-border-strong)}
+.tb-report .lg-card.lg-table-tb .lg-row.subtotal .lg-cell-total{font-weight:600}
+.tb-report .lg-card.lg-table-tb .lg-row.subtotal .lg-cell-total.tb-cell-end{font-weight:700}
+/* Digits-style grouping (Trial Balance and Profit & Loss). Sections read as
+   blocks separated by white space, not lines: no Code column (the code sits
+   grey before the name), no rule under each row, a gap before each group, one
+   faint band on a group's Total row, and the grand total with a heavy rule
+   above and a double rule below. */
+.tb-report .lg-card.lg-table-tb .lg-row,
+.tb-report .lg-card.lg-table-tb .lg-col-header{grid-template-columns:minmax(280px,2fr) repeat(var(--tb-n,6),minmax(108px,1fr));min-width:calc(280px + var(--tb-n,6) * 108px)}
+.tb-report .tb-group-name{grid-column:auto}
+.tb-report .lg-card.lg-table-tb .lg-row,
+.tb-report .lg-card.lg-table-tb .lg-row.tb-group-row,
+.tb-report .lg-card.lg-table-tb .lg-row.subtotal{border-top:none;border-bottom:none}
+.tb-report .lg-card.lg-table-tb .lg-row.tb-acct-row{padding-top:7px;padding-bottom:7px}
+.tb-code{flex-shrink:0;min-width:52px;font-family:var(--font-mono);font-size:11px;color:var(--color-text-tertiary)}
+.tb-report .lg-card.lg-table-tb .lg-row.tb-group-row{padding-top:22px;padding-bottom:6px}
+.tb-report .lg-card.lg-table-tb .lg-col-header + div > .lg-row.tb-group-row:first-child{padding-top:14px}
+.tb-report .lg-card.lg-table-tb .lg-row.tb-group-row.tb-subgroup{padding-top:12px;padding-bottom:4px}
+.tb-report .lg-card.lg-table-tb .lg-row.tb-group-row:hover{background:var(--color-surface-raised)}
+.tb-report .lg-card.lg-table-tb .lg-row.tb-group-row:hover .lg-group-lbl{color:var(--color-action)}
+/* Total labels line up with the group names, which sit after the chevron (9px + 10px gap) */
+.tb-report .tb-total-lbl{margin-left:19px}
+.tb-report .lg-card.lg-table-tb .lg-row.subtotal{background:#F6F3EF;padding-top:8px;padding-bottom:8px}
+.tb-report .lg-card.lg-table-tb .lg-row.subtotal:hover{background:#F6F3EF}
+.tb-report .lg-card.lg-table-tb .lg-row.subtotal.tb-total-row{background:var(--color-surface-raised);margin-top:14px;padding-top:12px;padding-bottom:12px;border-top:2px solid var(--color-text-primary);border-bottom:3px double var(--color-text-primary)}
+.tb-report .lg-card.lg-table-tb .lg-row.subtotal.tb-total-row .tb-total-lbl{color:var(--color-text-primary)}
 .tb-cell-new{font-family:var(--font-sans);font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--color-text-tertiary)}
 
 /* Filter row: the meta controls wrap on narrow panes instead of overflowing */
@@ -110,8 +154,9 @@
 .tb-report .lg-card.lg-table-tb{overflow-x:auto}
 .tb-report .lg-card.lg-table-tb .lg-cell-total{font-size:12px}
 .tb-report .tb-cell-end{font-weight:700}
-.tb-report .tb-total-lbl{font-weight:700;color:var(--color-text-secondary);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
-.tb-report .lg-row.tb-total-row{border-top:2px solid var(--color-border-strong);cursor:default}
+.tb-report .tb-total-lbl{font-weight:700;color:var(--color-text-secondary);font-size:11px;text-transform:uppercase;letter-spacing:0}
+.tb-report .lg-row.tb-total-row{border-top:2px solid var(--color-text-primary);border-bottom:3px double var(--color-text-primary);cursor:default}
+.tb-report .lg-card.lg-table-tb .lg-row.tb-total-row .lg-cell-total{font-weight:700}
 .tb-report .lg-row.tb-total-row .lg-cell-total{color:var(--color-text-primary)}
 
 /* Period picker */
@@ -147,7 +192,7 @@
   .tb-report .lg-head,.tb-report .lg-table-wrap{padding:0!important}
   .tb-report .lg-card.lg-table-tb{border:none;box-shadow:none;overflow:visible}
   .tb-report .lg-card.lg-table-tb .lg-row,
-  .tb-report .lg-card.lg-table-tb .lg-col-header{grid-template-columns:52px 1fr repeat(var(--tb-n,6),78px);padding:4px 0;position:static;min-width:0}
+  .tb-report .lg-card.lg-table-tb .lg-col-header{grid-template-columns:1fr repeat(var(--tb-n,6),78px);padding:4px 0;position:static;min-width:0}
   .tb-report .lg-group-head{padding:4px 0!important}
   .tb-signoff{display:block!important;break-inside:avoid}
   .tb-report .lg-card.lg-table-tb .lg-cell-total{font-size:8.5px}

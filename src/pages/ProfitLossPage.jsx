@@ -1,32 +1,63 @@
 // Reports → Profit & Loss.
 //
-// Income statement for a period, from posted journals only (lib/profitLoss.js
-// does the arithmetic). Sections collapse to their totals; an account amount
-// opens that account in the General Ledger for the period's end month.
-// Optional comparison with the previous period of the same length.
+// The V1 P&L from the competitor benchmark (Superhuman Docs › Reporting ›
+// Profit & Loss - Competitor Analysis, §6), modelled on DualEntry:
+//   • One statement, many columns: Total only, By month or By quarter; or a
+//     comparison (previous period, same period last year, prior year to
+//     date); or Unadjusted · Adjustments · Adjusted. One at a time, as
+//     DualEntry does.
+//   • Rows from account types (lib/profitLoss.js), with a margin row under
+//     gross, operating and net profit instead of a KPI bar.
+//   • + Add filter for dimension values; adjusting journals included,
+//     excluded or as columns.
+//   • An amount opens the General Ledger for that account, that column's
+//     dates and the same dimension filter.
+//   • Final / Preliminary from the period lock, with the journals not yet
+//     posted; net profit tied to the Trial Balance.
+//   • Saved views, last period preset remembered, Excel with live formulas,
+//     CSV, and a signed print / PDF — with Bahasa Indonesia labels in print and
+//     Excel by default.
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { COMPANY } from "../data/seed/company";
+import { DIM_BY_KEY } from "../data/seed/dimensions";
 import { useJournalEntries } from "../state/JournalEntriesContext";
 import { useAccountingSettings } from "../state/AccountingSettingsContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
 import { useClosePeriod } from "../state/ClosePeriodContext";
-import { COMPANY } from "../data/seed/company";
-import { computeProfitLoss, unpostedInPeriod, change } from "../lib/profitLoss";
-import { periodPresets, previousPeriod, rangeLabel, monthLabel } from "../lib/reportPeriods";
+import { useDimensions } from "../state/DimensionsContext";
+import { computeProfitLoss, PL_LINES, lineValue, unpostedInPeriod, adjustingInPeriod, change } from "../lib/profitLoss";
+import {
+  periodPresets, previousPeriod, rangeLabel, monthLabel, sameDayLastYear,
+  monthEnd, fiscalYearStartFor, splitPeriod,
+} from "../lib/reportPeriods";
+import { netProfitForPeriod, periodCloseState } from "../lib/trialBalance";
+import { lineDimensions } from "../lib/generalLedger";
 import { downloadCsv, reportHeader, exportName, printReport } from "../lib/reportExport";
+import { downloadXlsx, colName } from "../lib/xlsxExport";
+import {
+  useClickOutside, Check, ChoicePopover, PeriodPopover, DimensionPopover,
+  ViewsPopover, ExportPopover, loadLocal, saveLocal,
+} from "../components/ReportControls";
 import "./modules.css";
 import "./invoices-ledger.css";
-import "./cashflow-report.css";
+import "./trial-balance.css";
 import "./profit-loss.css";
 
 // ── Formatting ──────────────────────────────────────────────────────────────
+const UNITS = {
+  1:       { en: "Amounts in Rupiah",              id: "Dinyatakan dalam Rupiah",        head: "Rp" },
+  1000:    { en: "Amounts in thousands of Rupiah", id: "Dinyatakan dalam ribuan Rupiah", head: "Rp '000" },
+  1000000: { en: "Amounts in millions of Rupiah",  id: "Dinyatakan dalam jutaan Rupiah", head: "Rp m" },
+};
 // Statement amounts: id-ID grouping, negatives in parentheses, zero as a dash.
-const num = (v) => {
+const num = (v, unit = 1) => {
   if (v == null) return "";
-  if (Math.abs(v) < 0.005) return "—";
-  const s = Math.abs(v).toLocaleString("id-ID");
-  return v < 0 ? `(${s})` : s;
+  const s = v / unit;
+  if (Math.abs(s) < (unit === 1 ? 0.005 : 0.5)) return "—";
+  const t = Math.abs(s).toLocaleString("id-ID", unit === 1 ? undefined : { maximumFractionDigits: 0 });
+  return s < 0 ? `(${t})` : t;
 };
 const rp = (v) => {
   if (v == null) return "—";
@@ -38,410 +69,864 @@ const pct = (v) => {
   const s = Math.abs(v * 100).toLocaleString("id-ID", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + "%";
   return v < 0 ? `(${s})` : s;
 };
+// A change in a margin, in percentage points.
+const pp = (v) => {
+  if (v == null || !Number.isFinite(v)) return "—";
+  if (Math.abs(v) < 0.0005) return "—";
+  return `${v > 0 ? "+" : "−"}${Math.abs(v * 100).toLocaleString("id-ID", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} pp`;
+};
+const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+const r2 = (v) => Math.round(v * 100) / 100;
 
-const CUSTOM = "custom";
+const EN_MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const ID_MONTHS = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+const longDate = (iso, months) => { const [y, m, d] = iso.split("-").map(Number); return `${d} ${months[m - 1]} ${y}`; };
+const longRange = (from, to, lang) => {
+  const months = lang === "id" ? ID_MONTHS : EN_MONTHS;
+  return `${lang === "id" ? "Untuk periode" : "For the period"} ${longDate(from, months)} – ${longDate(to, months)}`;
+};
 
-function ChevronIcon({ open }) {
-  return (
-    <svg className={`pl-chev${open ? " open" : ""}`} viewBox="0 0 12 12" aria-hidden>
-      <polyline points="4 2.5 7.5 6 4 9.5" />
-    </svg>
-  );
+// A label shown in English on screen and, when the print / Excel language is
+// Bahasa Indonesia, in Bahasa on paper.
+function Lbl({ en, id, lang }) {
+  if (lang !== "id" || !id || id === en) return en;
+  return <><span className="pl-lbl-screen">{en}</span><span className="pl-lbl-print">{id}</span></>;
 }
 
-// Export menu: Excel (CSV) and Print / PDF.
-function ExportMenu({ onCsv, onPrint }) {
-  const [open, setOpen] = useState(false);
+const GEAR = <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>;
+const CAL = <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>;
+
+// ── Choices ─────────────────────────────────────────────────────────────────
+const COLUMN_LABELS = { total: "Total only", month: "By month", quarter: "By quarter" };
+const COMPARE_LABELS = { none: "None", prev: "Previous period", prev_year: "Same period last year", prior_ytd: "Prior year to date" };
+const ADJ_LABELS = { included: "Included", excluded: "Excluded", columns: "As columns" };
+const MAX_PERIOD_COLS = 12;
+
+// Opens on year to date the first time (DualEntry does the same); after that,
+// on the last preset this user picked. A custom range isn't remembered.
+const DEFAULTS = {
+  periodChoice: { key: "ytd" },
+  colMode: "total",
+  compare: "none",
+  adjMode: "included",
+  dims: {},
+  showZero: false,
+  // % of revenue on every line is off by default: DualEntry only offers it as
+  // a custom formula column and Accurate / Jurnal don't show it; the margin
+  // rows already carry gross, operating and net margin. QBO / NetSuite users
+  // can turn it on in Report settings.
+  showPct: false,
+  unit: 1,
+  lang: "id",
+};
+
+// Report settings (DualEntry's gear): how the report is laid out and printed.
+function SettingsPopover({ showZero, onShowZero, showPct, onShowPct, unit, onUnit, lang, onLang, onClose }) {
   const ref = useRef(null);
-  useEffect(() => {
-    if (!open) return undefined;
-    const close = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    const esc = (e) => { if (e.key === "Escape") setOpen(false); };
-    document.addEventListener("mousedown", close);
-    document.addEventListener("keydown", esc);
-    return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", esc); };
-  }, [open]);
-  const pick = (fn) => { setOpen(false); fn(); };
+  useClickOutside(ref, onClose);
+  const units = [[1, "Rupiah"], [1000, "Thousands"], [1000000, "Millions"]];
+  const langs = [["id", "Bahasa Indonesia"], ["en", "English"]];
   return (
-    <div className="lg-meta-btn-wrap" ref={ref}>
-      <button type="button" className="lg-btn-brand" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
-        <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
-        Export
-      </button>
-      {open && (
-        <div className="lg-popover" role="menu">
-          <div className="lg-popover-list">
-            <button type="button" role="menuitem" className="lg-popover-item" onClick={() => pick(onCsv)}>Excel (CSV)</button>
-            <button type="button" role="menuitem" className="lg-popover-item" onClick={() => pick(onPrint)}>Print / PDF</button>
-          </div>
-        </div>
-      )}
+    <div className="lg-popover tb-settings-pop pl-settings-pop" ref={ref}>
+      <div className="lg-popover-section-lbl">Report format</div>
+      <label className="tb-switch-row">
+        <span>Exclude zero balance</span>
+        <input type="checkbox" className="tb-switch" checked={!showZero} onChange={(e) => onShowZero(!e.target.checked)} />
+      </label>
+      <label className="tb-switch-row">
+        <span>% of revenue column</span>
+        <input type="checkbox" className="tb-switch" checked={showPct} onChange={(e) => onShowPct(e.target.checked)} />
+      </label>
+      <div className="lg-popover-section-lbl">Amounts in</div>
+      <div className="lg-popover-list">
+        {units.map(([k, lbl]) => (
+          <button key={k} className={`lg-popover-item${unit === k ? " selected" : ""}`} onClick={() => onUnit(k)}>
+            <span>{lbl}</span>{unit === k && <Check />}
+          </button>
+        ))}
+      </div>
+      <div className="lg-popover-section-lbl">Labels in print and Excel</div>
+      <div className="lg-popover-list">
+        {langs.map(([k, lbl]) => (
+          <button key={k} className={`lg-popover-item${lang === k ? " selected" : ""}`} onClick={() => onLang(k)}>
+            <span>{lbl}</span>{lang === k && <Check />}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
 
+// ── Page ────────────────────────────────────────────────────────────────────
 export default function ProfitLossPage() {
   const navigate = useNavigate();
   const { entries } = useJournalEntries();
   const { fiscalYearStart } = useAccountingSettings();
   const { user } = useCurrentUser();
   const { closedThrough } = useClosePeriod();
+  const { valuesOf } = useDimensions();
+
+  const storeKey = (what) => `klay.profitLoss.${what}.${user?.id || "anon"}`;
+
+  const [periodChoice, setPeriodChoice] = useState(() => {
+    const k = loadLocal(storeKey("period"), null);
+    return k ? { key: k } : DEFAULTS.periodChoice;
+  });
+  const [colMode, setColMode] = useState(DEFAULTS.colMode);
+  const [compare, setCompare] = useState(DEFAULTS.compare);
+  const [adjMode, setAdjMode] = useState(DEFAULTS.adjMode);
+  const [dims, setDims] = useState(DEFAULTS.dims);
+  const [showZero, setShowZero] = useState(DEFAULTS.showZero);
+  const [showPct, setShowPct] = useState(DEFAULTS.showPct);
+  const [unit, setUnit] = useState(DEFAULTS.unit);
+  const [lang, setLang] = useState(DEFAULTS.lang);
+  // Collapsed groups, remembered per user (DualEntry keeps the last expansion
+  // level). Everything starts open, as on the Trial Balance.
+  const [collapsed, setCollapsed] = useState(() => new Set(loadLocal(storeKey("collapsed"), [])));
+  useEffect(() => { saveLocal(storeKey("collapsed"), [...collapsed]); }, [collapsed]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [search, setSearch] = useState("");
+  // A row the user clicked to keep their place across the columns.
+  const [focusCode, setFocusCode] = useState(null);
+
+  const [openPop, setOpenPop] = useState(null); // period | columns | compare | adj | dim | settings | views | export
+  const [dimEdit, setDimEdit] = useState(null); // the dimension key being edited, or null to add one
+  const togglePop = (k) => setOpenPop((p) => (p === k ? null : k));
+  const closePop = () => setOpenPop(null);
+
+  const [views, setViews] = useState(() => loadLocal(storeKey("views"), []));
+  useEffect(() => { setViews(loadLocal(storeKey("views"), [])); }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const persistViews = (next) => { setViews(next); saveLocal(storeKey("views"), next); };
+
+  const [toast, setToast] = useState("");
+  const toastTmr = useRef(null);
+  const showToast = (msg) => {
+    setToast(msg);
+    clearTimeout(toastTmr.current);
+    toastTmr.current = setTimeout(() => setToast(""), 1800);
+  };
 
   // ── Period ────────────────────────────────────────────────────────────────
-  const presets = useMemo(() => periodPresets({ fiscalYearStart }), [fiscalYearStart]);
-  const ytd = presets.find((p) => p.key === "ytd") || presets[0];
-  const [presetKey, setPresetKey] = useState("ytd");
-  const [custom, setCustom] = useState({ from: ytd.from, to: ytd.to });
-  const [compare, setCompare] = useState("none");
-  const [showPct, setShowPct] = useState(true);
-  const [showZero, setShowZero] = useState(false);
-  const [expanded, setExpanded] = useState(() => new Set());
-
-  const preset = presets.find((p) => p.key === presetKey);
-  const rawPeriod = presetKey === CUSTOM || !preset ? custom : { from: preset.from, to: preset.to };
-  // A custom range typed backwards still reads sensibly.
-  const period = rawPeriod.from && rawPeriod.to && rawPeriod.from > rawPeriod.to
-    ? { from: rawPeriod.to, to: rawPeriod.from }
-    : rawPeriod;
-  const validPeriod = Boolean(period.from && period.to);
-  const comparing = compare === "prev" && validPeriod;
-  // The previous period of the same length — shown in the Compare select even
-  // before comparison is switched on.
-  const nextPrior = validPeriod ? previousPeriod(period.from, period.to) : null;
-  const prior = comparing ? nextPrior : null;
-
-  const pickPreset = (key) => {
-    if (key === CUSTOM) {
-      // Start the custom range from whatever was showing.
-      setCustom({ from: period.from, to: period.to });
+  const presets = useMemo(() => {
+    const base = periodPresets({ fiscalYearStart });
+    const tq = base.find((p) => p.key === "this_quarter");
+    const out = [...base];
+    if (tq) {
+      // The full fiscal quarter before this one.
+      const [y, m] = tq.from.split("-").map(Number);
+      const t = y * 12 + (m - 1) + 2;
+      const qEnd = monthEnd(`${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, "0")}-01`);
+      const lq = previousPeriod(tq.from, qEnd);
+      out.splice(out.indexOf(tq) + 1, 0, { key: "last_quarter", label: "Last quarter", from: lq.from, to: lq.to });
     }
-    setPresetKey(key);
-  };
+    // Anchored to the period lock, so a saved view rolls forward on its own.
+    if (closedThrough) {
+      const to = monthEnd(`${closedThrough}-01`);
+      out.push({ key: "locked", label: "Through last locked period", from: fiscalYearStartFor(to, fiscalYearStart), to });
+    } else {
+      out.push({ key: "locked", label: "Through last locked period", disabled: true, hint: "no period locked yet", title: "Lock a period in the close to use this." });
+    }
+    return out;
+  }, [fiscalYearStart, closedThrough]);
 
-  // ── Compute ───────────────────────────────────────────────────────────────
-  const pl = useMemo(
-    () => (validPeriod ? computeProfitLoss(entries, period) : null),
-    [entries, period.from, period.to, validPeriod], // eslint-disable-line react-hooks/exhaustive-deps
-  );
-  const plPrior = useMemo(
-    () => (prior ? computeProfitLoss(entries, prior) : null),
-    [entries, prior?.from, prior?.to], // eslint-disable-line react-hooks/exhaustive-deps
-  );
-  const unposted = useMemo(
-    () => (validPeriod ? unpostedInPeriod(entries, period) : []),
-    [entries, period.from, period.to, validPeriod], // eslint-disable-line react-hooks/exhaustive-deps
-  );
+  const period = useMemo(() => {
+    if (periodChoice.key === "custom") return { ...periodChoice, label: "Custom" };
+    const p = presets.find((x) => x.key === periodChoice.key && !x.disabled) || presets.find((x) => x.key === "ytd");
+    return { key: p.key, from: p.from, to: p.to, label: p.label };
+  }, [periodChoice, presets]);
+  useEffect(() => { if (period.key !== "custom") saveLocal(storeKey("period"), period.key); }, [period.key]); // eslint-disable-line react-hooks/exhaustive-deps
+  const { from, to } = period;
+  const periodRange = rangeLabel(from, to);
 
-  const periodLabel = validPeriod ? rangeLabel(period.from, period.to) : "—";
-  const priorLabel = prior ? rangeLabel(prior.from, prior.to) : "";
-  const endYm = validPeriod ? period.to.slice(0, 7) : "";
-  const isFinal = validPeriod && endYm <= closedThrough;
+  // ── Layout: one at a time ───────────────────────────────────────────────
+  const monthPieces = useMemo(() => splitPeriod(from, to, "month", fiscalYearStart), [from, to, fiscalYearStart]);
+  const quarterPieces = useMemo(() => splitPeriod(from, to, "quarter", fiscalYearStart), [from, to, fiscalYearStart]);
+  const tooMany = { month: monthPieces.length > MAX_PERIOD_COLS, quarter: quarterPieces.length > MAX_PERIOD_COLS };
+  const colEff = colMode !== "total" && !tooMany[colMode] ? colMode : "total";
+  const multi = colEff !== "total";
+  const compareRanges = useMemo(() => ({
+    prev: previousPeriod(from, to),
+    prev_year: { from: sameDayLastYear(from), to: sameDayLastYear(to) },
+    prior_ytd: { from: fiscalYearStartFor(sameDayLastYear(to), fiscalYearStart), to: sameDayLastYear(to) },
+  }), [from, to, fiscalYearStart]);
+  const compRange = !multi && compare !== "none" ? compareRanges[compare] : null;
+  const compLabel = compRange ? rangeLabel(compRange.from, compRange.to) : "";
+  // "As columns" needs the single Total column to itself.
+  const adjEff = adjMode === "columns" && (multi || compRange) ? "included" : adjMode;
+  const layout = compRange ? "compare" : adjEff === "columns" ? "adjust" : multi ? "periods" : "total";
 
-  // ── Row visibility ────────────────────────────────────────────────────────
-  // A zero row is hidden unless "Show zero balances" is on — when comparing,
-  // only if it is zero in both periods.
-  const priorRow = (sectionKey, code) => plPrior?.sections[sectionKey].rows.find((r) => r.code === code);
-  const visibleRows = (sectionKey) => {
-    if (!pl) return [];
-    return pl.sections[sectionKey].rows.filter((r) => showZero || !r.zero || (comparing && priorRow(sectionKey, r.code) && !priorRow(sectionKey, r.code).zero));
-  };
-  const sectionKeys = pl ? pl.statement.filter((l) => l.kind === "section").map((l) => l.key) : [];
-  const expandable = sectionKeys.filter((k) => visibleRows(k).length > 0);
-  const allExpanded = expandable.length > 0 && expandable.every((k) => expanded.has(k));
-  const toggle = (key) => setExpanded((prev) => {
-    const next = new Set(prev);
-    if (next.has(key)) next.delete(key); else next.add(key);
-    return next;
+  // ── Numbers ───────────────────────────────────────────────────────────────
+  const dimList = Object.entries(dims).filter(([, v]) => v);
+  const lineFilter = useMemo(() => {
+    const active = Object.entries(dims).filter(([, v]) => v);
+    if (!active.length) return null;
+    return (je, l) => { const d = lineDimensions(je, l); return active.every(([k, v]) => d[k] === v); };
+  }, [dims]);
+  const run = (range, adjustments) => computeProfitLoss(entries, range, { lineFilter, adjustments });
+
+  // Amount columns for the layout. `main` is the column % of revenue, margins
+  // and the status line refer to.
+  const amountCols = useMemo(() => {
+    const mainAdj = adjEff === "columns" ? "included" : adjEff;
+    const cur = { id: "cur", range: { from, to }, adj: mainAdj, main: true };
+    if (layout === "compare") {
+      return [
+        { ...cur, label: periodRange },
+        { id: "cmp", range: compRange, adj: mainAdj, label: compLabel, muted: true },
+      ];
+    }
+    if (layout === "adjust") {
+      return [
+        { id: "unadj", range: { from, to }, adj: "excluded", label: "Unadjusted", id_label: "Sebelum penyesuaian", muted: true },
+        { id: "adj", range: { from, to }, adj: "only", label: "Adjustments", id_label: "Penyesuaian" },
+        { ...cur, adj: "included", label: "Adjusted", id_label: "Setelah penyesuaian" },
+      ];
+    }
+    if (layout === "periods") {
+      const pieces = colEff === "month" ? monthPieces : quarterPieces;
+      return [
+        ...pieces.map((p, i) => ({ id: `p${i}`, range: { from: p.from, to: p.to }, adj: mainAdj, label: p.label })),
+        { ...cur, label: "Total", id_label: "Jumlah" },
+      ];
+    }
+    return [{ ...cur, label: periodRange }];
+  }, [layout, adjEff, from, to, periodRange, compRange, compLabel, colEff, monthPieces, quarterPieces]);
+
+  const results = useMemo(() => {
+    const out = {};
+    for (const c of amountCols) out[c.id] = run(c.range, c.adj);
+    return out;
+  }, [amountCols, entries, lineFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  const main = results.cur;
+
+  // Display columns: the amounts, then % of revenue after the main column, and
+  // the change for a comparison.
+  const cells = useMemo(() => {
+    const out = [];
+    for (const c of amountCols) {
+      out.push({ key: c.id, kind: "amt", col: c, label: c.label, id_label: c.id_label || c.label, muted: c.muted, strong: c.main && amountCols.length > 1 });
+      if (c.main && showPct) out.push({ key: `${c.id}-pct`, kind: "pct", col: c, label: "% of rev.", id_label: "% pendapatan" });
+    }
+    if (layout === "compare") {
+      out.push({ key: "diff", kind: "diff", label: "Change", id_label: "Perubahan" });
+      out.push({ key: "diffPct", kind: "diffPct", label: "Change %", id_label: "Perubahan %" });
+    }
+    return out;
+  }, [amountCols, showPct, layout]);
+
+  // ── Status ────────────────────────────────────────────────────────────────
+  const closeState = periodCloseState(from, to, closedThrough);
+  const isFinal = closeState === "closed";
+  const closedLabel = closedThrough ? monthLabel(`${closedThrough}-01`) : null;
+  const unposted = useMemo(() => unpostedInPeriod(entries, { from, to }), [entries, from, to]);
+  const adjustingCount = useMemo(() => adjustingInPeriod(entries, { from, to }).length, [entries, from, to]);
+  const tbNet = useMemo(() => netProfitForPeriod({ from, to, entries }).netProfit, [from, to, entries]);
+  const partialView = dimList.length > 0 || adjEff === "excluded";
+  const tiesOk = Math.abs(r2(tbNet - main.totals.netProfit)) < 0.5 && main.balanced;
+
+  // ── Rows ──────────────────────────────────────────────────────────────────
+  const anyNonZero = (code) => amountCols.some((c) => Math.abs(results[c.id].byCode[code] || 0) >= 0.005);
+  // Accounts in a section: zero rows hidden unless asked for (exports use
+  // these); the search narrows what's on screen only — totals stay whole.
+  const visibleRows = (key) => main.sections[key].rows.filter((r) => showZero || anyNonZero(r.code));
+  const q = search.trim().toLowerCase();
+  const shownRows = (key) => visibleRows(key).filter((r) => !q || r.code.toLowerCase().includes(q) || r.name.toLowerCase().includes(q));
+  const sectionKeys = PL_LINES.filter((l) => l.kind === "section").map((l) => l.key);
+  const totalAccounts = sectionKeys.reduce((n, k) => n + visibleRows(k).length, 0);
+  const shownAccounts = sectionKeys.reduce((n, k) => n + shownRows(k).length, 0);
+
+  // The group tree for Expand / Collapse one level: every section is a group;
+  // Selling and G&A sit under an Operating expenses group.
+  const nestedKeys = PL_LINES.filter((l) => l.kind === "section" && l.nested).map((l) => l.key);
+  const levelNodes = [
+    ...sectionKeys.filter((k) => !nestedKeys.includes(k) && shownRows(k).length).map((k) => ({ id: k, depth: 0 })),
+    ...(nestedKeys.some((k) => shownRows(k).length) ? [{ id: "opex", depth: 0 }] : []),
+    ...nestedKeys.filter((k) => shownRows(k).length).map((k) => ({ id: k, depth: 1, parent: "opex" })),
+  ];
+  const isShown = (n) => !n.parent || !collapsed.has(n.parent);
+  const closedShown = levelNodes.filter((n) => isShown(n) && collapsed.has(n.id));
+  const openShown = levelNodes.filter((n) => isShown(n) && !collapsed.has(n.id));
+  const toExpand = closedShown.filter((n) => n.depth === Math.min(...closedShown.map((x) => x.depth)));
+  const toCollapse = openShown.filter((n) => n.depth === Math.max(...openShown.map((x) => x.depth)));
+  const setLevel = (nodes, open) => setCollapsed((prev) => {
+    const s = new Set(prev);
+    nodes.forEach((n) => (open ? s.delete(n.id) : s.add(n.id)));
+    return s;
   });
-  const toggleAll = () => setExpanded(allExpanded ? new Set() : new Set(expandable));
+  const toggleGroup = (id) => setCollapsed((prev) => {
+    const s = new Set(prev);
+    if (s.has(id)) s.delete(id); else s.add(id);
+    return s;
+  });
 
-  // Amounts in comparison: value for a statement line in either period.
-  const lineAmount = (res, line) => {
+  // A cell's value. `src` is an account code (account row) or a statement line.
+  const amountOf = (colId, src) => {
+    const res = results[colId];
     if (!res) return null;
-    if (line.kind === "subtotal") return res.totals[line.key];
-    if (line.kind === "section") return res.sections[line.key].total;
+    return typeof src === "string" ? res.byCode[src] ?? 0 : lineValue(res, src);
+  };
+  const isMarginLine = (src) => typeof src !== "string" && src.kind === "margin";
+  const cellValue = (cell, src) => {
+    const margin = isMarginLine(src);
+    // A margin on the adjustments alone means nothing.
+    if (margin && cell.col?.adj === "only") return null;
+    if (cell.kind === "amt") return amountOf(cell.col.id, src);
+    if (cell.kind === "pct") {
+      if (margin) return null;
+      const v = amountOf("cur", src);
+      return main.totals.netRevenue ? v / main.totals.netRevenue : null;
+    }
+    const cur = amountOf("cur", src);
+    const prev = amountOf("cmp", src);
+    if (cell.kind === "diff") return margin ? (cur == null || prev == null ? null : cur - prev) : change(cur, prev).diff;
+    if (cell.kind === "diffPct") return margin ? null : change(cur, prev).pct;
     return null;
   };
+  const cellText = (cell, src) => {
+    const v = cellValue(cell, src);
+    const margin = isMarginLine(src);
+    if (cell.kind === "pct" || cell.kind === "diffPct") return v == null ? (margin ? "" : "—") : pct(v);
+    if (margin) return v == null && cell.col?.adj === "only" ? "" : cell.kind === "diff" ? pp(v) : pct(v);
+    return num(v, unit);
+  };
 
-  const openLedger = (code, ym) => navigate(`/reports/general-ledger?account=${encodeURIComponent(code)}&period=${ym}`);
+  // ── Drill: the General Ledger for the account, the column's dates and the
+  // same dimension filter. One whole month goes as that month.
+  const glUrl = (code, range) => {
+    const qs = new URLSearchParams({ account: code });
+    const whole = range.from.slice(0, 7) === range.to.slice(0, 7) && range.from.endsWith("-01") && range.to === monthEnd(range.from);
+    if (whole) qs.set("period", range.from.slice(0, 7));
+    else { qs.set("period", "custom"); qs.set("from", range.from); qs.set("to", range.to); }
+    for (const [k, v] of dimList) qs.set(`dim_${k}`, v);
+    return `/reports/general-ledger?${qs}`;
+  };
+
+  // ── Views ─────────────────────────────────────────────────────────────────
+  const viewState = { periodChoice: period.key === "custom" ? periodChoice : { key: period.key }, colMode, compare, adjMode, dims, showZero, showPct, unit, lang };
+  const viewSig = JSON.stringify(viewState);
+  const activeViewId = views.find((v) => JSON.stringify(v.state) === viewSig)?.id || null;
+  const applyState = (s) => {
+    setPeriodChoice(s.periodChoice || DEFAULTS.periodChoice);
+    setColMode(s.colMode || DEFAULTS.colMode);
+    setCompare(s.compare || DEFAULTS.compare);
+    setAdjMode(s.adjMode || DEFAULTS.adjMode);
+    setDims(s.dims || {});
+    setShowZero(!!s.showZero);
+    setShowPct(s.showPct ?? DEFAULTS.showPct);
+    setUnit(s.unit || DEFAULTS.unit);
+    setLang(s.lang || DEFAULTS.lang);
+  };
+  const applyView = (v) => { applyState(v.state); closePop(); showToast(`View “${v.name}” applied`); };
+  const saveView = (name) => {
+    const existing = views.find((v) => v.name.toLowerCase() === name.toLowerCase());
+    const saved = { id: existing?.id || `v${Date.now()}`, name, state: viewState };
+    persistViews(existing ? views.map((v) => (v.id === existing.id ? saved : v)) : [...views, saved]);
+    showToast(existing ? `View “${name}” updated` : `View “${name}” saved`);
+  };
+  const deleteView = (id) => persistViews(views.filter((v) => v.id !== id));
+  const isDefault = JSON.stringify({ ...viewState, periodChoice: undefined }) === JSON.stringify({ ...DEFAULTS, periodChoice: undefined }) && period.key === "ytd" && !search.trim();
+  const resetAll = () => { applyState(DEFAULTS); setSearch(""); };
+
+  // ── Descriptions ──────────────────────────────────────────────────────────
+  const dimText = dimList.map(([k, v]) => `${DIM_BY_KEY[k]?.label || k}: ${v}`).join(" · ");
+  const layoutNote = {
+    compare: `Compared with ${COMPARE_LABELS[compare].toLowerCase()} (${compLabel})`,
+    adjust: "Unadjusted · Adjustments · Adjusted",
+    periods: COLUMN_LABELS[colEff],
+    total: null,
+  }[layout];
+  const adjNote = adjEff === "excluded" ? "Adjusting journals excluded (unadjusted)" : adjEff === "included" && adjustingCount ? "Adjusting journals included" : null;
+  const viewNote = [layoutNote, adjNote, dimText ? `Filtered to ${dimText}` : null].filter(Boolean).join(" · ");
+  const unitInfo = UNITS[unit];
+  const statusWord = (l) => (isFinal ? "Final" : l === "id" ? "Sementara" : "Preliminary");
 
   // ── Export ────────────────────────────────────────────────────────────────
-  const exportCsv = () => {
-    if (!pl) return;
-    const rows = [];
-    for (const line of pl.statement) {
-      if (line.kind === "heading") {
-        rows.push({ section: line.label, code: "", line: line.label, amount: null, prior: null, blank: true });
-        continue;
+  // Rows in statement order, with every visible account under its section.
+  const exportItems = () => {
+    const items = [];
+    for (const line of PL_LINES) {
+      if (line.kind === "section") {
+        const sec = main.sections[line.key];
+        const rows = visibleRows(line.key);
+        items.push({ type: "secHead", line, label: sec.label, id: sec.id });
+        rows.forEach((r) => items.push({ type: "acct", line, code: r.code, label: r.name, id: r.name }));
+        const strip = (s) => s.replace(/^Less: /, "").replace(/^Dikurangi: /, "");
+        items.push({ type: "secTotal", line, label: `Total ${strip(sec.label).toLowerCase()}`, id: `Jumlah ${strip(sec.id).toLowerCase()}` });
+      } else {
+        items.push({ type: line.kind, line, label: line.label, id: line.id });
       }
-      if (line.kind === "subtotal") {
-        rows.push({ section: "Subtotal", code: "", line: line.label, amount: line.amount, prior: lineAmount(plPrior, line) });
-        continue;
-      }
-      const sec = pl.sections[line.key];
-      for (const r of visibleRows(line.key)) {
-        rows.push({ section: sec.label, code: r.code, line: r.name, amount: r.amount, prior: priorRow(line.key, r.code)?.amount ?? null });
-      }
-      rows.push({ section: sec.label, code: "", line: `Total ${sec.label.replace(/^Less: /, "").toLowerCase()}`, amount: sec.total, prior: lineAmount(plPrior, line) });
     }
-    const columns = [
-      { label: "Section", value: (r) => r.section },
-      { label: "Code", value: (r) => r.code },
-      { label: "Line", value: (r) => r.line },
-      { label: `Amount ${periodLabel} (Rp)`, value: (r) => (r.blank ? "" : r.amount) },
+    return items;
+  };
+  const L = (item) => (lang === "id" ? item.id : item.label);
+  const exportBase = exportName("profit-loss", from, to);
+
+  function exportXlsx() {
+    closePop();
+    const runAt = new Date().toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    const items = exportItems();
+    const rows = [
+      [{ v: COMPANY.legalName, s: "bold" }],
+      [{ v: lang === "id" ? "Laporan Laba Rugi" : "Profit & Loss", s: "title" }],
+      [longRange(from, to, lang)],
+      [{ v: `(${unitInfo[lang === "id" ? "id" : "en"]})`, s: "muted" }],
+      [{ v: [statusWord(lang), viewNote].filter(Boolean).join(" · "), s: "muted" }],
+      [{ v: `Run ${runAt}${user?.name ? ` by ${user.name}` : ""}`, s: "muted" }],
+      [],
+      [{ v: lang === "id" ? "Kode" : "Code", s: "head" }, { v: lang === "id" ? "Keterangan" : "Line", s: "head" },
+        ...cells.map((c) => ({ v: lang === "id" ? c.id_label : c.label, s: "headNum" }))],
     ];
-    if (comparing) {
-      columns.push(
-        { label: `Amount ${priorLabel} (Rp)`, value: (r) => (r.blank ? "" : r.prior ?? 0) },
-        { label: "Change (Rp)", value: (r) => (r.blank ? "" : change(r.amount, r.prior).diff) },
-        { label: "Change (%)", value: (r) => {
-          if (r.blank) return "";
-          const p = change(r.amount, r.prior).pct;
-          return p == null ? "" : Math.round(p * 1000) / 10;
-        } },
+    const freeze = rows.length;
+    const first = rows.length + 1; // 1-based row of the first item
+    // Where each section total, subtotal and margin lands.
+    const at = {};
+    items.forEach((it, i) => {
+      if (it.type === "secTotal" || it.type === "subtotal" || it.type === "margin") at[it.line.key] = first + i;
+    });
+    const secStart = {};
+    items.forEach((it, i) => { if (it.type === "secHead") secStart[it.line.key] = first + i + 1; });
+    const cellCol = (k) => colName(2 + cells.findIndex((c) => c.key === k));
+    const FORMULAS = {
+      netRevenue: (c) => `${c}${at.revenue}-${c}${at.contra}`,
+      grossProfit: (c) => `${c}${at.netRevenue}-${c}${at.cogs}`,
+      opex: (c) => `${c}${at.selling}+${c}${at.ga}`,
+      operatingProfit: (c) => `${c}${at.grossProfit}-${c}${at.opex}`,
+      profitBeforeTax: (c) => `${c}${at.operatingProfit}+${c}${at.otherIncome}-${c}${at.otherExpense}`,
+      netProfit: (c) => `${c}${at.profitBeforeTax}-${c}${at.tax}`,
+    };
+    const scaled = (v) => (v == null ? null : r2(v / unit));
+    items.forEach((it, i) => {
+      const rowNo = first + i;
+      const bold = it.type === "secTotal" || it.type === "subtotal";
+      const label = it.type === "acct" ? `   ${L(it)}` : it.type === "margin" ? `   ${L(it)}` : L(it);
+      const row = [it.type === "acct" ? it.code : "", { v: label, s: bold || it.type === "secHead" || it.type === "heading" ? "bold" : it.type === "margin" ? "muted" : "text" }];
+      if (it.type === "secHead" || it.type === "heading") { rows.push(row); return; }
+      const src = it.type === "acct" ? it.code : it.line;
+      for (const c of cells) {
+        const colL = cellCol(c.key);
+        if (c.kind === "amt") {
+          const v = cellValue(c, src);
+          if (it.type === "acct") row.push(v ? { v: scaled(v), s: "num" } : null);
+          else if (it.type === "secTotal") {
+            const s0 = secStart[it.line.key];
+            row.push(rowNo > s0 ? { f: `SUM(${colL}${s0}:${colL}${rowNo - 1})`, v: scaled(v), s: "numBold" } : { v: scaled(v) || 0, s: "numBold" });
+          } else if (it.type === "subtotal") row.push({ f: FORMULAS[it.line.key](colL), v: scaled(v), s: "numBold" });
+          else if (it.type === "margin" && c.col.adj === "only") row.push(null);
+          else if (it.type === "margin") row.push({ f: `IF(${colL}${at.netRevenue}=0,"",${colL}${at[it.line.of]}/${colL}${at.netRevenue})`, v: v ?? null, s: "pct" });
+        } else if (c.kind === "pct") {
+          if (it.type === "margin") { row.push(null); continue; }
+          const m = cellCol("cur");
+          row.push({ f: `IF(${m}$${at.netRevenue}=0,"",${m}${rowNo}/${m}$${at.netRevenue})`, v: cellValue(c, src), s: bold ? "pctBold" : "pct" });
+        } else if (c.kind === "diff") {
+          const a = cellCol("cur"), b = cellCol("cmp");
+          row.push({ f: `${a}${rowNo}-${b}${rowNo}`, v: it.type === "margin" ? cellValue(c, src) : scaled(cellValue(c, src)), s: it.type === "margin" ? "pct" : bold ? "numBold" : "num" });
+        } else if (c.kind === "diffPct") {
+          if (it.type === "margin") { row.push(null); continue; }
+          const a = cellCol("cur"), b = cellCol("cmp");
+          row.push({ f: `IF(${b}${rowNo}=0,"",(${a}${rowNo}-${b}${rowNo})/ABS(${b}${rowNo}))`, v: cellValue(c, src), s: bold ? "pctBold" : "pct" });
+        }
+      }
+      rows.push(row);
+    });
+    const sign = lang === "id" ? ["Disiapkan oleh", "Diperiksa oleh", "Disetujui oleh", "Tanggal:", "Nama"] : ["Prepared by", "Reviewed by", "Approved by", "Date:", "Name"];
+    rows.push([], []);
+    rows.push(["", { v: sign[0], s: "bold" }, { v: sign[1], s: "bold" }, { v: sign[2], s: "bold" }]);
+    rows.push([], ["", user?.name || sign[4], sign[4], sign[4]], ["", { v: sign[3], s: "muted" }, { v: sign[3], s: "muted" }, { v: sign[3], s: "muted" }]);
+    downloadXlsx(exportBase.replace(/\.csv$/, ".xlsx"), {
+      sheet: lang === "id" ? "Laba Rugi" : "Profit & Loss",
+      rows,
+      widths: [10, 46, ...cells.map((c) => (c.kind === "pct" || c.kind === "diffPct" ? 12 : 18))],
+      freeze,
+    });
+    showToast("Profit & Loss exported to Excel");
+  }
+
+  function exportCsv() {
+    closePop();
+    const items = exportItems().filter((it) => it.type !== "heading");
+    downloadCsv(exportBase, {
+      header: [
+        ...reportHeader({ report: lang === "id" ? "Laporan Laba Rugi" : "Profit & Loss", period: longRange(from, to, lang), runBy: user?.name }),
+        [unitInfo[lang === "id" ? "id" : "en"]],
+        ...(viewNote ? [[viewNote]] : []),
+      ],
+      columns: [
+        { label: lang === "id" ? "Kode" : "Code", value: (it) => (it.type === "acct" ? it.code : "") },
+        { label: lang === "id" ? "Keterangan" : "Line", value: (it) => L(it) },
+        ...cells.map((c) => ({
+          label: `${lang === "id" ? c.id_label : c.label}${c.kind === "pct" || c.kind === "diffPct" ? " (%)" : ""}`,
+          value: (it) => {
+            if (it.type === "secHead") return "";
+            const src = it.type === "acct" ? it.code : it.line;
+            const v = cellValue(c, src);
+            if (v == null) return "";
+            if (c.kind === "pct" || c.kind === "diffPct" || it.type === "margin") return r2(v * 100);
+            return r2(v / unit);
+          },
+        })),
+      ],
+      rows: items,
+    });
+    showToast("Profit & Loss exported to CSV");
+  }
+  const exportPrint = () => { closePop(); setTimeout(printReport, 50); };
+
+  // ── Toolbar items ─────────────────────────────────────────────────────────
+  const columnItems = [
+    { k: "total", lbl: "Total only", hint: periodRange },
+    { k: "month", lbl: "By month", hint: tooMany.month ? `more than ${MAX_PERIOD_COLS} months` : plural(monthPieces.length, "column"),
+      disabled: tooMany.month || !!compRange, title: compRange ? "Turn Compare off to split the period into columns." : tooMany.month ? "Pick a shorter period, or split by quarter." : undefined },
+    { k: "quarter", lbl: "By quarter", hint: tooMany.quarter ? `more than ${MAX_PERIOD_COLS} quarters` : plural(quarterPieces.length, "column"),
+      disabled: tooMany.quarter || !!compRange, title: compRange ? "Turn Compare off to split the period into columns." : undefined },
+  ];
+  const compareItems = [
+    { k: "none", lbl: "No comparison" },
+    ...["prev", "prev_year", "prior_ytd"].map((k) => ({ k, lbl: COMPARE_LABELS[k], hint: rangeLabel(compareRanges[k].from, compareRanges[k].to) })),
+  ];
+  const adjItems = [
+    { k: "included", lbl: "Included", hint: "adjusted P&L" },
+    { k: "excluded", lbl: "Excluded", hint: "unadjusted P&L" },
+    { k: "columns", lbl: "As columns", hint: "Unadjusted · Adjustments · Adjusted", disabled: multi || !!compRange,
+      title: multi || compRange ? "Needs the single Total column: set Columns to Total only and Compare to None." : undefined },
+  ];
+  const usedDimKeys = dimList.map(([k]) => k);
+  const addableKeys = ["loc", "proj", "cc", "dept"].filter((k) => !usedDimKeys.includes(k) || k === dimEdit);
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  const unitHead = unitInfo.head;
+  const INDENT = 18;
+  const GL_ICON = <svg viewBox="0 0 24 24"><path d="M7 17L17 7"/><path d="M8 7h9v9"/></svg>;
+  const Chevron = ({ closed }) => <svg className={`lg-group-chevron${closed ? " closed" : ""}`} viewBox="0 0 9 9"><path d="M2 3l2.5 3L7 3"/></svg>;
+  const dash = <span className="lg-cell-em-dash">—</span>;
+
+  // The amount cells of a row, in the Trial Balance's column style. On an
+  // account row an amount also opens the ledger for that column's dates.
+  const amountCells = (src, { code, show = true } = {}) => cells.map((cell) => {
+    const cls = `lg-cell-total${cell.strong ? " tb-cell-end" : ""}${cell.muted ? " tb-cell-muted" : ""}${cell.kind !== "amt" ? " pl-cell-sub" : ""}`;
+    if (!show) return <div key={cell.key} className={cls} />;
+    const text = cellText(cell, src);
+    const v = cellValue(cell, src);
+    const body = text === "—" ? dash : text;
+    if (code && cell.kind === "amt" && v && Math.abs(v) >= 0.005) {
+      const c = cell.col;
+      const note = c.adj === "excluded" ? " — the ledger also lists adjusting journals" : c.adj === "only" ? " — the ledger lists every journal, not only adjusting ones" : "";
+      return (
+        <div key={cell.key} className={cls}>
+          <Link className="pl-amt-link" to={glUrl(code, c.range)} onClick={(e) => e.stopPropagation()}
+            title={`Open ${code} in the General Ledger for ${rangeLabel(c.range.from, c.range.to)}${dimText ? ` (${dimText})` : ""}${note}`}>{body}</Link>
+        </div>
       );
     }
-    downloadCsv(exportName("profit-loss", period.from, period.to), {
-      header: reportHeader({
-        report: "Profit & Loss",
-        period: comparing ? `${periodLabel} (compared with ${priorLabel})` : periodLabel,
-        runBy: user?.name,
-      }),
-      columns,
-      rows,
-    });
-  };
+    return <div key={cell.key} className={cls}>{body}</div>;
+  });
 
-  // ── KPIs ──────────────────────────────────────────────────────────────────
-  const t = pl?.totals;
-  const tp = plPrior?.totals;
-  const vsPrior = (key) => {
-    if (!tp) return null;
-    const c = change(t[key], tp[key]);
-    if (c.pct == null) return `${rp(tp[key])} in ${priorLabel}`;
-    return `${c.pct >= 0 ? "+" : "−"}${pct(Math.abs(c.pct))} vs ${priorLabel}`;
-  };
-  const kpis = t ? [
-    { lbl: "Net revenue", val: rp(t.netRevenue), sub: vsPrior("netRevenue") || (t.contra ? `After ${rp(t.contra)} returns & discounts` : "Revenue less returns & discounts"), neg: t.netRevenue < 0 },
-    { lbl: "Gross profit", val: rp(t.grossProfit), sub: `Margin ${pct(pl.grossMargin)}`, neg: t.grossProfit < 0 },
-    { lbl: "Operating profit", val: rp(t.operatingProfit), sub: `Margin ${pct(pl.operatingMargin)}`, neg: t.operatingProfit < 0 },
-    { lbl: "Net profit", val: rp(t.netProfit), sub: t.netProfit < 0 ? `Net loss · margin ${pct(pl.netMargin)}` : `Margin ${pct(pl.netMargin)}`, neg: t.netProfit < 0 },
-  ] : [];
-
-  // ── Table ─────────────────────────────────────────────────────────────────
-  const colCount = 2 + (showPct ? 1 : 0) + (comparing ? 3 : 0);
-  const pctOf = (v) => (pl && pl.totals.netRevenue ? v / pl.totals.netRevenue : null);
-
-  const amountCells = ({ cur, prev, code, bold }) => {
-    const c = comparing ? change(cur, prev) : null;
+  // An account row: code, name (the link to the General Ledger for the
+  // report's dates, with a "General Ledger" button on hover), numbers.
+  // Clicking elsewhere only highlights the row, as on the Trial Balance.
+  const AcctRow = ({ r, isAlt, depth }) => {
+    const to = glUrl(r.code, { from, to: period.to });
+    const onRowClick = () => {
+      if (window.getSelection?.().toString()) return;
+      setFocusCode((c) => (c === r.code ? null : r.code));
+    };
     return (
-      <>
-        <td className="pl-num">
-          {code && Math.abs(cur) >= 0.005 ? (
-            <button type="button" className="pl-amt-link" title={`Open ${code} in the General Ledger (${monthLabel(period.to)})`} onClick={() => openLedger(code, endYm)}>{num(cur)}</button>
-          ) : num(cur)}
-        </td>
-        {showPct && <td className="pl-num pl-pct">{pctOf(cur) == null ? "—" : pct(pctOf(cur))}</td>}
-        {comparing && (
-          <>
-            <td className="pl-num pl-cmp">
-              {code && prev && Math.abs(prev) >= 0.005 ? (
-                <button type="button" className="pl-amt-link" title={`Open ${code} in the General Ledger (${monthLabel(prior.to)})`} onClick={() => openLedger(code, prior.to.slice(0, 7))}>{num(prev)}</button>
-              ) : num(prev ?? 0)}
-            </td>
-            <td className={`pl-num${bold ? "" : " pl-chg"}`}>{num(c.diff)}</td>
-            <td className={`pl-num pl-pct${bold ? "" : " pl-chg"}`}>{c.pct == null ? "—" : pct(c.pct)}</td>
-          </>
-        )}
-      </>
+      <div className={`lg-row tb-acct-row${isAlt ? " alt" : ""}${focusCode === r.code ? " selected" : ""}`} onClick={onRowClick}>
+        <div className="tb-cell-name" style={{ paddingLeft: (depth + 1) * INDENT }}>
+          <span className="tb-code">{r.code}</span>
+          <Link className="tb-name tb-acct-link" to={to} title={`Open ${r.name} in the General Ledger`} onClick={(e) => e.stopPropagation()}>{r.name}</Link>
+          <Link className="tb-gl-btn no-print" to={to} onClick={(e) => e.stopPropagation()} aria-label={`Open ${r.code} ${r.name} in the General Ledger`}>
+            General Ledger {GL_ICON}
+          </Link>
+        </div>
+        {amountCells(r.code, { code: r.code })}
+      </div>
     );
   };
 
-  return (
-    <div className="lg-page pl-page">
-      <div className="lg-scroll-container">
-        {/* ── Print header ─────────────────────────────────────────────── */}
-        <div className="print-only pl-print-head">
-          <div className="pl-print-co">{COMPANY.legalName}</div>
-          <div className="pl-print-title">Profit &amp; Loss</div>
-          <div className="pl-print-period">
-            {periodLabel}{comparing ? ` · compared with ${priorLabel}` : ""} · {isFinal ? "Final" : "Preliminary"}
+  // A section is a group: one row when collapsed, its total on the same line;
+  // open, its accounts then a "Total …" row. A section with nothing in it
+  // stays one row so the statement keeps its shape.
+  const Group = ({ id, label, idLabel, src, rows, subgroups = [], depth = 0 }) => {
+    const count = rows.length + subgroups.reduce((n, g) => n + g.rows.length, 0);
+    const empty = count === 0;
+    const isClosed = collapsed.has(id) || empty;
+    const strip = (s) => s.replace(/^Less: /, "").replace(/^Dikurangi: /, "");
+    return (
+      <Fragment>
+        <div className={`lg-row tb-group-row${depth ? " tb-subgroup" : ""}${isClosed ? " collapsed" : ""}${empty ? " pl-group-empty" : ""}`}
+          onClick={empty ? undefined : () => toggleGroup(id)} aria-expanded={empty ? undefined : !isClosed} title={empty ? "No activity in this period" : isClosed ? "Expand" : "Collapse"}>
+          <div className="tb-group-name" style={{ paddingLeft: depth * INDENT }}>
+            <Chevron closed={isClosed} />
+            <span className="lg-group-lbl"><Lbl en={label} id={idLabel} lang={lang} /></span>
           </div>
+          {amountCells(src, { show: isClosed })}
+        </div>
+        {!isClosed && rows.map((r, i) => <AcctRow key={r.code} r={r} isAlt={i % 2 === 1} depth={depth} />)}
+        {!isClosed && subgroups.map((g) => <Group key={g.id} {...g} depth={depth + 1} />)}
+        {!isClosed && (
+          <div className="lg-row subtotal pl-group-total">
+            <div className="tb-total-lbl" style={{ paddingLeft: depth * INDENT }}>
+              <Lbl en={`Total ${strip(label).toLowerCase()}`} id={`Jumlah ${strip(idLabel).toLowerCase()}`} lang={lang} />
+            </div>
+            {amountCells(src)}
+          </div>
+        )}
+      </Fragment>
+    );
+  };
+  const sectionGroup = (key) => {
+    const line = PL_LINES.find((l) => l.kind === "section" && l.key === key);
+    const sec = main.sections[key];
+    return { id: key, label: sec.label, idLabel: sec.id, src: line, rows: shownRows(key) };
+  };
+
+  // The statement in order: groups, subtotals and margin rows.
+  const statementRows = () => {
+    const out = [];
+    for (const line of PL_LINES) {
+      if (line.kind === "section" && !line.nested) {
+        out.push(<Group key={line.key} {...sectionGroup(line.key)} />);
+      } else if (line.kind === "heading") {
+        const opexLine = PL_LINES.find((l) => l.key === "opex");
+        out.push(<Group key="opex" id="opex" label={line.label} idLabel={line.id} src={opexLine} rows={[]} subgroups={nestedKeys.map(sectionGroup)} />);
+      } else if (line.kind === "subtotal" && !line.minor) {
+        out.push(
+          <div key={line.key} className={`lg-row subtotal pl-subtotal${line.grand ? " tb-total-row pl-grand" : ""}`}>
+            <div className="tb-total-lbl"><Lbl en={line.label} id={line.id} lang={lang} /></div>
+            {amountCells(line)}
+          </div>,
+        );
+      } else if (line.kind === "margin") {
+        out.push(
+          <div key={line.key} className="lg-row pl-margin-row">
+            <div className="pl-margin-lbl"><Lbl en={line.label} id={line.id} lang={lang} /></div>
+            {amountCells(line)}
+          </div>,
+        );
+      }
+    }
+    return out;
+  };
+
+  return (
+    <div className="lg-page tb-report pl-page">
+      <div className="lg-scroll-container">
+        {/* ── Print header (print / PDF only) ───────────────────────── */}
+        <div className="print-only tb-print-head">
+          <div className="tb-print-company">{COMPANY.legalName}</div>
+          <div className="tb-print-title">{lang === "id" ? "Laporan Laba Rugi" : "Profit & Loss"}</div>
+          <div className="tb-print-period">{longRange(from, to, lang)}</div>
+          <div className="tb-print-period">({unitInfo[lang === "id" ? "id" : "en"]}) · {statusWord(lang)}{viewNote ? ` · ${viewNote}` : ""}</div>
         </div>
 
         {/* ── Header ───────────────────────────────────────────────────── */}
-        <div className="lg-head lg-head-plain pl-head no-print">
+        <div className="lg-head">
           <div className="lg-head-top">
             <div style={{ flex: 1, minWidth: 0 }}>
-              <button type="button" className="cfr-back" onClick={() => navigate("/reports")}>← Reports</button>
               <h1 className="lg-title">Profit &amp; Loss</h1>
-              <p className="cfr-lede">Revenue, costs and profit for {periodLabel}, from posted journals.</p>
             </div>
-            <div className="lg-head-actions">
-              <ExportMenu onCsv={exportCsv} onPrint={printReport} />
+            <div className="lg-head-actions no-print">
+              <div className="lg-meta-btn-wrap">
+                <button className={`lg-btn-ghost${activeViewId ? " tb-btn-on" : ""}`} onClick={() => togglePop("views")} aria-haspopup="dialog" aria-expanded={openPop === "views"}>
+                  <svg viewBox="0 0 24 24"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>
+                  {activeViewId ? views.find((v) => v.id === activeViewId)?.name : "Views"}
+                </button>
+                {openPop === "views" && (
+                  <ViewsPopover views={views} activeId={activeViewId} onApply={applyView} onDelete={deleteView} onSave={saveView} onClose={closePop}
+                    emptyText="No saved views yet. Set the period, columns, comparison and filters the way you like, then save them here. A preset period rolls forward on its own." />
+                )}
+              </div>
+              <div className="lg-meta-btn-wrap">
+                <button className="lg-btn-brand" onClick={() => togglePop("export")} aria-haspopup="menu" aria-expanded={openPop === "export"}>
+                  <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  Export
+                </button>
+                {openPop === "export" && <ExportPopover onXlsx={exportXlsx} onCsv={exportCsv} onPrint={exportPrint} onClose={closePop} />}
+              </div>
             </div>
           </div>
 
-          {t && (
-            <div className="lg-kpi-strip pl-kpis">
-              {kpis.map((k) => (
-                <div key={k.lbl} className="lg-kpi-cell pl-kpi">
-                  <div className="lg-kpi-lbl">{k.lbl}</div>
-                  <div className={`lg-kpi-val${k.neg ? " danger" : ""}`}>{k.val}</div>
-                  <div className="lg-kpi-sub">{k.sub}</div>
-                </div>
-              ))}
-            </div>
-          )}
+          {/* Status — Final or Preliminary, what isn't posted yet, and whether net profit ties to the TB */}
+          <div className="tb-status no-print">
+            <span className={`tb-status-chip ${isFinal ? "closed" : "open"}`}>{isFinal ? "Final" : "Preliminary"}</span>
+            <span>
+              {closeState === "closed" && `Books are closed through ${closedLabel} — these figures are final.`}
+              {closeState === "partial" && `Closed through ${closedLabel}; later months are still open and may change.`}
+              {closeState === "open" && "This period is still open — figures may change as journals are posted."}
+            </span>
+            {unposted.length > 0 && (
+              <>
+                <span className="tb-status-sep">·</span>
+                <button className="tb-status-link" onClick={() => navigate("/journal-entry")}>
+                  {plural(unposted.length, "draft or pending journal")} dated in the period {unposted.length === 1 ? "isn't" : "aren't"} included
+                </button>
+              </>
+            )}
+            <span className="tb-status-sep">·</span>
+            {partialView ? (
+              <span className="tb-foot" title="The Trial Balance tie-out uses every posted journal and every line.">Tie-out to the Trial Balance not checked while {dimList.length ? "filtered" : "adjustments are excluded"}</span>
+            ) : (
+              <span className={`tb-foot ${tiesOk ? "ok" : "off"}`} title="Net profit here against the sum of P&L accounts in the Trial Balance for the same dates.">
+                <span aria-hidden="true">{tiesOk ? "✓" : "✕"}</span> {tiesOk ? "Net profit ties to the Trial Balance" : `Net profit is off the Trial Balance by ${rp(r2(tbNet - main.totals.netProfit))}`}
+              </span>
+            )}
+            <span className="tb-status-sep">·</span>
+            <span className="tb-unit-note">{unitInfo.en}</span>
+          </div>
         </div>
 
         <div className="lg-table-wrap pl-wrap">
-          {/* ── Controls ───────────────────────────────────────────────── */}
-          <div className="pl-controls no-print">
-            <label className="pl-field">
-              <span className="pl-field-lbl">Period</span>
-              <select className="pl-select" value={presetKey} onChange={(e) => pickPreset(e.target.value)}>
-                {presets.map((p) => <option key={p.key} value={p.key}>{p.label} · {rangeLabel(p.from, p.to)}</option>)}
-                <option value={CUSTOM}>Custom range…</option>
-              </select>
-            </label>
-            {presetKey === CUSTOM && (
-              <div className="pl-field pl-dates">
-                <span className="pl-field-lbl">From – to</span>
-                <div className="pl-dates-row">
-                  <input type="date" className="pl-select" value={custom.from} max={custom.to || undefined} onChange={(e) => setCustom((c) => ({ ...c, from: e.target.value }))} aria-label="From date" />
-                  <span className="pl-dash">–</span>
-                  <input type="date" className="pl-select" value={custom.to} min={custom.from || undefined} onChange={(e) => setCustom((c) => ({ ...c, to: e.target.value }))} aria-label="To date" />
-                </div>
-              </div>
-            )}
-            <label className="pl-field">
-              <span className="pl-field-lbl">Compare with</span>
-              <select className="pl-select" value={compare} onChange={(e) => setCompare(e.target.value)}>
-                <option value="none">None</option>
-                <option value="prev">Previous period{nextPrior ? ` · ${rangeLabel(nextPrior.from, nextPrior.to)}` : ""}</option>
-              </select>
-            </label>
-            <div className="pl-toggles">
-              <label className="pl-check"><input type="checkbox" checked={showPct} onChange={(e) => setShowPct(e.target.checked)} /> % of revenue</label>
-              <label className="pl-check"><input type="checkbox" checked={showZero} onChange={(e) => setShowZero(e.target.checked)} /> Show zero balances</label>
-            </div>
-          </div>
-
-          {/* ── Status line ────────────────────────────────────────────── */}
-          {validPeriod && (
-            <div className="pl-status">
-              <span className={`pl-status-pill ${isFinal ? "final" : "prelim"}`}>{isFinal ? "Final" : "Preliminary"}</span>
-              <span className="pl-status-text">
-                {isFinal
-                  ? `The period is closed (books closed through ${monthLabel(`${closedThrough}-01`)}).`
-                  : "Preliminary — the period is still open."}
-                {unposted.length > 0 && (
-                  <>
-                    {" "}
-                    <button type="button" className="pl-status-link no-print" onClick={() => navigate("/journal-entry")}>
-                      {unposted.length} draft or pending journal{unposted.length === 1 ? "" : "s"}
-                    </button>
-                    <span className="print-only pl-inline">{unposted.length} draft or pending journal{unposted.length === 1 ? "" : "s"}</span>
-                    {" "}dated in the period {unposted.length === 1 ? "is" : "are"} not included.
-                  </>
-                )}
-              </span>
-            </div>
-          )}
-
-          {/* ── Statement ──────────────────────────────────────────────── */}
-          <div className="lg-card pl-card">
-            {!pl ? (
-              <div className="pl-empty">Pick a start and end date to run the report.</div>
-            ) : (
-              <>
-                <div className="pl-card-bar no-print">
-                  <span className="pl-card-note">Click a section to see its accounts; click an amount to open the General Ledger.</span>
-                  <button type="button" className="lg-meta-btn" onClick={toggleAll} disabled={expandable.length === 0}>
-                    {allExpanded ? "Collapse all" : "Expand all"}
+          <div className="lg-card lg-table-tb pl-card" style={{ "--tb-n": cells.length }}>
+            {/* ── Toolbar: what the report covers ─────────────────────── */}
+            <div className="lg-filter-row no-print tb-filter-row pl-toolbar">
+              <div className="tb-toolbar-left">
+                <div className="lg-meta-btn-wrap">
+                  <button className="lg-meta-btn tb-period-btn" onClick={() => togglePop("period")} aria-haspopup="dialog" aria-expanded={openPop === "period"}>
+                    {CAL}
+                    <span className="meta-val">{period.label}</span>
+                    <span className="meta-lbl">{periodRange}</span>
                   </button>
+                  {openPop === "period" && <PeriodPopover presets={presets} period={period} onPick={(c) => { setPeriodChoice(c); closePop(); }} onClose={closePop} />}
                 </div>
-                <div className="pl-table-scroll">
-                  <table className={`pl-table${comparing ? " cmp" : ""}`}>
-                    <thead>
-                      <tr>
-                        <th className="pl-th-line">Line</th>
-                        <th className="pl-num">{comparing ? periodLabel : "Amount"} <span className="pl-th-unit">(Rp)</span></th>
-                        {showPct && <th className="pl-num pl-pct">% of rev.</th>}
-                        {comparing && (
-                          <>
-                            <th className="pl-num">{priorLabel} <span className="pl-th-unit">(Rp)</span></th>
-                            <th className="pl-num">Change <span className="pl-th-unit">(Rp)</span></th>
-                            <th className="pl-num pl-pct">Change %</th>
-                          </>
-                        )}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pl.statement.map((line) => {
-                        if (line.kind === "heading") {
-                          return (
-                            <tr key={line.key} className="pl-row-heading">
-                              <td colSpan={colCount}>{line.label}</td>
-                            </tr>
-                          );
-                        }
-                        if (line.kind === "subtotal") {
-                          return (
-                            <tr key={line.key} className={`pl-row-subtotal${line.minor ? " minor" : ""}${line.grand ? " grand" : ""}`}>
-                              <td className="pl-line">
-                                {line.label}
-                                {line.key === "grossProfit" && pl.grossMargin != null && <span className="pl-margin">margin {pct(pl.grossMargin)}</span>}
-                              </td>
-                              {amountCells({ cur: line.amount, prev: lineAmount(plPrior, line), bold: true })}
-                            </tr>
-                          );
-                        }
-                        const sec = pl.sections[line.key];
-                        const rows = visibleRows(line.key);
-                        const open = expanded.has(line.key) && rows.length > 0;
-                        return (
-                          <Fragment key={line.key}>
-                            <tr className={`pl-row-section${line.nested ? " nested" : ""}${open ? " open" : ""}${rows.length ? "" : " empty"}`}>
-                              <td className="pl-line">
-                                <button type="button" className="pl-sec-btn" onClick={() => toggle(line.key)} disabled={!rows.length} aria-expanded={open}>
-                                  <ChevronIcon open={open} />
-                                  <span>{sec.label}</span>
-                                  <span className="pl-sec-count">{rows.length ? `${rows.length} account${rows.length === 1 ? "" : "s"}` : "no activity"}</span>
-                                </button>
-                              </td>
-                              {amountCells({ cur: sec.total, prev: lineAmount(plPrior, line) })}
-                            </tr>
-                            {open && rows.map((r) => (
-                              <tr key={r.code} className={`pl-row-account${line.nested ? " nested" : ""}`}>
-                                <td className="pl-line">
-                                  <span className="pl-code">{r.code}</span>
-                                  <span className="pl-name">{r.name}</span>
-                                </td>
-                                {amountCells({ cur: r.amount, prev: priorRow(line.key, r.code)?.amount ?? 0, code: r.code })}
-                              </tr>
-                            ))}
-                          </Fragment>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                <div className="lg-meta-btn-wrap">
+                  <button className={`lg-meta-btn${multi ? " active" : ""}`} onClick={() => togglePop("columns")} aria-haspopup="menu" aria-expanded={openPop === "columns"}>
+                    <span className="meta-lbl">Columns:</span>
+                    <span className="meta-val">{COLUMN_LABELS[colEff]}</span>
+                  </button>
+                  {openPop === "columns" && <ChoicePopover className="tb-compare-pop" items={columnItems} value={colEff} onPick={(k) => { setColMode(k); closePop(); }} onClose={closePop} />}
                 </div>
-                {!pl.balanced && (
-                  <div className="pl-warn">
-                    Net profit ({num(pl.totals.netProfit)}) does not match the sum of P&amp;L accounts ({num(pl.netProfitCheck)}).
+                <div className="lg-meta-btn-wrap">
+                  <button className={`lg-meta-btn${compRange ? " active" : ""}`} onClick={() => togglePop("compare")} disabled={multi}
+                    title={multi ? "Comparison works on a single Total column. Set Columns to Total only to compare." : undefined}
+                    aria-haspopup="menu" aria-expanded={openPop === "compare"}>
+                    <span className="meta-lbl">Compare:</span>
+                    <span className="meta-val">{compRange ? COMPARE_LABELS[compare] : "None"}</span>
+                  </button>
+                  {openPop === "compare" && <ChoicePopover className="tb-compare-pop" items={compareItems} value={compRange ? compare : "none"} onPick={(k) => { setCompare(k); closePop(); }} onClose={closePop} />}
+                </div>
+                <div className="lg-meta-btn-wrap">
+                  <button className={`lg-meta-btn${adjEff !== "included" ? " active" : ""}`} onClick={() => togglePop("adj")}
+                    title={`${plural(adjustingCount, "adjusting journal")} posted in this period`} aria-haspopup="menu" aria-expanded={openPop === "adj"}>
+                    <span className="meta-lbl">Adjustments:</span>
+                    <span className="meta-val">{ADJ_LABELS[adjEff]}</span>
+                    {adjustingCount > 0 && <span className="tb-adj-count">{adjustingCount}</span>}
+                  </button>
+                  {openPop === "adj" && <ChoicePopover className="tb-adj-pop" items={adjItems} value={adjEff} onPick={(k) => { setAdjMode(k); closePop(); }} onClose={closePop} />}
+                </div>
+                {dimList.map(([k, v]) => (
+                  <div key={k} className="lg-meta-btn-wrap pl-chip-wrap">
+                    <button className="lg-meta-btn active pl-chip" onClick={() => { setDimEdit(k); togglePop("dim"); }} title="Change this filter">
+                      <span className="meta-lbl">{DIM_BY_KEY[k]?.label || k}:</span>
+                      <span className="meta-val">{v}</span>
+                    </button>
+                    <button className="pl-chip-x" aria-label={`Remove ${DIM_BY_KEY[k]?.label || k} filter`}
+                      onClick={() => setDims((d) => { const n = { ...d }; delete n[k]; return n; })}>×</button>
+                    {openPop === "dim" && dimEdit === k && (
+                      <DimensionPopover value={{ key: k, value: v }} valuesOf={valuesOf} keys={[k]} applyLabel="Apply" clearLabel="Remove filter"
+                        note="Only journal lines tagged with this value count. Untagged lines are left out."
+                        onApply={(val) => { setDims((d) => { const n = { ...d }; delete n[k]; if (val) n[val.key] = val.value; return n; }); closePop(); }} onClose={closePop} />
+                    )}
+                  </div>
+                ))}
+                {addableKeys.length > 0 && (
+                  <div className="lg-meta-btn-wrap">
+                    <button className="lg-meta-btn pl-add-filter" onClick={() => { setDimEdit(null); togglePop("dim"); }} aria-haspopup="dialog" aria-expanded={openPop === "dim" && !dimEdit}>
+                      + Add filter
+                    </button>
+                    {openPop === "dim" && !dimEdit && (
+                      <DimensionPopover value={null} valuesOf={valuesOf} keys={addableKeys} applyLabel="Add filter" clearLabel="Cancel"
+                        note="Only journal lines tagged with this value count. Filters on different dimensions all apply."
+                        onApply={(val) => { if (val) setDims((d) => ({ ...d, [val.key]: val.value })); closePop(); }} onClose={closePop} />
+                    )}
                   </div>
                 )}
-              </>
+                <div className="lg-search">
+                  <svg viewBox="0 0 14 14"><circle cx="6" cy="6" r="3.5"/><path d="M9 9l3 3" strokeLinecap="round"/></svg>
+                  <input placeholder="Search account code or name…" value={search} onChange={(e) => setSearch(e.target.value)} />
+                </div>
+              </div>
+              <div className="lg-filter-meta">
+                <button className="tb-icon-btn" onClick={() => setLevel(toCollapse, false)} disabled={!toCollapse.length} title="Collapse one level" aria-label="Collapse one level">
+                  <svg viewBox="0 0 24 24"><polyline points="7 15 12 10 17 15"/><line x1="5" y1="20" x2="19" y2="20"/></svg>
+                </button>
+                <button className="tb-icon-btn" onClick={() => setLevel(toExpand, true)} disabled={!toExpand.length} title="Expand one level" aria-label="Expand one level">
+                  <svg viewBox="0 0 24 24"><polyline points="7 9 12 14 17 9"/><line x1="5" y1="4" x2="19" y2="4"/></svg>
+                </button>
+                <div className="lg-meta-btn-wrap">
+                  <button className={`tb-icon-btn${openPop === "settings" ? " on" : ""}`} onClick={() => togglePop("settings")} title="Report settings" aria-label="Open report settings" aria-haspopup="dialog" aria-expanded={openPop === "settings"}>
+                    {GEAR}
+                  </button>
+                  {openPop === "settings" && (
+                    <SettingsPopover showZero={showZero} onShowZero={setShowZero} showPct={showPct} onShowPct={setShowPct}
+                      unit={unit} onUnit={setUnit} lang={lang} onLang={setLang} onClose={closePop} />
+                  )}
+                </div>
+                {!isDefault && <button className="lg-reset-all" onClick={resetAll}>Reset all</button>}
+              </div>
+            </div>
+
+            {/* ── Statement: the Trial Balance's grid ───────────────────── */}
+            <div className="lg-col-header">
+              <div><Lbl en="Account" id="Akun" lang={lang} /></div>
+              {cells.map((c) => (
+                <div key={c.key} style={{ textAlign: "right" }} className={c.kind !== "amt" ? "pl-cell-sub" : undefined}
+                  title={c.col ? rangeLabel(c.col.range.from, c.col.range.to) : undefined}>
+                  <Lbl en={c.label} id={c.id_label} lang={lang} />
+                  {(c.kind === "amt" || c.kind === "diff") && <span className="pl-th-unit"> ({unitHead})</span>}
+                </div>
+              ))}
+            </div>
+            <div>
+              {q && shownAccounts === 0 && <div className="lg-empty">No accounts match “{search.trim()}”. The totals below still cover every account.</div>}
+              {statementRows()}
+            </div>
+            {!main.balanced && (
+              <div className="pl-warn">
+                Net profit ({num(main.totals.netProfit)}) does not match the sum of P&amp;L accounts ({num(main.netProfitCheck)}).
+              </div>
             )}
+
+            {/* ── Sign-off block (print / PDF only) ── */}
+            <div className="print-only tb-signoff">
+              {(lang === "id" ? [["Disiapkan oleh", user?.name], ["Diperiksa oleh", ""], ["Disetujui oleh", ""]] : [["Prepared by", user?.name], ["Reviewed by", ""], ["Approved by", ""]]).map(([lbl, name]) => (
+                <div key={lbl} className="tb-sign">
+                  <div className="tb-sign-lbl">{lbl}</div>
+                  <div className="tb-sign-line" />
+                  <div className="tb-sign-name">{name || (lang === "id" ? "Nama" : "Name")}</div>
+                  <div className="tb-sign-date">{lang === "id" ? "Tanggal:" : "Date:"}</div>
+                </div>
+              ))}
+            </div>
           </div>
-          <p className="pl-foot">
-            Expenses and deductions are shown as positive amounts and subtracted in the subtotals. Negative results are in parentheses.
-            {showPct && " % of revenue is each line divided by net revenue."}
+          <p className="pl-foot no-print">
+            Click a group to open or close it. An account&apos;s name opens the General Ledger for the period; an amount opens it for that column&apos;s dates{dimList.length ? ", with the same filters" : ""}.
+            {" "}Expenses and deductions are shown as positive amounts and subtracted in the subtotals; negative results are in parentheses.
+            {" "}Margins and % of revenue are against net revenue.
           </p>
         </div>
       </div>
+
+      {/* ── Sticky footer ──────────────────────────────────────────── */}
+      <div className="lg-footer no-print">
+        <div className="lg-footer-left">
+          <span><span className="lg-footer-num">{shownAccounts}</span> of {totalAccounts} accounts shown</span>
+        </div>
+        <div className="lg-footer-right">
+          <span className="lg-footer-lbl">Net revenue</span>
+          <span className="lg-footer-total">{rp(main.totals.netRevenue)}</span>
+          <span className="lg-footer-sep">·</span>
+          <span className="lg-footer-lbl">Net profit</span>
+          <span className="lg-footer-total">{rp(main.totals.netProfit)}</span>
+          {main.margins.netMargin != null && <span className="lg-footer-lbl">margin {pct(main.margins.netMargin)}</span>}
+          <span className="lg-footer-sep">·</span>
+          {partialView ? (
+            <span className="tb-balance-flag" title="A dimension filter or excluded adjustments leave journals out, so the Trial Balance tie-out isn't checked.">Filtered — not checked</span>
+          ) : (
+            <span className={`tb-balance-flag ${tiesOk ? "ok" : "off"}`}>{tiesOk ? "✓ Ties to the Trial Balance" : `Off the TB by ${rp(Math.abs(r2(tbNet - main.totals.netProfit)))}`}</span>
+          )}
+        </div>
+      </div>
+
+      {toast && <div className="toast show">{toast}</div>}
     </div>
   );
 }
