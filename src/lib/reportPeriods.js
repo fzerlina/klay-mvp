@@ -86,6 +86,63 @@ export function previousPeriod(from, to) {
   return { from: iso(start), to: iso(end) };
 }
 
+// The same day a year earlier; a month-end stays a month-end (29 Feb → 28 Feb).
+export function sameDayLastYear(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  const day = d === lastDay(y, m) ? lastDay(y - 1, m) : Math.min(d, lastDay(y - 1, m));
+  return ymd(y - 1, m, day);
+}
+
+// Last day of the month an ISO date falls in.
+export function monthEnd(iso) {
+  const [y, m] = iso.split("-").map(Number);
+  return ymd(y, m, lastDay(y, m));
+}
+
+// First day of the fiscal year an ISO date falls in.
+export function fiscalYearStartFor(iso, fyStart = 1) {
+  const [y, m] = iso.split("-").map(Number);
+  const [fy, fm] = fiscalYearStartOf(y, m, fyStart);
+  return ymd(fy, fm, 1);
+}
+
+// [from, to] cut into calendar months or fiscal quarters, each clipped to the
+// range. Labels read "Apr 2025" for a whole month and "Q2 2025" (fiscal year
+// starting in January) or "Q2 FY2025/26" for a quarter; a clipped piece shows
+// its own dates.
+export function splitPeriod(from, to, mode, fyStart = 1) {
+  if (!from || !to || from > to) return [];
+  const out = [];
+  const [fy, fm] = from.split("-").map(Number);
+  const [ty, tm] = to.split("-").map(Number);
+  if (mode === "month") {
+    for (let [y, m] = [fy, fm]; y * 12 + m <= ty * 12 + tm; [y, m] = addMonths(y, m, 1)) {
+      const a = ymd(y, m, 1) < from ? from : ymd(y, m, 1);
+      const b = ymd(y, m, lastDay(y, m)) > to ? to : ymd(y, m, lastDay(y, m));
+      out.push({ from: a, to: b, label: rangeLabel(a, b) });
+    }
+    return out;
+  }
+  // Fiscal quarters: start from the quarter containing `from`.
+  const [sy, sm] = fiscalYearStartOf(fy, fm, fyStart);
+  const q0 = Math.floor(((fy * 12 + fm) - (sy * 12 + sm)) / 3);
+  let [qy, qm] = addMonths(sy, sm, q0 * 3);
+  while (ymd(qy, qm, 1) <= to) {
+    const [ey, em] = addMonths(qy, qm, 2);
+    const qs = ymd(qy, qm, 1);
+    const qe = ymd(ey, em, lastDay(ey, em));
+    const a = qs < from ? from : qs;
+    const b = qe > to ? to : qe;
+    const [fyy, fym] = fiscalYearStartOf(qy, qm, fyStart);
+    const n = Math.floor(((qy * 12 + qm) - (fyy * 12 + fym)) / 3) + 1;
+    const fyName = fyStart === 1 ? `${fyy}` : `FY${fyy}/${String((fyy + 1) % 100).padStart(2, "0")}`;
+    const whole = a === qs && b === qe;
+    out.push({ from: a, to: b, label: whole ? `Q${n} ${fyName}` : `Q${n} ${fyName} (${rangeLabel(a, b)})` });
+    [qy, qm] = addMonths(qy, qm, 3);
+  }
+  return out;
+}
+
 // Recent month-ends up to today, newest first — for as-of pickers.
 export function recentMonthEnds(count = 6, today = TODAY) {
   const out = [];

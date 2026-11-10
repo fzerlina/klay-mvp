@@ -11,7 +11,8 @@ import { useClosePeriod } from "../state/ClosePeriodContext";
 import { useBankRecon } from "../state/BankReconContext";
 import { useNonBankRecon } from "../state/NonBankReconContext";
 import { useDimensions } from "../state/DimensionsContext";
-import { periodPresets, rangeLabel, monthLabel, previousPeriod, todayIso } from "../lib/reportPeriods";
+import { periodPresets, rangeLabel, monthLabel, previousPeriod, todayIso, sameDayLastYear } from "../lib/reportPeriods";
+import { useClickOutside, Check, ChoicePopover, PeriodPopover, DimensionPopover, ViewsPopover, ExportPopover } from "../components/ReportControls";
 import { downloadCsv, reportHeader, exportName, printReport } from "../lib/reportExport";
 import { downloadXlsx, colName } from "../lib/xlsxExport";
 import { lineDimensions } from "../lib/generalLedger";
@@ -20,7 +21,6 @@ import {
   computeTrialBalance, ledgerBalance, unpostedInPeriod, periodCloseState,
   netProfitForPeriod, tieOut, coaTree,
 } from "../lib/trialBalance";
-import { FILTER_DIMS } from "./GlPanels";
 import "./modules.css";
 import "./invoices-ledger.css";
 import "./trial-balance.css";
@@ -75,14 +75,6 @@ const r2 = (v) => Math.round(v * 100) / 100;
 const pad = (n) => String(n).padStart(2, "0");
 const lastDay = (y, m) => new Date(Date.UTC(y, m, 0)).getUTCDate();
 const monthEndOf = (ym) => { const [y, m] = ym.split("-").map(Number); return `${ym}-${pad(lastDay(y, m))}`; };
-// The same day a year earlier; a month-end stays a month-end (29 Feb → 28 Feb).
-function shiftYear(iso) {
-  const [y, m, d] = iso.split("-").map(Number);
-  const end = d === lastDay(y, m);
-  const day = end ? lastDay(y - 1, m) : Math.min(d, lastDay(y - 1, m));
-  return `${y - 1}-${pad(m)}-${pad(day)}`;
-}
-
 // ── Columns ───────────────────────────────────────────────────────────────
 // Every layout splits balances into Debit and Credit, the way the Indonesian
 // neraca saldo and the Excel export do — a credit balance is never shown as a
@@ -245,135 +237,6 @@ const GROUP_LABELS = {
 };
 const COMPARE_LABELS = { none: "None", prev: "Previous period", prev_year: "Same period last year" };
 
-function useClickOutside(ref, onClose) {
-  useEffect(() => {
-    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, [ref, onClose]);
-}
-
-const Check = () => <svg className="lg-popover-check" viewBox="0 0 12 12"><polyline points="2 6 5 9 10 3"/></svg>;
-
-// A plain pick-one menu.
-function ChoicePopover({ items, value, onPick, onClose, className = "" }) {
-  const ref = useRef(null);
-  useClickOutside(ref, onClose);
-  return (
-    <div className={`lg-popover ${className}`} ref={ref}>
-      <div className="lg-popover-list">
-        {items.map((it) => (
-          <button key={it.k} className={`lg-popover-item${value === it.k ? " selected" : ""}`} onClick={() => onPick(it.k)}>
-            <span>{it.lbl}</span>
-            <span className="tb-period-range">{it.hint}{value === it.k && <Check />}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// Period picker — the shared report presets, plus a custom from/to range.
-function PeriodPopover({ presets, period, onPick, onClose }) {
-  const ref = useRef(null);
-  useClickOutside(ref, onClose);
-  const [from, setFrom] = useState(period.from);
-  const [to, setTo] = useState(period.to);
-  const invalid = !from || !to || from > to;
-  return (
-    <div className="lg-popover lg-filter-pop tb-period-pop" ref={ref}>
-      <div className="lg-popover-list">
-        {presets.map((p) => (
-          <button key={p.key} className={`lg-popover-item${period.key === p.key ? " selected" : ""}`} onClick={() => onPick({ key: p.key })}>
-            <span>{p.label}</span>
-            <span className="tb-period-range">{rangeLabel(p.from, p.to)}{period.key === p.key && <Check />}</span>
-          </button>
-        ))}
-      </div>
-      <div className="lg-filter-body">
-        <div className="lg-filter-fld">
-          <div className="lg-filter-fld-lbl">Custom range</div>
-          <div className="lg-filter-row2">
-            <input type="date" className="lg-filter-input" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} aria-label="From date" />
-            <span style={{ color: "var(--color-text-tertiary)", fontSize: 11 }}>—</span>
-            <input type="date" className="lg-filter-input" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} aria-label="To date" />
-          </div>
-          {from && to && from > to && <div className="tb-period-err">The start date is after the end date.</div>}
-        </div>
-      </div>
-      <div className="lg-filter-foot">
-        <button className="lg-filter-reset" onClick={onClose}>Cancel</button>
-        <button className="lg-filter-apply" disabled={invalid} onClick={() => onPick({ key: "custom", from, to })}>Apply range</button>
-      </div>
-    </div>
-  );
-}
-
-// Dimension filter — one dimension, one value (the GL's filter dimensions).
-function DimensionPopover({ value, valuesOf, onApply, onClose }) {
-  const ref = useRef(null);
-  useClickOutside(ref, onClose);
-  const [key, setKey] = useState(value?.key || FILTER_DIMS[0]);
-  const opts = valuesOf(key);
-  const [val, setVal] = useState(value?.value && opts.includes(value.value) ? value.value : opts[0] || "");
-  return (
-    <div className="lg-popover lg-filter-pop tb-dim-pop" ref={ref}>
-      <div className="lg-filter-body">
-        <div className="lg-filter-fld">
-          <div className="lg-filter-fld-lbl">Dimension</div>
-          <select className="lg-filter-input" value={key} onChange={(e) => { setKey(e.target.value); setVal(valuesOf(e.target.value)[0] || ""); }} aria-label="Dimension">
-            {FILTER_DIMS.map((k) => <option key={k} value={k}>{DIM_BY_KEY[k]?.label || k}</option>)}
-          </select>
-        </div>
-        <div className="lg-filter-fld">
-          <div className="lg-filter-fld-lbl">Value</div>
-          <select className="lg-filter-input" value={val} onChange={(e) => setVal(e.target.value)} aria-label="Dimension value">
-            {opts.map((v) => <option key={v} value={v}>{v}</option>)}
-          </select>
-        </div>
-        <div className="tb-pop-note">Shows only journal lines tagged with this value. Opening balances and untagged lines are left out, so a filtered trial balance needn't balance.</div>
-      </div>
-      <div className="lg-filter-foot">
-        <button className="lg-filter-reset" onClick={() => onApply(null)}>{value ? "Clear filter" : "Cancel"}</button>
-        <button className="lg-filter-apply" disabled={!val} onClick={() => onApply({ key, value: val })}>Apply</button>
-      </div>
-    </div>
-  );
-}
-
-// Saved views — the period, columns, comparison, grouping, sort and filters
-// under a name. Kept per user in this browser (a per-viewer convenience).
-function ViewsPopover({ views, activeId, onApply, onDelete, onSave, onClose }) {
-  const ref = useRef(null);
-  useClickOutside(ref, onClose);
-  const [name, setName] = useState("");
-  const save = () => { if (name.trim()) { onSave(name.trim()); setName(""); } };
-  return (
-    <div className="lg-popover tb-views-pop" ref={ref}>
-      <div className="lg-popover-section-lbl">Saved views</div>
-      <div className="lg-popover-list">
-        {views.length === 0 && (
-          <div className="tb-pop-note" style={{ padding: "4px 10px 8px" }}>No saved views yet. Set the period, columns, grouping and filters the way you like, then save them here.</div>
-        )}
-        {views.map((v) => (
-          <div key={v.id} className="tb-view-item">
-            <button className={`lg-popover-item${activeId === v.id ? " selected" : ""}`} onClick={() => onApply(v)}>
-              <span>{v.name}</span>
-              {activeId === v.id && <Check />}
-            </button>
-            <button className="tb-view-del" title="Delete view" aria-label={`Delete view ${v.name}`} onClick={() => onDelete(v.id)}>×</button>
-          </div>
-        ))}
-      </div>
-      <div className="lg-filter-foot tb-views-foot">
-        <input className="lg-filter-input" placeholder="Name this view…" value={name} maxLength={40}
-          onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && save()} aria-label="View name" />
-        <button className="lg-filter-apply" disabled={!name.trim()} onClick={save}>Save</button>
-      </div>
-    </div>
-  );
-}
-
 // Report settings (DualEntry's gear): how the report is laid out, as opposed
 // to what it covers (period, comparison, dimension), which sit in the toolbar.
 const GROUP_ITEMS = [
@@ -471,23 +334,6 @@ function ReviewPopover({ anchor, account, findings, glTo, onClose }) {
   );
 }
 
-function ExportPopover({ onXlsx, onCsv, onPrint, onClose }) {
-  const ref = useRef(null);
-  useClickOutside(ref, onClose);
-  return (
-    <div className="lg-popover" ref={ref}>
-      <div className="lg-popover-list">
-        <button className="lg-popover-item" onClick={onXlsx}>
-          <span>Excel (.xlsx)</span>
-          <span className="tb-period-range">with formulas</span>
-        </button>
-        <button className="lg-popover-item" onClick={onCsv}>CSV</button>
-        <button className="lg-popover-item" onClick={onPrint}>Print / PDF</button>
-      </div>
-    </div>
-  );
-}
-
 // ── Page ──────────────────────────────────────────────────────────────────
 
 // Opens on last month — the month being closed. The ending balances are the
@@ -561,7 +407,7 @@ export default function TrialBalancePage() {
   const prevRange = useMemo(() => previousPeriod(dateFrom, dateTo), [dateFrom, dateTo]);
   const compRange = useMemo(() => {
     if (compare === "prev") return prevRange;
-    if (compare === "prev_year") return { from: shiftYear(dateFrom), to: shiftYear(dateTo) };
+    if (compare === "prev_year") return { from: sameDayLastYear(dateFrom), to: sameDayLastYear(dateTo) };
     return null;
   }, [compare, prevRange, dateFrom, dateTo]);
   const compLabel = compRange ? rangeLabel(compRange.from, compRange.to) : "";
@@ -971,8 +817,8 @@ export default function TrialBalancePage() {
     };
     return (
       <div className={`lg-row tb-acct-row${isAlt ? " alt" : ""}${focusCode === r.code || reviewPop?.code === r.code ? " selected" : ""}`} onClick={onRowClick}>
-        <div className="lg-cell-no">{r.code}</div>
-        <div className="tb-cell-name" style={{ paddingLeft: depth * INDENT }}>
+        <div className="tb-cell-name" style={{ paddingLeft: (depth + 1) * INDENT }}>
+          <span className="tb-code">{r.code}</span>
           <Link className="tb-name tb-acct-link" to={glUrl(r.code)} title={`Open ${r.name} in the General Ledger`} onClick={(e) => e.stopPropagation()}>{r.name}</Link>
           <ReviewFlag r={r} />
           <Link className="tb-gl-btn no-print" to={glUrl(r.code)} onClick={(e) => e.stopPropagation()} aria-label={`Open ${r.code} ${r.name} in the General Ledger`}>
@@ -989,7 +835,6 @@ export default function TrialBalancePage() {
   function TotalRow({ label, totals, depth = 0, className = "" }) {
     return (
       <div className={`lg-row subtotal ${className}`}>
-        <div />
         <div className="tb-total-lbl" style={{ paddingLeft: depth * INDENT }}>{label}</div>
         {cols.map((c) => (
           <div key={c.key} className={cellCls(c)}>
@@ -1015,7 +860,6 @@ export default function TrialBalancePage() {
           <div className="tb-group-name" style={{ paddingLeft: indent * INDENT }}>
             <Chevron closed={collapsed} />
             <span className="lg-group-lbl">{node.label}</span>
-            <span className="lg-group-count">{rows.length}</span>
           </div>
           {cols.map((c) => (
             <div key={c.key} className={cellCls(c)}>
@@ -1044,7 +888,7 @@ export default function TrialBalancePage() {
   const compareItems = [
     { k: "none", lbl: "No comparison" },
     { k: "prev", lbl: "Previous period", hint: rangeLabel(prevRange.from, prevRange.to) },
-    { k: "prev_year", lbl: "Same period last year", hint: rangeLabel(shiftYear(dateFrom), shiftYear(dateTo)) },
+    { k: "prev_year", lbl: "Same period last year", hint: rangeLabel(sameDayLastYear(dateFrom), sameDayLastYear(dateTo)) },
   ];
   const sortItems = Object.entries(SORT_LABELS)
     .filter(([k]) => k !== "change-desc" || compRange)
@@ -1074,7 +918,8 @@ export default function TrialBalancePage() {
                   <svg viewBox="0 0 24 24"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>
                   {activeViewId ? views.find((v) => v.id === activeViewId)?.name : "Views"}
                 </button>
-                {openPop === "views" && <ViewsPopover views={views} activeId={activeViewId} onApply={applyView} onDelete={deleteView} onSave={saveView} onClose={closePop} />}
+                {openPop === "views" && <ViewsPopover views={views} activeId={activeViewId} onApply={applyView} onDelete={deleteView} onSave={saveView} onClose={closePop}
+                  emptyText="No saved views yet. Set the period, columns, grouping and filters the way you like, then save them here." />}
               </div>
               <div className="lg-meta-btn-wrap">
                 <button className="lg-btn-brand" onClick={() => togglePop("export")} aria-haspopup="menu" aria-expanded={openPop === "export"}>
@@ -1168,7 +1013,8 @@ export default function TrialBalancePage() {
                     <span className="meta-lbl">Dimension:</span>
                     <span className="meta-val">{dimLabel || "All"}</span>
                   </button>
-                  {openPop === "dim" && <DimensionPopover value={dim} valuesOf={valuesOf} onApply={(v) => { setDim(v); closePop(); }} onClose={closePop} />}
+                  {openPop === "dim" && <DimensionPopover value={dim} valuesOf={valuesOf} onApply={(v) => { setDim(v); closePop(); }} onClose={closePop}
+                    note="Shows only journal lines tagged with this value. Opening balances and untagged lines are left out, so a filtered trial balance needn't balance." />}
                 </div>
                 <div className="lg-search">
                   <svg viewBox="0 0 14 14"><circle cx="6" cy="6" r="3.5"/><path d="M9 9l3 3" strokeLinecap="round"/></svg>
@@ -1210,12 +1056,10 @@ export default function TrialBalancePage() {
 
             <div className="lg-col-header tb-col-super" aria-hidden="true">
               <div />
-              <div />
               {spans.map((sp, i) => <div key={i} style={{ gridColumn: `span ${sp.span}` }}>{sp.label}</div>)}
             </div>
             <div className="lg-col-header">
-              <div>Code</div>
-              <div>Account Name</div>
+              <div>Account</div>
               {cols.map((c) => <div key={c.key} style={{ textAlign: "right" }} title={c.title}>{c.label}</div>)}
             </div>
 

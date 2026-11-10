@@ -268,7 +268,13 @@ export default function GeneralLedgerPage() {
   const canExport = hasCapability("gl.export");
 
   const [search, setSearch] = useState("");
-  const [filters, setFilters] = useState(EMPTY_FILTERS);
+  // Reports that drill in (Profit & Loss) pass their dimension filter as
+  // dim_<key>=<value>, so the ledger opens on the same lines.
+  const [filters, setFilters] = useState(() => {
+    const dims = {};
+    for (const [k, v] of params.entries()) if (k.startsWith("dim_") && v) dims[k.slice(4)] = v;
+    return Object.keys(dims).length ? { ...EMPTY_FILTERS, dims } : EMPTY_FILTERS;
+  });
   const [shown, setShown] = useState(loadShown);
   useEffect(() => { try { window.localStorage.setItem(COLS_KEY, JSON.stringify(shown)); } catch { /* per-viewer nicety only */ } }, [shown]);
   const [drawer, setDrawer] = useState(null); // { je_number, line }
