@@ -13,7 +13,7 @@ import { COA_BY_CODE, getActiveAccounts } from "../data/seed/coa";
 import { DIM_BY_KEY, dimensionsForAccount, paletteFor } from "../data/seed/dimensions";
 import { useDimensions } from "../state/DimensionsContext";
 import { manualPostBlock, isClosedDate, firstOfNextMonth } from "../lib/journalLifecycle";
-import { ACCOUNT_GROUPS, GL_STATUSES, EMPTY_FILTERS, toCents, lineDimensions } from "../lib/generalLedger";
+import { ACCOUNT_GROUPS, GL_STATUSES, EMPTY_FILTERS, toCents, lineDimensions, UNTAGGED } from "../lib/generalLedger";
 import { JE_SOURCES, STATUS_LABEL, STATUS_BADGE_CLASS } from "./journalEntryShared";
 import { formatDateEn } from "../lib/format";
 
@@ -370,6 +370,7 @@ export function FiltersPopover({ filters, onChange, parties }) {
               <select className="dje-input" value={filters.dims[k] || ""} onChange={(e) => set({ dims: { ...filters.dims, [k]: e.target.value } })}>
                 <option value="">Any</option>
                 {valuesOf(k).map((v) => <option key={v} value={v}>{v}</option>)}
+                <option value={UNTAGGED}>Untagged</option>
               </select>
             </label>
           ))}

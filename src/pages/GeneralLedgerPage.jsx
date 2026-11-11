@@ -41,7 +41,7 @@ import { downloadXlsx, colName } from "../lib/xlsxExport";
 import { isoOf } from "../lib/journalLifecycle";
 import {
   glLines, lineMatches, lineSearchText, accountLedger, accountMeta, activeFilterCount,
-  EMPTY_FILTERS, GROUP_BY_KEY,
+  EMPTY_FILTERS, GROUP_BY_KEY, dimValueLabel,
 } from "../lib/generalLedger";
 import { JE_SOURCE_LABEL, STATUS_LABEL, STATUS_BADGE_CLASS, useJournalActions } from "./journalEntryShared";
 import {
@@ -241,7 +241,7 @@ function describeFilters(f) {
   if (f.sources.length) out.push(`Source: ${f.sources.map((s) => JE_SOURCE_LABEL[s]).join(", ")}`);
   if (f.min !== "" || f.max !== "") out.push(`Amount: ${f.min || "0"}–${f.max || "any"}`);
   if (f.party) out.push(`Partner: ${f.party}`);
-  for (const [k, v] of Object.entries(f.dims)) if (v) out.push(`${DIM_BY_KEY[k]?.label || k}: ${v}`);
+  for (const [k, v] of Object.entries(f.dims)) if (v) out.push(`${DIM_BY_KEY[k]?.label || k}: ${dimValueLabel(v)}`);
   if (f.hideReversed) out.push("Reversals hidden");
   return out.join("; ");
 }

@@ -12,7 +12,7 @@ import { useBankRecon } from "../state/BankReconContext";
 import { useNonBankRecon } from "../state/NonBankReconContext";
 import { useDimensions } from "../state/DimensionsContext";
 import { periodPresets, rangeLabel, monthLabel, previousPeriod, todayIso, sameDayLastYear } from "../lib/reportPeriods";
-import { useClickOutside, Check, ChoicePopover, ADJ_NOTE, PeriodPopover, DimensionPopover, ViewsPopover, ExportPopover } from "../components/ReportControls";
+import { useClickOutside, Check, ChoicePopover, PeriodPopover, DimensionPopover, ViewsPopover, ExportPopover } from "../components/ReportControls";
 import { downloadCsv, reportHeader, exportName, printReport } from "../lib/reportExport";
 import { downloadXlsx, colName } from "../lib/xlsxExport";
 import { lineDimensions } from "../lib/generalLedger";
@@ -81,11 +81,9 @@ const monthEndOf = (ym) => { const [y, m] = ym.split("-").map(Number); return `$
 // bracketed "negative" (SME feedback: Liabilities, Equity and Revenue read as
 // negative otherwise).
 //   six      Opening · Movement · Ending, each Debit / Credit (Saldo Awal ·
-//            Mutasi · Saldo Akhir). With adjustments excluded, Movement and
-//            Ending leave out the period's adjusting journals.
-//   worksheet  Unadjusted · Adjustments · Adjusted, each Debit / Credit — the
-//            neraca saldo → jurnal penyesuaian → neraca saldo setelah
-//            penyesuaian columns of the neraca lajur.
+//            Mutasi · Saldo Akhir). Every posted journal counts, adjusting
+//            ones included — the Adjustments control (Excluded / As columns)
+//            was removed 11 Nov 2026.
 //   compare  Ending Debit / Credit for the comparison period and this one, then
 //            the change on the account's normal side (brackets = it went down)
 function columnsFor(layout, compareLbl, currentLbl) {
@@ -99,16 +97,6 @@ function columnsFor(layout, compareLbl, currentLbl) {
       { key: "change_pct",     label: "%",      sup: "Change",   pct: true },
     ];
   }
-  if (layout === "worksheet") {
-    return [
-      { key: "unadj_dr",    label: "Debit",  sup: "Unadjusted",  sum: true, muted: true, title: "Ending balance before this period's adjusting journals" },
-      { key: "unadj_cr",    label: "Credit", sup: "Unadjusted",  sum: true, muted: true, title: "Ending balance before this period's adjusting journals" },
-      { key: "adj_debit",   label: "Debit",  sup: "Adjustments", sum: true, title: "Adjusting journals dated in this period" },
-      { key: "adj_credit",  label: "Credit", sup: "Adjustments", sum: true, title: "Adjusting journals dated in this period" },
-      { key: "ending_dr",   label: "Debit",  sup: "Adjusted",    sum: true, strong: true },
-      { key: "ending_cr",   label: "Credit", sup: "Adjusted",    sum: true, strong: true },
-    ];
-  }
   return [
     { key: "opening_dr",    label: "Debit",  sup: "Opening",  sum: true, muted: true },
     { key: "opening_cr",    label: "Credit", sup: "Opening",  sum: true, muted: true },
@@ -118,21 +106,6 @@ function columnsFor(layout, compareLbl, currentLbl) {
     { key: "ending_cr",     label: "Credit", sup: "Ending",   sum: true, strong: true },
   ];
 }
-
-// Adjusting journals in the period: included (the adjusted TB), excluded (the
-// unadjusted TB) or shown as their own columns (the worksheet).
-const ADJ_LABELS = { included: "Included", excluded: "Excluded", columns: "As columns" };
-// A row as it stood before this period's adjusting journals.
-const unadjustedRow = (r) => ({
-  ...r,
-  period_debit: r2(r.period_debit - r.adj_debit),
-  period_credit: r2(r.period_credit - r.adj_credit),
-  movement: r2(r.movement - r.adj_movement),
-  closing_balance: r.unadj_closing,
-  closing_net: r.unadj_net,
-  ending_dr: r.unadj_dr,
-  ending_cr: r.unadj_cr,
-});
 
 // Consecutive columns sharing a super label → [{ label, span }].
 function superSpans(cols) {
@@ -362,7 +335,6 @@ export default function TrialBalancePage() {
   const [periodChoice, setPeriodChoice] = useState(DEFAULT_PERIOD);
   const [showZero, setShowZero] = useState(false);
   const [compare, setCompare] = useState("none");
-  const [adjMode, setAdjMode] = useState("included"); // included | excluded | columns
   const [dim, setDim] = useState(null); // { key, value }
   // A row the user clicked to keep their place across the columns.
   const [focusCode, setFocusCode] = useState(null);
@@ -411,11 +383,8 @@ export default function TrialBalancePage() {
     return null;
   }, [compare, prevRange, dateFrom, dateTo]);
   const compLabel = compRange ? rangeLabel(compRange.from, compRange.to) : "";
-  // A comparison lays ending balances side by side, with every posted journal
-  // in them; the adjustments choice applies when not comparing.
-  const adjEff = compRange ? "included" : adjMode;
-  const layout = compRange ? "compare" : adjEff === "columns" ? "worksheet" : "six";
-  const adjNote = { included: "Adjusted (adjusting journals included)", excluded: "Unadjusted (adjusting journals left out)", columns: "Unadjusted · Adjustments · Adjusted" }[adjEff];
+  // A comparison lays ending balances side by side.
+  const layout = compRange ? "compare" : "six";
   const cols = useMemo(() => columnsFor(layout, compLabel, periodRange), [layout, compLabel, periodRange]);
   const spans = useMemo(() => superSpans(cols), [cols]);
   // Excel and CSV export exactly what's on screen.
@@ -440,9 +409,8 @@ export default function TrialBalancePage() {
 
   // Rows with the comparison laid on: the comparison period's ending sides,
   // and the change on the account's normal side.
-  // With adjustments excluded, every row reads as it stood before them.
   const ALL_TB = useMemo(() => {
-    if (!COMP_TB) return adjEff === "excluded" ? CUR_TB.map(unadjustedRow) : CUR_TB;
+    if (!COMP_TB) return CUR_TB;
     const byCode = Object.fromEntries(COMP_TB.map((r) => [r.code, r]));
     return CUR_TB.map((r) => {
       const p = byCode[r.code];
@@ -457,12 +425,7 @@ export default function TrialBalancePage() {
         has_activity: r.has_activity || !!p?.has_activity,
       };
     });
-  }, [CUR_TB, COMP_TB, adjEff]);
-  // Adjusting journals posted and dated in the period, for the Adjustments menu.
-  const adjustingCount = useMemo(
-    () => JOURNAL_ENTRIES.filter((je) => je.is_adjusting && je.status === "posted" && je.je_date >= dateFrom && je.je_date <= dateTo).length,
-    [JOURNAL_ENTRIES, dateFrom, dateTo],
-  );
+  }, [CUR_TB, COMP_TB]);
 
   // Bank and cash accounts: how far each is reconciled (Bank and Non-Bank Reconciliation).
   const reconByCode = useMemo(() => {
@@ -527,13 +490,14 @@ export default function TrialBalancePage() {
     return showZero ? ALL_TB : ALL_TB.filter((r) => r.has_activity);
   }, [reviewOnly, findings, showZero, ALL_TB]);
 
-  const viewState = { periodChoice, compare, adjMode, groupChoice, sortChoice, showZero, dim };
+  const viewState = { periodChoice, compare, groupChoice, sortChoice, showZero, dim };
   const viewSig = JSON.stringify(viewState);
-  const activeViewId = views.find((v) => JSON.stringify(v.state) === viewSig)?.id || null;
+  // Views saved before the Adjustments control was removed still carry `adjMode`; it's ignored.
+  const activeViewId = views.find((v) => JSON.stringify({ ...v.state, adjMode: undefined }) === viewSig)?.id || null;
 
   const hasActiveFilters = (
     periodChoice.key !== DEFAULT_PERIOD.key ||
-    showZero || compare !== "none" || adjMode !== "included" || dim || reviewOnly ||
+    showZero || compare !== "none" || dim || reviewOnly ||
     sortChoice !== null || groupChoice !== null || search.trim() !== ""
   );
 
@@ -625,7 +589,6 @@ export default function TrialBalancePage() {
     setPeriodChoice(DEFAULT_PERIOD);
     setShowZero(false);
     setCompare("none");
-    setAdjMode("included");
     setDim(null);
     setSearch("");
     setReviewOnly(false);
@@ -635,7 +598,6 @@ export default function TrialBalancePage() {
     const s = v.state;
     setPeriodChoice(s.periodChoice || DEFAULT_PERIOD);
     setCompare(s.compare || "none");
-    setAdjMode(s.adjMode || "included");
     setGroupChoice(s.groupChoice ?? null);
     setSortChoice(s.sortChoice ?? null);
     setShowZero(!!s.showZero);
@@ -671,7 +633,7 @@ export default function TrialBalancePage() {
   const dimLabel = dim ? `${DIM_BY_KEY[dim.key]?.label || dim.key}: ${dim.value}` : null;
   const colTitle = (c) => (c.sup ? `${c.sup} ${c.label}` : c.label);
   const viewNote = [
-    compRange ? `Compared with ${compLabel}` : adjNote,
+    compRange ? `Compared with ${compLabel}` : null,
     `Grouped by ${GROUP_LABELS[effectiveGroup] === "—" ? "nothing" : GROUP_LABELS[effectiveGroup]}`,
     dimLabel ? `Filtered to ${dimLabel}` : null,
   ].filter(Boolean).join(" · ");
@@ -880,11 +842,6 @@ export default function TrialBalancePage() {
     unposted.pending ? plural(unposted.pending, "journal awaiting approval", "journals awaiting approval") : null,
   ].filter(Boolean);
 
-  const adjItems = [
-    { k: "included", lbl: "Included", hint: "adjusted trial balance" },
-    { k: "excluded", lbl: "Excluded", hint: "unadjusted trial balance" },
-    { k: "columns", lbl: "As columns", hint: "Unadjusted · Adjustments · Adjusted" },
-  ];
   const compareItems = [
     { k: "none", lbl: "No comparison" },
     { k: "prev", lbl: "Previous period", hint: rangeLabel(prevRange.from, prevRange.to) },
@@ -902,7 +859,7 @@ export default function TrialBalancePage() {
           <div className="tb-print-company">{COMPANY.legalName}</div>
           <div className="tb-print-title">Trial Balance</div>
           <div className="tb-print-period">
-            {periodRange}{compRange ? ` compared with ${compLabel}` : ` · ${adjNote}`} · {dim ? `Filtered to ${dimLabel}` : balance.balanced ? "In balance" : `Out of balance by ${rp(balance.variance)}`} · Amounts in IDR
+            {periodRange}{compRange ? ` compared with ${compLabel}` : ""} · {dim ? `Filtered to ${dimLabel}` : balance.balanced ? "In balance" : `Out of balance by ${rp(balance.variance)}`} · Amounts in IDR
           </div>
         </div>
 
@@ -993,19 +950,6 @@ export default function TrialBalancePage() {
                   {openPop === "compare" && (
                     <ChoicePopover className="tb-compare-pop" items={compareItems} value={compare}
                       onPick={(k) => { setCompare(k); if (k === "none" && sortChoice === "change-desc") setSortChoice(null); closePop(); }} onClose={closePop} />
-                  )}
-                </div>
-                <div className="lg-meta-btn-wrap">
-                  <button className={`lg-meta-btn${adjEff !== "included" ? " active" : ""}`} onClick={() => togglePop("adj")} disabled={!!compRange}
-                    title={compRange ? "A comparison includes every posted journal. Turn Compare off to leave adjustments out or show them as columns." : `${plural(adjustingCount, "adjusting journal")} dated in this period`}
-                    aria-haspopup="menu" aria-expanded={openPop === "adj"}>
-                    <span className="meta-lbl">Adjustments:</span>
-                    <span className="meta-val">{ADJ_LABELS[adjEff]}</span>
-                    {adjustingCount > 0 && <span className="tb-adj-count">{adjustingCount}</span>}
-                  </button>
-                  {openPop === "adj" && (
-                    <ChoicePopover className="tb-adj-pop" items={adjItems} value={adjMode} note={ADJ_NOTE}
-                      onPick={(k) => { setAdjMode(k); closePop(); }} onClose={closePop} />
                   )}
                 </div>
                 <div className="lg-meta-btn-wrap">

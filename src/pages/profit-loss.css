@@ -67,21 +67,28 @@
 .pl-page .lg-card.lg-table-tb .pl-margin-row .lg-cell-total { font-size: 11.5px; font-weight: 400; font-style: italic; color: var(--color-text-tertiary); }
 .pl-page .pl-statement > div:last-child > .lg-row:last-child { padding-bottom: 16px; }
 
-/* The statement is only as wide as its columns need (SME, 11 Nov): on a wide
-   screen a lone amount column sat far from its account name and rows were
-   easy to misread. Fixed columns, sized to the content — 340px fits the
-   longest P&L name with its code and indent, 150px the widest amount — so
-   the first amount sits right after the names. Many columns (By month) scroll
-   sideways as before. The toolbar above stays full width. */
+/* Column layout (SME, 11 Nov; user, 11 Nov): the account column is fixed at
+   the left and the amount columns are packed left right after it — 340px
+   fits the longest P&L name with its code and indent, 150px the widest
+   amount — so an amount is never far from its account. Rows, bands and the
+   header still run the full width of the card; an empty last track takes
+   the space left over. With many columns (By month) the table scrolls
+   sideways and the account column stays stuck at the left. */
 .pl-page .lg-card.lg-table-tb .lg-row,
 .pl-page .lg-card.lg-table-tb .lg-col-header {
-  grid-template-columns: 340px repeat(var(--tb-n, 1), minmax(108px, 150px));
-  min-width: calc(340px + var(--tb-n, 1) * 108px);
+  grid-template-columns: 340px repeat(var(--tb-n, 1), 150px) minmax(0, 1fr);
+  min-width: calc(340px + var(--tb-n, 1) * 150px + 44px);
 }
-/* + the rows' side padding */
-.pl-statement { max-width: calc(340px + var(--tb-n, 1) * 150px + 44px); }
+.pl-page .lg-card.lg-table-tb .pl-statement .lg-row > :first-child,
+.pl-page .lg-card.lg-table-tb .pl-statement .lg-col-header > :first-child {
+  position: sticky; left: 0; z-index: 1; background: inherit;
+}
+/* Only the statement scrolls sideways; the toolbar above stays put. */
+.pl-page .pl-statement { overflow-x: auto; }
 @media print {
-  .pl-statement { max-width: none; }
+  .pl-page .pl-statement { overflow: visible; }
+  .pl-page .lg-card.lg-table-tb .pl-statement .lg-row > :first-child,
+  .pl-page .lg-card.lg-table-tb .pl-statement .lg-col-header > :first-child { position: static; }
   .pl-page .lg-card.lg-table-tb .lg-row,
   .pl-page .lg-card.lg-table-tb .lg-col-header { grid-template-columns: 1fr repeat(var(--tb-n, 1), 110px); min-width: 0; }
 }

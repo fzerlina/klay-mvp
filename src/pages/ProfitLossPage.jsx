@@ -2,7 +2,8 @@
 //
 // The V1 P&L from the competitor benchmark (Superhuman Docs › Reporting ›
 // Profit & Loss - Competitor Analysis, §6), modelled on DualEntry:
-//   • One statement, many columns: Total only, By month or By quarter; or a
+//   • One statement, many columns: Total only, By month, By quarter or by a
+//     dimension (one column per value + Untagged + Total); or a
 //     comparison (previous period, same period last year, prior year to
 //     date). One at a time, as DualEntry does.
 //   • Rows from account types (lib/profitLoss.js), with a margin row under
@@ -27,13 +28,13 @@ import { useAccountingSettings } from "../state/AccountingSettingsContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
 import { useClosePeriod } from "../state/ClosePeriodContext";
 import { useDimensions } from "../state/DimensionsContext";
-import { computeProfitLoss, PL_LINES, lineValue, unpostedInPeriod, change } from "../lib/profitLoss";
+import { computeProfitLoss, PL_LINES, lineValue, unpostedInPeriod, change, plAccounts } from "../lib/profitLoss";
 import {
   periodPresets, previousPeriod, rangeLabel, monthLabel, sameDayLastYear,
   monthEnd, fiscalYearStartFor, splitPeriod,
 } from "../lib/reportPeriods";
 import { netProfitForPeriod, periodCloseState } from "../lib/trialBalance";
-import { lineDimensions } from "../lib/generalLedger";
+import { lineDimensions, UNTAGGED } from "../lib/generalLedger";
 import { downloadCsv, reportHeader, exportName, printReport } from "../lib/reportExport";
 import { downloadXlsx, colName } from "../lib/xlsxExport";
 import {
@@ -100,6 +101,10 @@ const CAL = <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx
 const COLUMN_LABELS = { total: "Total only", month: "By month", quarter: "By quarter" };
 const COMPARE_LABELS = { none: "None", prev: "Previous period", prev_year: "Same period last year", prior_ytd: "Prior year to date" };
 const MAX_PERIOD_COLS = 12;
+// Dimensions the P&L can be split by — the ones its filters offer.
+const SPLIT_DIMS = ["loc", "dept", "cc", "proj"];
+const PL_CODES = new Set(plAccounts().map((a) => a.code));
+const columnLabel = (mode) => (mode.startsWith("dim:") ? `By ${(DIM_BY_KEY[mode.slice(4)]?.label || mode.slice(4)).toLowerCase()}` : COLUMN_LABELS[mode]);
 
 // Opens on year to date the first time (DualEntry does the same); after that,
 // on the last preset this user picked. A custom range isn't remembered.
@@ -234,11 +239,45 @@ export default function ProfitLossPage() {
   const { from, to } = period;
   const periodRange = rangeLabel(from, to);
 
+  // ── Dimension filters ─────────────────────────────────────────────────────
+  const dimList = Object.entries(dims).filter(([, v]) => v);
+  const lineFilter = useMemo(() => {
+    const active = Object.entries(dims).filter(([, v]) => v);
+    if (!active.length) return null;
+    return (je, l) => { const d = lineDimensions(je, l); return active.every(([k, v]) => d[k] === v); };
+  }, [dims]);
+
   // ── Layout: one at a time ───────────────────────────────────────────────
   const monthPieces = useMemo(() => splitPeriod(from, to, "month", fiscalYearStart), [from, to, fiscalYearStart]);
   const quarterPieces = useMemo(() => splitPeriod(from, to, "quarter", fiscalYearStart), [from, to, fiscalYearStart]);
+  // Split by a dimension: one column per value with activity in the period
+  // (after the filters), an Untagged column for P&L lines without a value, so
+  // the columns add up to Total — Jurnal's "Non-Departemen" column; DualEntry
+  // and QBO have no such column and their split doesn't visibly tie.
+  const dimActivity = useMemo(() => {
+    const out = Object.fromEntries(SPLIT_DIMS.map((k) => [k, { values: new Set(), untagged: false }]));
+    for (const je of entries) {
+      if (je.status !== "posted" || je.je_date < from || je.je_date > to) continue;
+      for (const l of je.lines || []) {
+        if (!PL_CODES.has(l.account_code) || !(Number(l.debit) || Number(l.credit))) continue;
+        if (lineFilter && !lineFilter(je, l)) continue;
+        const d = lineDimensions(je, l);
+        for (const k of SPLIT_DIMS) { if (d[k]) out[k].values.add(d[k]); else out[k].untagged = true; }
+      }
+    }
+    return out;
+  }, [entries, from, to, lineFilter]);
+  const splitValues = (k) => {
+    const seen = dimActivity[k].values;
+    const known = valuesOf(k).filter((v) => seen.has(v));
+    return [...known, ...[...seen].filter((v) => !known.includes(v)).sort()];
+  };
+  const splitKeyOf = (mode) => (mode.startsWith("dim:") ? mode.slice(4) : null);
+  // A split can't run on a dimension that is also filtered (one value left).
+  const splitBlocked = (k) => !!dims[k] || splitValues(k).length > MAX_PERIOD_COLS;
   const tooMany = { month: monthPieces.length > MAX_PERIOD_COLS, quarter: quarterPieces.length > MAX_PERIOD_COLS };
-  const colEff = colMode !== "total" && !tooMany[colMode] ? colMode : "total";
+  const colEff = colMode === "total" || tooMany[colMode] || (splitKeyOf(colMode) && splitBlocked(splitKeyOf(colMode))) ? "total" : colMode;
+  const splitKey = splitKeyOf(colEff);
   const multi = colEff !== "total";
   const compareRanges = useMemo(() => ({
     prev: previousPeriod(from, to),
@@ -247,16 +286,18 @@ export default function ProfitLossPage() {
   }), [from, to, fiscalYearStart]);
   const compRange = !multi && compare !== "none" ? compareRanges[compare] : null;
   const compLabel = compRange ? rangeLabel(compRange.from, compRange.to) : "";
-  const layout = compRange ? "compare" : multi ? "periods" : "total";
+  const layout = compRange ? "compare" : splitKey ? "dims" : multi ? "periods" : "total";
 
   // ── Numbers ───────────────────────────────────────────────────────────────
-  const dimList = Object.entries(dims).filter(([, v]) => v);
-  const lineFilter = useMemo(() => {
-    const active = Object.entries(dims).filter(([, v]) => v);
-    if (!active.length) return null;
-    return (je, l) => { const d = lineDimensions(je, l); return active.every(([k, v]) => d[k] === v); };
-  }, [dims]);
-  const run = (range) => computeProfitLoss(entries, range, { lineFilter });
+  // A column's own dimension value narrows the filters further.
+  const run = (range, dim) => {
+    if (!dim) return computeProfitLoss(entries, range, { lineFilter });
+    const own = (je, l) => {
+      const v = lineDimensions(je, l)[dim.key];
+      return dim.value === UNTAGGED ? !v : v === dim.value;
+    };
+    return computeProfitLoss(entries, range, { lineFilter: (je, l) => (!lineFilter || lineFilter(je, l)) && own(je, l) });
+  };
 
   // Amount columns for the layout. `main` is the column % of revenue, margins
   // and the status line refer to.
@@ -275,12 +316,23 @@ export default function ProfitLossPage() {
         { ...cur, label: "Total", id_label: "Jumlah" },
       ];
     }
+    if (layout === "dims") {
+      const range = { from, to };
+      return [
+        ...splitValues(splitKey).map((v, i) => ({ id: `d${i}`, range, dim: { key: splitKey, value: v }, label: v })),
+        ...(dimActivity[splitKey].untagged
+          ? [{ id: "dU", range, dim: { key: splitKey, value: UNTAGGED }, label: "Untagged", id_label: "Tanpa tag", muted: true,
+            title: `P&L lines with no ${DIM_BY_KEY[splitKey]?.label || splitKey} — e.g. accounts that don't carry it` }]
+          : []),
+        { ...cur, label: "Total", id_label: "Jumlah" },
+      ];
+    }
     return [{ ...cur, label: periodRange }];
-  }, [layout, from, to, periodRange, compRange, compLabel, colEff, monthPieces, quarterPieces]);
+  }, [layout, from, to, periodRange, compRange, compLabel, colEff, monthPieces, quarterPieces, splitKey, dimActivity]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const results = useMemo(() => {
     const out = {};
-    for (const c of amountCols) out[c.id] = run(c.range);
+    for (const c of amountCols) out[c.id] = run(c.range, c.dim);
     return out;
   }, [amountCols, entries, lineFilter]); // eslint-disable-line react-hooks/exhaustive-deps
   const main = results.cur;
@@ -381,12 +433,14 @@ export default function ProfitLossPage() {
 
   // ── Drill: the General Ledger for the account, the column's dates and the
   // same dimension filter. One whole month goes as that month.
-  const glUrl = (code, range) => {
+  // A dimension column adds its own value (or Untagged).
+  const glUrl = (code, range, dim = null) => {
     const qs = new URLSearchParams({ account: code });
     const whole = range.from.slice(0, 7) === range.to.slice(0, 7) && range.from.endsWith("-01") && range.to === monthEnd(range.from);
     if (whole) qs.set("period", range.from.slice(0, 7));
     else { qs.set("period", "custom"); qs.set("from", range.from); qs.set("to", range.to); }
     for (const [k, v] of dimList) qs.set(`dim_${k}`, v);
+    if (dim) qs.set(`dim_${dim.key}`, dim.value);
     return `/reports/general-ledger?${qs}`;
   };
 
@@ -420,7 +474,8 @@ export default function ProfitLossPage() {
   const dimText = dimList.map(([k, v]) => `${DIM_BY_KEY[k]?.label || k}: ${v}`).join(" · ");
   const layoutNote = {
     compare: `Compared with ${COMPARE_LABELS[compare].toLowerCase()} (${compLabel})`,
-    periods: COLUMN_LABELS[colEff],
+    periods: columnLabel(colEff),
+    dims: `${columnLabel(colEff)}, with Untagged`,
     total: null,
   }[layout];
   const viewNote = [layoutNote, dimText ? `Filtered to ${dimText}` : null].filter(Boolean).join(" · ");
@@ -567,13 +622,27 @@ export default function ProfitLossPage() {
       disabled: tooMany.month || !!compRange, title: compRange ? "Turn Compare off to split the period into columns." : tooMany.month ? "Pick a shorter period, or split by quarter." : undefined },
     { k: "quarter", lbl: "By quarter", hint: tooMany.quarter ? `more than ${MAX_PERIOD_COLS} quarters` : plural(quarterPieces.length, "column"),
       disabled: tooMany.quarter || !!compRange, title: compRange ? "Turn Compare off to split the period into columns." : undefined },
+    ...SPLIT_DIMS.map((k) => {
+      const label = DIM_BY_KEY[k]?.label || k;
+      const n = splitValues(k).length;
+      const filtered = !!dims[k];
+      return {
+        k: `dim:${k}`, lbl: columnLabel(`dim:${k}`),
+        hint: filtered ? "filtered" : n > MAX_PERIOD_COLS ? `more than ${MAX_PERIOD_COLS} values` : n ? `${plural(n, "value")}${dimActivity[k].untagged ? " + Untagged" : ""}` : "no values",
+        disabled: !!compRange || filtered || !n || n > MAX_PERIOD_COLS,
+        title: compRange ? "Turn Compare off to split by a dimension."
+          : filtered ? `Remove the ${label} filter to split by ${label.toLowerCase()}.`
+            : !n ? `No P&L lines carry a ${label.toLowerCase()} in this period.` : undefined,
+      };
+    }),
   ];
   const compareItems = [
     { k: "none", lbl: "No comparison" },
     ...["prev", "prev_year", "prior_ytd"].map((k) => ({ k, lbl: COMPARE_LABELS[k], hint: rangeLabel(compareRanges[k].from, compareRanges[k].to) })),
   ];
   const usedDimKeys = dimList.map(([k]) => k);
-  const addableKeys = ["loc", "proj", "cc", "dept"].filter((k) => !usedDimKeys.includes(k) || k === dimEdit);
+  // Filtering on the dimension the columns split by would leave one column.
+  const addableKeys = ["loc", "proj", "cc", "dept"].filter((k) => k !== splitKey && (!usedDimKeys.includes(k) || k === dimEdit));
 
   // ── Render ────────────────────────────────────────────────────────────────
   const unitHead = unitInfo.head;
@@ -594,10 +663,11 @@ export default function ProfitLossPage() {
     const body = text === "—" ? dash : text;
     if (code && cell.kind === "amt" && v && Math.abs(v) >= 0.005) {
       const c = cell.col;
+      const scope = [dimText, c.dim ? `${DIM_BY_KEY[c.dim.key]?.label || c.dim.key}: ${c.label}` : ""].filter(Boolean).join(" · ");
       return (
         <div key={cell.key} className={cls}>
-          <Link className="pl-amt-link" to={glUrl(code, c.range)} onClick={(e) => e.stopPropagation()}
-            title={`Open ${code} in the General Ledger for ${rangeLabel(c.range.from, c.range.to)}${dimText ? ` (${dimText})` : ""}`}>{body}</Link>
+          <Link className="pl-amt-link" to={glUrl(code, c.range, c.dim)} onClick={(e) => e.stopPropagation()}
+            title={`Open ${code} in the General Ledger for ${rangeLabel(c.range.from, c.range.to)}${scope ? ` (${scope})` : ""}`}>{body}</Link>
         </div>
       );
     }
@@ -776,7 +846,7 @@ export default function ProfitLossPage() {
                 <div className="lg-meta-btn-wrap">
                   <button className={`lg-meta-btn${multi ? " active" : ""}`} onClick={() => togglePop("columns")} aria-haspopup="menu" aria-expanded={openPop === "columns"}>
                     <span className="meta-lbl">Columns:</span>
-                    <span className="meta-val">{COLUMN_LABELS[colEff]}</span>
+                    <span className="meta-val">{columnLabel(colEff)}</span>
                   </button>
                   {openPop === "columns" && <ChoicePopover className="tb-compare-pop" items={columnItems} value={colEff} onPick={(k) => { setColMode(k); closePop(); }} onClose={closePop} />}
                 </div>
@@ -848,7 +918,7 @@ export default function ProfitLossPage() {
               <div><Lbl en="Account" id="Akun" lang={lang} /></div>
               {cells.map((c) => (
                 <div key={c.key} style={{ textAlign: "right" }} className={c.kind !== "amt" ? "pl-cell-sub" : undefined}
-                  title={c.col ? rangeLabel(c.col.range.from, c.col.range.to) : undefined}>
+                  title={c.col ? (c.col.title || rangeLabel(c.col.range.from, c.col.range.to)) : undefined}>
                   <Lbl en={c.label} id={c.id_label} lang={lang} />
                   {(c.kind === "amt" || c.kind === "diff") && <span className="pl-th-unit"> ({unitHead})</span>}
                 </div>

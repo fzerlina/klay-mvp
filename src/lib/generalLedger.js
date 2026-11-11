@@ -204,6 +204,11 @@ function inCodeRange(code, from, to) {
 
 // A line passes when it meets every filter. Dates are the caller's (the period
 // decides what is opening balance and what is movement).
+// A dimension filter value meaning "lines with no value for this dimension" —
+// the Profit & Loss's Untagged column drills to it.
+export const UNTAGGED = "__untagged";
+export const dimValueLabel = (v) => (v === UNTAGGED ? "Untagged" : v);
+
 export function lineMatches(l, f) {
   if (!f.statuses.includes(l.status)) return false;
   if (f.types.length && !f.types.includes(l.meta.group)) return false;
@@ -213,7 +218,10 @@ export function lineMatches(l, f) {
   if (f.min !== "" && amt < toCents(f.min)) return false;
   if (f.max !== "" && amt > toCents(f.max)) return false;
   if (f.party && l.party !== f.party) return false;
-  for (const [k, v] of Object.entries(f.dims)) if (v && l.dims[k] !== v) return false;
+  for (const [k, v] of Object.entries(f.dims)) {
+    if (!v) continue;
+    if (v === UNTAGGED ? !!l.dims[k] : l.dims[k] !== v) return false;
+  }
   if (f.hideReversed && (l.reversed_by || l.reversal_of)) return false;
   return true;
 }

@@ -9,10 +9,7 @@
 /* Super header over each Debit / Credit pair */
 .tb-report .lg-col-header.tb-col-super{padding-top:8px;padding-bottom:0;border-bottom:none}
 .tb-report .lg-col-header.tb-col-super > div:not(:empty){text-align:center;border-bottom:1px solid var(--color-border-strong);padding-bottom:4px;margin:0 6px}
-/* Adjusting journals in the period, on the Adjustments button */
-.tb-adj-count{font-family:var(--font-mono);font-size:10px;font-weight:700;margin-left:3px;padding:0 6px;border-radius:9999px;background:var(--color-surface-sunken);color:var(--color-text-secondary)}
-.tb-adj-pop{min-width:330px}
-.tb-adj-pop{max-width:360px}
+/* Help line under a pick-one menu (ChoicePopover note) */
 .tb-choice-note{padding:9px 14px 11px;border-top:1px solid var(--color-border-default);font-size:11.5px;line-height:1.45;color:var(--color-text-tertiary)}
 .tb-choice-note strong{font-weight:600;color:var(--color-text-secondary)}
 /* Account name and, when flagged, one small review marker */
