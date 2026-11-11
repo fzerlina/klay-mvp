@@ -3,7 +3,7 @@ import { useLocation, useNavigate, useParams, useSearchParams } from "react-rout
 import { useJournalEntries } from "../state/JournalEntriesContext";
 import { COA_BY_CODE, accountPath } from "../data/seed/coa";
 import { DIM_BY_KEY, paletteFor, dimensionsForAccount, sampleDimensionValue } from "../data/seed/dimensions";
-import { withEvent, isClosedDate, periodOf } from "../lib/journalLifecycle";
+import { withEvent, isClosedDate, periodOf, canTagAdjusting } from "../lib/journalLifecycle";
 import { useClosePeriod } from "../state/ClosePeriodContext";
 import { formatDate } from "../lib/format";
 import { describeRecurrence, recurringInstances, repeatLabel, RECURRENCE_STATUS } from "../lib/recurringJournals";
@@ -50,7 +50,7 @@ export default function JournalEntryDetailPage() {
 
   const fromTab = navState?.fromTab || null;
   const backTo = `/journal-entry${fromTab ? `?tab=${fromTab}` : ""}`;
-  const { actionsFor, runAction, sourceOf, storedOf, openEntry, setRecurrenceStatus, dialogs, canTransact, actor } = useJournalActions({
+  const { actionsFor, runAction, sourceOf, storedOf, openEntry, setRecurrenceStatus, dialogs, canTransact, canApprove, actor } = useJournalActions({
     showToast,
     fromTab,
     // A scheduled entry, once posted, lives on under its new number.
@@ -91,7 +91,7 @@ export default function JournalEntryDetailPage() {
   const history = stored.history || [];
   const events = [
     ...(history[0]?.action === "created" ? [] : [{ at: stored.created_date, action: "created", by: stored.created_by }]),
-    ...(!history.length && stored.posted_by ? [{ at: stored.posted_date, action: "posted", by: stored.posted_by }] : []),
+    ...(!history.some((h) => h.action === "posted") && stored.posted_by ? [{ at: stored.posted_date, action: "posted", by: stored.posted_by }] : []),
     ...history,
   ];
   // A repeating entry: what it has drafted, and its next month on the Scheduled tab.
@@ -114,6 +114,24 @@ export default function JournalEntryDetailPage() {
     ["Created by", `${stored.created_by || "—"}${stored.created_date ? ` · ${formatDate(stored.created_date)}` : ""}`],
     ["Posted by", stored.posted_by ? `${stored.posted_by} · ${formatDate(stored.posted_date)}` : "—"],
   ];
+
+  // Adjusting entry: shown on a posted manual journal, which can be marked (or
+  // unmarked) after posting while its period is open — see canTagAdjusting.
+  const isManualKind = !stored.reference_type || ["manual", "reversal"].includes(stored.reference_type);
+  const partnerNo = stored.reversed_by || stored.reversal_of;
+  const partner = partnerNo ? entries.find((e) => e.je_number === partnerNo) : null;
+  const tagCheck = canTagAdjusting(stored, { closedThrough, canPost: canApprove, partner });
+  function toggleAdjusting() {
+    const on = !stored.is_adjusting;
+    const apply = (cur, note) => {
+      const { is_adjusting: _ia, ...rest } = cur;
+      return withEvent(on ? { ...rest, is_adjusting: true } : rest, on ? "marked as adjusting" : "adjusting mark removed", actor, note);
+    };
+    const why = "Tag only — no amount, account or date changed";
+    updateJournalEntry(stored.je_number, (cur) => apply(cur, partner ? `${why}. ${partner.je_number} changed with it.` : `${why}.`));
+    if (partner) updateJournalEntry(partner.je_number, (cur) => apply(cur, `${why}. Changed with ${stored.je_number}.`));
+    showToast(`${stored.je_number}${partner ? ` and ${partner.je_number}` : ""} ${on ? "marked as adjusting" : "no longer marked as adjusting"}`);
+  }
 
   function attach(fileList) {
     const added = [...fileList].map((f) => ({ name: f.name, size: f.size, type: f.type, url: URL.createObjectURL(f) }));
@@ -267,6 +285,19 @@ export default function JournalEntryDetailPage() {
                 </div>
                 {stored.reversed_by && (
                   <div><dt>Reversed by</dt><dd><button type="button" className="je-link" onClick={() => openEntry(stored.reversed_by)}>{stored.reversed_by} →</button></dd></div>
+                )}
+                {stored.status === "posted" && isManualKind && (
+                  <div>
+                    <dt>Adjusting entry</dt>
+                    <dd className="jed-adj-dd">
+                      <span>{stored.is_adjusting ? "Yes — counted as an adjustment" : "No"}</span>
+                      <button type="button" className="je-link" disabled={!tagCheck.ok} title={tagCheck.ok
+                        ? `Changes only the tag${partner ? `, on ${partner.je_number} too` : ""}. The Trial Balance and P&L count it ${stored.is_adjusting ? "as a regular journal" : "under Adjustments"}.`
+                        : tagCheck.reason} onClick={toggleAdjusting}>
+                        {stored.is_adjusting ? "Remove mark" : "Mark as adjusting"}
+                      </button>
+                    </dd>
+                  </div>
                 )}
                 {stored.self_approved && (
                   <div><dt>Approval</dt><dd>Self-posted — prepared and posted by {stored.posted_by}</dd></div>

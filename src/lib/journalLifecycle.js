@@ -23,6 +23,7 @@
 // Every transition appends to `history`, which the Audit tab reads.
 
 import { TODAY } from "./clock";
+import { monthLabel } from "./reportPeriods";
 import { COA_BY_CODE } from "../data/seed/coa";
 import { DIM_BY_KEY, dimensionsForAccount } from "../data/seed/dimensions";
 
@@ -189,6 +190,23 @@ export function reversalDateCheck(je, date, { closedThrough } = {}) {
   if (date < je.je_date) return no("A reversal cannot be dated before the entry it reverses.");
   if (isClosedDate(date, closedThrough)) return no(`${periodOf(date)} is closed.`);
   return OK;
+}
+
+// Marking a posted manual journal as an adjusting entry after the fact, or
+// unmarking it (SME, 11 Nov: an adjustment posted without the mark counts as a
+// regular journal, and posted history can't be edited). Only the tag changes —
+// never an amount, account or date — and the audit trail records who did it.
+// The period must still be open, or a closed P&L's Unadjusted / Adjusted split
+// would move. An entry and its reversal are tagged together, as a reversal
+// inherits the mark when it is made.
+//   je        the stored entry; `partner` its reversal or the entry it reverses
+export function canTagAdjusting(je, { closedThrough, canPost, partner = null }) {
+  if (je.status !== "posted") return { ok: false, reason: "Only a posted entry is marked here — a draft has the Adjusting entry box on its form." };
+  if (je.reference_type && !["manual", "reversal"].includes(je.reference_type)) return { ok: false, reason: "Only manual journals can be adjusting entries — this one was written by its source." };
+  if (!canPost) return { ok: false, reason: "Needs posting rights — it changes what the reports show as adjustments." };
+  if (isClosedDate(je.je_date, closedThrough)) return { ok: false, reason: `${monthLabel(je.je_date)} is closed, so its reports can't change.` };
+  if (partner && isClosedDate(partner.je_date, closedThrough)) return { ok: false, reason: `Its ${partner.reversal_of ? "reversal" : "original"} ${partner.je_number} is in a closed period, and the two are tagged together.` };
+  return { ok: true, reason: "" };
 }
 
 export function withEvent(je, action, by, note) {

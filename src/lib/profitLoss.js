@@ -44,26 +44,28 @@ const BUCKET_BY_KEY = Object.fromEntries(PL_BUCKETS.map((b) => [b.key, b]));
 
 // The statement, top to bottom. `section` lines expand to their account rows;
 // `heading` lines carry no amount; `subtotal` lines are bold; `margin` lines
-// are a subtotal as a share of net revenue.
+// are a subtotal as a share of net revenue. `profit` lines are results that
+// can go either way: labelled "profit/(loss)" — Indonesian statements write
+// "laba (rugi)" — and shown in red on screen when negative (SME, 11 Nov).
 export const PL_LINES = [
   { kind: "section",  key: "revenue" },
   { kind: "section",  key: "contra" },
   { kind: "subtotal", key: "netRevenue",      label: "Net revenue",              id: "Pendapatan bersih" },
   { kind: "section",  key: "cogs" },
-  { kind: "subtotal", key: "grossProfit",     label: "Gross profit",             id: "Laba kotor" },
-  { kind: "margin",   key: "grossMargin",     of: "grossProfit",     label: "Gross margin",     id: "Marjin laba kotor" },
+  { kind: "subtotal", key: "grossProfit",     label: "Gross profit/(loss)",      id: "Laba (rugi) kotor", profit: true },
+  { kind: "margin",   key: "grossMargin",     of: "grossProfit",     label: "Gross margin",     id: "Marjin laba kotor", profit: true },
   { kind: "heading",  key: "opexHead",        label: "Operating expenses",       id: "Beban usaha" },
   { kind: "section",  key: "selling", nested: true },
   { kind: "section",  key: "ga", nested: true },
   { kind: "subtotal", key: "opex",            label: "Total operating expenses", id: "Jumlah beban usaha", minor: true },
-  { kind: "subtotal", key: "operatingProfit", label: "Operating profit",         id: "Laba usaha" },
-  { kind: "margin",   key: "operatingMargin", of: "operatingProfit", label: "Operating margin", id: "Marjin laba usaha" },
+  { kind: "subtotal", key: "operatingProfit", label: "Operating profit/(loss)",  id: "Laba (rugi) usaha", profit: true },
+  { kind: "margin",   key: "operatingMargin", of: "operatingProfit", label: "Operating margin", id: "Marjin laba usaha", profit: true },
   { kind: "section",  key: "otherIncome" },
   { kind: "section",  key: "otherExpense" },
-  { kind: "subtotal", key: "profitBeforeTax", label: "Profit before tax",        id: "Laba sebelum pajak penghasilan" },
+  { kind: "subtotal", key: "profitBeforeTax", label: "Profit/(loss) before tax", id: "Laba (rugi) sebelum pajak penghasilan", profit: true },
   { kind: "section",  key: "tax" },
-  { kind: "subtotal", key: "netProfit",       label: "Net profit",               id: "Laba bersih", grand: true },
-  { kind: "margin",   key: "netMargin",       of: "netProfit",       label: "Net margin",       id: "Marjin laba bersih" },
+  { kind: "subtotal", key: "netProfit",       label: "Net profit/(loss)",        id: "Laba (rugi) bersih", grand: true, profit: true },
+  { kind: "margin",   key: "netMargin",       of: "netProfit",       label: "Net margin",       id: "Marjin laba bersih", profit: true },
 ];
 
 // Which statement bucket a P&L account belongs to.
