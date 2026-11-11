@@ -19,9 +19,8 @@
 // Options on every computation:
 //   lineFilter   (je, line) => boolean — e.g. a dimension filter. Only matching
 //                lines count.
-//   adjustments  "included" (default: the adjusted P&L), "excluded" (leaves out
-//                journals flagged is_adjusting — the unadjusted P&L) or "only"
-//                (just the adjusting journals, for an Adjustments column).
+// Every posted journal counts, adjusting ones included: the P&L has no
+// unadjusted view (its Adjustments control was removed 11 Nov 2026).
 //
 // Labels come in English (screen) and Bahasa Indonesia (`id`, for print and
 // Excel), following the SAK EP / EMKM order of a laporan laba rugi.
@@ -84,23 +83,15 @@ export function plBucket(acct) {
 
 export const plAccounts = (coa = COA) => coa.filter((n) => n.code && n.type !== "group" && n.fs === "PL");
 
-// Does a journal count under an adjustments mode?
-const adjOk = (je, adjustments) => (
-  adjustments === "excluded" ? !je.is_adjusting
-    : adjustments === "only" ? !!je.is_adjusting
-      : true
-);
-
 // Raw credit − debit per P&L account code over posted entries dated in
 // [from, to] (inclusive ISO dates). Entries carry the date; lines don't.
-export function plMovements(entries, { from, to }, { lineFilter = null, adjustments = "included" } = {}, coa = COA) {
+export function plMovements(entries, { from, to }, { lineFilter = null } = {}, coa = COA) {
   const isPl = new Set(plAccounts(coa).map((a) => a.code));
   const net = {};
   for (const je of entries || []) {
     if (je.status !== "posted") continue;
     const d = je.je_date;
     if (!d || d < from || d > to) continue;
-    if (!adjOk(je, adjustments)) continue;
     for (const l of je.lines || []) {
       if (!isPl.has(l.account_code)) continue;
       if (lineFilter && !lineFilter(je, l)) continue;
@@ -174,11 +165,6 @@ export function lineValue(res, line) {
 // posted yet (draft or awaiting approval).
 export function unpostedInPeriod(entries, { from, to }) {
   return (entries || []).filter((je) => (je.status === "draft" || je.status === "pending") && je.je_date >= from && je.je_date <= to);
-}
-
-// Posted adjusting journals dated in the period.
-export function adjustingInPeriod(entries, { from, to }) {
-  return (entries || []).filter((je) => je.is_adjusting && je.status === "posted" && je.je_date >= from && je.je_date <= to);
 }
 
 // Change between two amounts: { diff, pct } where pct is null when the base is 0.

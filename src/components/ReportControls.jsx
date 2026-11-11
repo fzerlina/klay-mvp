@@ -19,7 +19,7 @@ export function useClickOutside(ref, onClose) {
 export const Check = () => <svg className="lg-popover-check" viewBox="0 0 12 12"><polyline points="2 6 5 9 10 3"/></svg>;
 
 // A plain pick-one menu. An item can be `disabled`, with `title` saying why.
-// Under the Adjustments menu on the TB and P&L: the split only knows what's
+// Under the Trial Balance's Adjustments menu: the split only knows what's
 // tagged, so an untagged manual adjustment counts as a regular journal (SME,
 // 11 Nov).
 export const ADJ_NOTE = (

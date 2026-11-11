@@ -196,7 +196,7 @@ export function reversalDateCheck(je, date, { closedThrough } = {}) {
 // unmarking it (SME, 11 Nov: an adjustment posted without the mark counts as a
 // regular journal, and posted history can't be edited). Only the tag changes —
 // never an amount, account or date — and the audit trail records who did it.
-// The period must still be open, or a closed P&L's Unadjusted / Adjusted split
+// The period must still be open, or a closed Trial Balance's Unadjusted / Adjusted split
 // would move. An entry and its reversal are tagged together, as a reversal
 // inherits the mark when it is made.
 //   je        the stored entry; `partner` its reversal or the entry it reverses

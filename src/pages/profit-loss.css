@@ -68,12 +68,23 @@
 .pl-page .pl-statement > div:last-child > .lg-row:last-child { padding-bottom: 16px; }
 
 /* The statement is only as wide as its columns need (SME, 11 Nov): on a wide
-   screen a lone amount column sat ~1,500px from its account name and rows
-   were easy to misread. About 480px for names and 180px per column; with
-   many columns (By month) the cap is wider than the screen, so it fills it.
-   The toolbar above stays full width. */
-.pl-statement { max-width: calc(480px + var(--tb-n, 1) * 180px); }
-@media print { .pl-statement { max-width: none; } }
+   screen a lone amount column sat far from its account name and rows were
+   easy to misread. Fixed columns, sized to the content — 340px fits the
+   longest P&L name with its code and indent, 150px the widest amount — so
+   the first amount sits right after the names. Many columns (By month) scroll
+   sideways as before. The toolbar above stays full width. */
+.pl-page .lg-card.lg-table-tb .lg-row,
+.pl-page .lg-card.lg-table-tb .lg-col-header {
+  grid-template-columns: 340px repeat(var(--tb-n, 1), minmax(108px, 150px));
+  min-width: calc(340px + var(--tb-n, 1) * 108px);
+}
+/* + the rows' side padding */
+.pl-statement { max-width: calc(340px + var(--tb-n, 1) * 150px + 44px); }
+@media print {
+  .pl-statement { max-width: none; }
+  .pl-page .lg-card.lg-table-tb .lg-row,
+  .pl-page .lg-card.lg-table-tb .lg-col-header { grid-template-columns: 1fr repeat(var(--tb-n, 1), 110px); min-width: 0; }
+}
 
 /* A loss on a profit line or its margin: red, so it shows at a glance */
 .pl-page .lg-card.lg-table-tb .lg-cell-total.pl-loss,

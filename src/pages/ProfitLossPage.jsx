@@ -4,12 +4,12 @@
 // Profit & Loss - Competitor Analysis, §6), modelled on DualEntry:
 //   • One statement, many columns: Total only, By month or By quarter; or a
 //     comparison (previous period, same period last year, prior year to
-//     date); or Unadjusted · Adjustments · Adjusted. One at a time, as
-//     DualEntry does.
+//     date). One at a time, as DualEntry does.
 //   • Rows from account types (lib/profitLoss.js), with a margin row under
 //     gross, operating and net profit instead of a KPI bar.
-//   • + Add filter for dimension values; adjusting journals included,
-//     excluded or as columns.
+//   • + Add filter for dimension values. Every posted journal counts,
+//     adjusting ones included — the P&L has no Adjustments control (removed
+//     11 Nov 2026); the Trial Balance keeps its unadjusted / adjusted view.
 //   • An amount opens the General Ledger for that account, that column's
 //     dates and the same dimension filter.
 //   • Final / Preliminary from the period lock, with the journals not yet
@@ -27,7 +27,7 @@ import { useAccountingSettings } from "../state/AccountingSettingsContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
 import { useClosePeriod } from "../state/ClosePeriodContext";
 import { useDimensions } from "../state/DimensionsContext";
-import { computeProfitLoss, PL_LINES, lineValue, unpostedInPeriod, adjustingInPeriod, change } from "../lib/profitLoss";
+import { computeProfitLoss, PL_LINES, lineValue, unpostedInPeriod, change } from "../lib/profitLoss";
 import {
   periodPresets, previousPeriod, rangeLabel, monthLabel, sameDayLastYear,
   monthEnd, fiscalYearStartFor, splitPeriod,
@@ -37,7 +37,7 @@ import { lineDimensions } from "../lib/generalLedger";
 import { downloadCsv, reportHeader, exportName, printReport } from "../lib/reportExport";
 import { downloadXlsx, colName } from "../lib/xlsxExport";
 import {
-  useClickOutside, Check, ChoicePopover, ADJ_NOTE, PeriodPopover, DimensionPopover,
+  useClickOutside, Check, ChoicePopover, PeriodPopover, DimensionPopover,
   ViewsPopover, ExportPopover, loadLocal, saveLocal,
 } from "../components/ReportControls";
 import "./modules.css";
@@ -99,7 +99,6 @@ const CAL = <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx
 // ── Choices ─────────────────────────────────────────────────────────────────
 const COLUMN_LABELS = { total: "Total only", month: "By month", quarter: "By quarter" };
 const COMPARE_LABELS = { none: "None", prev: "Previous period", prev_year: "Same period last year", prior_ytd: "Prior year to date" };
-const ADJ_LABELS = { included: "Included", excluded: "Excluded", columns: "As columns" };
 const MAX_PERIOD_COLS = 12;
 
 // Opens on year to date the first time (DualEntry does the same); after that,
@@ -108,7 +107,6 @@ const DEFAULTS = {
   periodChoice: { key: "ytd" },
   colMode: "total",
   compare: "none",
-  adjMode: "included",
   dims: {},
   showZero: false,
   // % of revenue on every line is off by default: DualEntry only offers it as
@@ -174,7 +172,6 @@ export default function ProfitLossPage() {
   });
   const [colMode, setColMode] = useState(DEFAULTS.colMode);
   const [compare, setCompare] = useState(DEFAULTS.compare);
-  const [adjMode, setAdjMode] = useState(DEFAULTS.adjMode);
   const [dims, setDims] = useState(DEFAULTS.dims);
   const [showZero, setShowZero] = useState(DEFAULTS.showZero);
   const [showPct, setShowPct] = useState(DEFAULTS.showPct);
@@ -188,7 +185,7 @@ export default function ProfitLossPage() {
   // A row the user clicked to keep their place across the columns.
   const [focusCode, setFocusCode] = useState(null);
 
-  const [openPop, setOpenPop] = useState(null); // period | columns | compare | adj | dim | settings | views | export
+  const [openPop, setOpenPop] = useState(null); // period | columns | compare | dim | settings | views | export
   const [dimEdit, setDimEdit] = useState(null); // the dimension key being edited, or null to add one
   const togglePop = (k) => setOpenPop((p) => (p === k ? null : k));
   const closePop = () => setOpenPop(null);
@@ -250,9 +247,7 @@ export default function ProfitLossPage() {
   }), [from, to, fiscalYearStart]);
   const compRange = !multi && compare !== "none" ? compareRanges[compare] : null;
   const compLabel = compRange ? rangeLabel(compRange.from, compRange.to) : "";
-  // "As columns" needs the single Total column to itself.
-  const adjEff = adjMode === "columns" && (multi || compRange) ? "included" : adjMode;
-  const layout = compRange ? "compare" : adjEff === "columns" ? "adjust" : multi ? "periods" : "total";
+  const layout = compRange ? "compare" : multi ? "periods" : "total";
 
   // ── Numbers ───────────────────────────────────────────────────────────────
   const dimList = Object.entries(dims).filter(([, v]) => v);
@@ -261,39 +256,31 @@ export default function ProfitLossPage() {
     if (!active.length) return null;
     return (je, l) => { const d = lineDimensions(je, l); return active.every(([k, v]) => d[k] === v); };
   }, [dims]);
-  const run = (range, adjustments) => computeProfitLoss(entries, range, { lineFilter, adjustments });
+  const run = (range) => computeProfitLoss(entries, range, { lineFilter });
 
   // Amount columns for the layout. `main` is the column % of revenue, margins
   // and the status line refer to.
   const amountCols = useMemo(() => {
-    const mainAdj = adjEff === "columns" ? "included" : adjEff;
-    const cur = { id: "cur", range: { from, to }, adj: mainAdj, main: true };
+    const cur = { id: "cur", range: { from, to }, main: true };
     if (layout === "compare") {
       return [
         { ...cur, label: periodRange },
-        { id: "cmp", range: compRange, adj: mainAdj, label: compLabel, muted: true },
-      ];
-    }
-    if (layout === "adjust") {
-      return [
-        { id: "unadj", range: { from, to }, adj: "excluded", label: "Unadjusted", id_label: "Sebelum penyesuaian", muted: true },
-        { id: "adj", range: { from, to }, adj: "only", label: "Adjustments", id_label: "Penyesuaian" },
-        { ...cur, adj: "included", label: "Adjusted", id_label: "Setelah penyesuaian" },
+        { id: "cmp", range: compRange, label: compLabel, muted: true },
       ];
     }
     if (layout === "periods") {
       const pieces = colEff === "month" ? monthPieces : quarterPieces;
       return [
-        ...pieces.map((p, i) => ({ id: `p${i}`, range: { from: p.from, to: p.to }, adj: mainAdj, label: p.label })),
+        ...pieces.map((p, i) => ({ id: `p${i}`, range: { from: p.from, to: p.to }, label: p.label })),
         { ...cur, label: "Total", id_label: "Jumlah" },
       ];
     }
     return [{ ...cur, label: periodRange }];
-  }, [layout, adjEff, from, to, periodRange, compRange, compLabel, colEff, monthPieces, quarterPieces]);
+  }, [layout, from, to, periodRange, compRange, compLabel, colEff, monthPieces, quarterPieces]);
 
   const results = useMemo(() => {
     const out = {};
-    for (const c of amountCols) out[c.id] = run(c.range, c.adj);
+    for (const c of amountCols) out[c.id] = run(c.range);
     return out;
   }, [amountCols, entries, lineFilter]); // eslint-disable-line react-hooks/exhaustive-deps
   const main = results.cur;
@@ -318,9 +305,8 @@ export default function ProfitLossPage() {
   const isFinal = closeState === "closed";
   const closedLabel = closedThrough ? monthLabel(`${closedThrough}-01`) : null;
   const unposted = useMemo(() => unpostedInPeriod(entries, { from, to }), [entries, from, to]);
-  const adjustingCount = useMemo(() => adjustingInPeriod(entries, { from, to }).length, [entries, from, to]);
   const tbNet = useMemo(() => netProfitForPeriod({ from, to, entries }).netProfit, [from, to, entries]);
-  const partialView = dimList.length > 0 || adjEff === "excluded";
+  const partialView = dimList.length > 0;
   const tiesOk = Math.abs(r2(tbNet - main.totals.netProfit)) < 0.5 && main.balanced;
 
   // ── Rows ──────────────────────────────────────────────────────────────────
@@ -373,8 +359,6 @@ export default function ProfitLossPage() {
   const isMarginLine = (src) => typeof src !== "string" && src.kind === "margin";
   const cellValue = (cell, src) => {
     const margin = isMarginLine(src);
-    // A margin on the adjustments alone means nothing.
-    if (margin && cell.col?.adj === "only") return null;
     if (cell.kind === "amt") return amountOf(cell.col.id, src);
     if (cell.kind === "pct") {
       if (margin) return null;
@@ -391,7 +375,7 @@ export default function ProfitLossPage() {
     const v = cellValue(cell, src);
     const margin = isMarginLine(src);
     if (cell.kind === "pct" || cell.kind === "diffPct") return v == null ? (margin ? "" : "—") : pct(v);
-    if (margin) return v == null && cell.col?.adj === "only" ? "" : cell.kind === "diff" ? pp(v) : pct(v);
+    if (margin) return cell.kind === "diff" ? pp(v) : pct(v);
     return num(v, unit);
   };
 
@@ -407,14 +391,14 @@ export default function ProfitLossPage() {
   };
 
   // ── Views ─────────────────────────────────────────────────────────────────
-  const viewState = { periodChoice: period.key === "custom" ? periodChoice : { key: period.key }, colMode, compare, adjMode, dims, showZero, showPct, unit, lang };
+  const viewState = { periodChoice: period.key === "custom" ? periodChoice : { key: period.key }, colMode, compare, dims, showZero, showPct, unit, lang };
   const viewSig = JSON.stringify(viewState);
-  const activeViewId = views.find((v) => JSON.stringify(v.state) === viewSig)?.id || null;
+  // Views saved before the Adjustments control was removed still carry `adjMode`; it's ignored.
+  const activeViewId = views.find((v) => JSON.stringify({ ...v.state, adjMode: undefined }) === viewSig)?.id || null;
   const applyState = (s) => {
     setPeriodChoice(s.periodChoice || DEFAULTS.periodChoice);
     setColMode(s.colMode || DEFAULTS.colMode);
     setCompare(s.compare || DEFAULTS.compare);
-    setAdjMode(s.adjMode || DEFAULTS.adjMode);
     setDims(s.dims || {});
     setShowZero(!!s.showZero);
     setShowPct(s.showPct ?? DEFAULTS.showPct);
@@ -436,12 +420,10 @@ export default function ProfitLossPage() {
   const dimText = dimList.map(([k, v]) => `${DIM_BY_KEY[k]?.label || k}: ${v}`).join(" · ");
   const layoutNote = {
     compare: `Compared with ${COMPARE_LABELS[compare].toLowerCase()} (${compLabel})`,
-    adjust: "Unadjusted · Adjustments · Adjusted",
     periods: COLUMN_LABELS[colEff],
     total: null,
   }[layout];
-  const adjNote = adjEff === "excluded" ? "Adjusting journals excluded (unadjusted)" : adjEff === "included" && adjustingCount ? "Adjusting journals included" : null;
-  const viewNote = [layoutNote, adjNote, dimText ? `Filtered to ${dimText}` : null].filter(Boolean).join(" · ");
+  const viewNote = [layoutNote, dimText ? `Filtered to ${dimText}` : null].filter(Boolean).join(" · ");
   const unitInfo = UNITS[unit];
   const statusWord = (l) => (isFinal ? "Final" : l === "id" ? "Sementara" : "Preliminary");
 
@@ -519,7 +501,6 @@ export default function ProfitLossPage() {
             const s0 = secStart[it.line.key];
             row.push(rowNo > s0 ? { f: `SUM(${colL}${s0}:${colL}${rowNo - 1})`, v: scaled(v), s: "numBold" } : { v: scaled(v) || 0, s: "numBold" });
           } else if (it.type === "subtotal") row.push({ f: FORMULAS[it.line.key](colL), v: scaled(v), s: "numBold" });
-          else if (it.type === "margin" && c.col.adj === "only") row.push(null);
           else if (it.type === "margin") row.push({ f: `IF(${colL}${at.netRevenue}=0,"",${colL}${at[it.line.of]}/${colL}${at.netRevenue})`, v: v ?? null, s: "pct" });
         } else if (c.kind === "pct") {
           if (it.type === "margin") { row.push(null); continue; }
@@ -591,12 +572,6 @@ export default function ProfitLossPage() {
     { k: "none", lbl: "No comparison" },
     ...["prev", "prev_year", "prior_ytd"].map((k) => ({ k, lbl: COMPARE_LABELS[k], hint: rangeLabel(compareRanges[k].from, compareRanges[k].to) })),
   ];
-  const adjItems = [
-    { k: "included", lbl: "Included", hint: "adjusted P&L" },
-    { k: "excluded", lbl: "Excluded", hint: "unadjusted P&L" },
-    { k: "columns", lbl: "As columns", hint: "Unadjusted · Adjustments · Adjusted", disabled: multi || !!compRange,
-      title: multi || compRange ? "Needs the single Total column: set Columns to Total only and Compare to None." : undefined },
-  ];
   const usedDimKeys = dimList.map(([k]) => k);
   const addableKeys = ["loc", "proj", "cc", "dept"].filter((k) => !usedDimKeys.includes(k) || k === dimEdit);
 
@@ -619,11 +594,10 @@ export default function ProfitLossPage() {
     const body = text === "—" ? dash : text;
     if (code && cell.kind === "amt" && v && Math.abs(v) >= 0.005) {
       const c = cell.col;
-      const note = c.adj === "excluded" ? " — the ledger also lists adjusting journals" : c.adj === "only" ? " — the ledger lists every journal, not only adjusting ones" : "";
       return (
         <div key={cell.key} className={cls}>
           <Link className="pl-amt-link" to={glUrl(code, c.range)} onClick={(e) => e.stopPropagation()}
-            title={`Open ${code} in the General Ledger for ${rangeLabel(c.range.from, c.range.to)}${dimText ? ` (${dimText})` : ""}${note}`}>{body}</Link>
+            title={`Open ${code} in the General Ledger for ${rangeLabel(c.range.from, c.range.to)}${dimText ? ` (${dimText})` : ""}`}>{body}</Link>
         </div>
       );
     }
@@ -775,7 +749,7 @@ export default function ProfitLossPage() {
             )}
             <span className="tb-status-sep">·</span>
             {partialView ? (
-              <span className="tb-foot" title="The Trial Balance tie-out uses every posted journal and every line.">Tie-out to the Trial Balance not checked while {dimList.length ? "filtered" : "adjustments are excluded"}</span>
+              <span className="tb-foot" title="The Trial Balance tie-out uses every posted journal and every line.">Tie-out to the Trial Balance not checked while filtered</span>
             ) : (
               <span className={`tb-foot ${tiesOk ? "ok" : "off"}`} title="Net profit here against the sum of P&L accounts in the Trial Balance for the same dates.">
                 <span aria-hidden="true">{tiesOk ? "✓" : "✕"}</span> {tiesOk ? "Net profit/(loss) ties to the Trial Balance" : `Net profit/(loss) is off the Trial Balance by ${rp(r2(tbNet - main.totals.netProfit))}`}
@@ -814,15 +788,6 @@ export default function ProfitLossPage() {
                     <span className="meta-val">{compRange ? COMPARE_LABELS[compare] : "None"}</span>
                   </button>
                   {openPop === "compare" && <ChoicePopover className="tb-compare-pop" items={compareItems} value={compRange ? compare : "none"} onPick={(k) => { setCompare(k); closePop(); }} onClose={closePop} />}
-                </div>
-                <div className="lg-meta-btn-wrap">
-                  <button className={`lg-meta-btn${adjEff !== "included" ? " active" : ""}`} onClick={() => togglePop("adj")}
-                    title={`${plural(adjustingCount, "adjusting journal")} posted in this period`} aria-haspopup="menu" aria-expanded={openPop === "adj"}>
-                    <span className="meta-lbl">Adjustments:</span>
-                    <span className="meta-val">{ADJ_LABELS[adjEff]}</span>
-                    {adjustingCount > 0 && <span className="tb-adj-count">{adjustingCount}</span>}
-                  </button>
-                  {openPop === "adj" && <ChoicePopover className="tb-adj-pop" items={adjItems} value={adjEff} note={ADJ_NOTE} onPick={(k) => { setAdjMode(k); closePop(); }} onClose={closePop} />}
                 </div>
                 {dimList.map(([k, v]) => (
                   <div key={k} className="lg-meta-btn-wrap pl-chip-wrap">
@@ -934,7 +899,7 @@ export default function ProfitLossPage() {
           {main.margins.netMargin != null && <span className="lg-footer-lbl">margin {pct(main.margins.netMargin)}</span>}
           <span className="lg-footer-sep">·</span>
           {partialView ? (
-            <span className="tb-balance-flag" title="A dimension filter or excluded adjustments leave journals out, so the Trial Balance tie-out isn't checked.">Filtered — not checked</span>
+            <span className="tb-balance-flag" title="A dimension filter leaves journal lines out, so the Trial Balance tie-out isn't checked.">Filtered — not checked</span>
           ) : (
             <span className={`tb-balance-flag ${tiesOk ? "ok" : "off"}`}>{tiesOk ? "✓ Ties to the Trial Balance" : `Off the TB by ${rp(Math.abs(r2(tbNet - main.totals.netProfit)))}`}</span>
           )}

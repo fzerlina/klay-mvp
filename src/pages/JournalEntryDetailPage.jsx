@@ -292,7 +292,7 @@ export default function JournalEntryDetailPage() {
                     <dd className="jed-adj-dd">
                       <span>{stored.is_adjusting ? "Yes — counted as an adjustment" : "No"}</span>
                       <button type="button" className="je-link" disabled={!tagCheck.ok} title={tagCheck.ok
-                        ? `Changes only the tag${partner ? `, on ${partner.je_number} too` : ""}. The Trial Balance and P&L count it ${stored.is_adjusting ? "as a regular journal" : "under Adjustments"}.`
+                        ? `Changes only the tag${partner ? `, on ${partner.je_number} too` : ""}. The Trial Balance counts it ${stored.is_adjusting ? "as a regular journal" : "under Adjustments"}.`
                         : tagCheck.reason} onClick={toggleAdjusting}>
                         {stored.is_adjusting ? "Remove mark" : "Mark as adjusting"}
                       </button>
