@@ -63,3 +63,7 @@
   .jed{padding:16px 16px 0}
   .jed-body{grid-template-columns:1fr}
 }
+
+/* Adjusting entry row: the state, and Mark as adjusting / Remove mark */
+.jed-adj-dd{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px}
+.jed-adj-dd .je-link:disabled{color:var(--color-text-tertiary);cursor:not-allowed;text-decoration:none}

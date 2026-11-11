@@ -65,7 +65,20 @@
 .pl-page .lg-card.lg-table-tb .lg-row.pl-margin-row { cursor: default; padding-top: 0; padding-bottom: 6px; }
 .pl-margin-lbl { font-size: 11.5px; font-style: italic; color: var(--color-text-tertiary); }
 .pl-page .lg-card.lg-table-tb .pl-margin-row .lg-cell-total { font-size: 11.5px; font-weight: 400; font-style: italic; color: var(--color-text-tertiary); }
-.pl-page .lg-card.lg-table-tb > div:last-of-type > .lg-row:last-child { padding-bottom: 16px; }
+.pl-page .pl-statement > div:last-child > .lg-row:last-child { padding-bottom: 16px; }
+
+/* The statement is only as wide as its columns need (SME, 11 Nov): on a wide
+   screen a lone amount column sat ~1,500px from its account name and rows
+   were easy to misread. About 480px for names and 180px per column; with
+   many columns (By month) the cap is wider than the screen, so it fills it.
+   The toolbar above stays full width. */
+.pl-statement { max-width: calc(480px + var(--tb-n, 1) * 180px); }
+@media print { .pl-statement { max-width: none; } }
+
+/* A loss on a profit line or its margin: red, so it shows at a glance */
+.pl-page .lg-card.lg-table-tb .lg-cell-total.pl-loss,
+.pl-page .lg-card.lg-table-tb .pl-margin-row .lg-cell-total.pl-loss { color: var(--color-danger-text); }
+.pl-page .lg-footer-total.pl-footer-loss { color: #FF9B9B; }
 
 /* Narrow panes: the footer wraps to two lines instead of overlapping */
 .pl-page .lg-footer { flex-wrap: wrap; row-gap: 6px; }

@@ -12,7 +12,7 @@ import { useBankRecon } from "../state/BankReconContext";
 import { useNonBankRecon } from "../state/NonBankReconContext";
 import { useDimensions } from "../state/DimensionsContext";
 import { periodPresets, rangeLabel, monthLabel, previousPeriod, todayIso, sameDayLastYear } from "../lib/reportPeriods";
-import { useClickOutside, Check, ChoicePopover, PeriodPopover, DimensionPopover, ViewsPopover, ExportPopover } from "../components/ReportControls";
+import { useClickOutside, Check, ChoicePopover, ADJ_NOTE, PeriodPopover, DimensionPopover, ViewsPopover, ExportPopover } from "../components/ReportControls";
 import { downloadCsv, reportHeader, exportName, printReport } from "../lib/reportExport";
 import { downloadXlsx, colName } from "../lib/xlsxExport";
 import { lineDimensions } from "../lib/generalLedger";
@@ -1004,7 +1004,7 @@ export default function TrialBalancePage() {
                     {adjustingCount > 0 && <span className="tb-adj-count">{adjustingCount}</span>}
                   </button>
                   {openPop === "adj" && (
-                    <ChoicePopover className="tb-adj-pop" items={adjItems} value={adjMode}
+                    <ChoicePopover className="tb-adj-pop" items={adjItems} value={adjMode} note={ADJ_NOTE}
                       onPick={(k) => { setAdjMode(k); closePop(); }} onClose={closePop} />
                   )}
                 </div>

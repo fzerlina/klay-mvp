@@ -37,7 +37,7 @@ import { lineDimensions } from "../lib/generalLedger";
 import { downloadCsv, reportHeader, exportName, printReport } from "../lib/reportExport";
 import { downloadXlsx, colName } from "../lib/xlsxExport";
 import {
-  useClickOutside, Check, ChoicePopover, PeriodPopover, DimensionPopover,
+  useClickOutside, Check, ChoicePopover, ADJ_NOTE, PeriodPopover, DimensionPopover,
   ViewsPopover, ExportPopover, loadLocal, saveLocal,
 } from "../components/ReportControls";
 import "./modules.css";
@@ -327,7 +327,13 @@ export default function ProfitLossPage() {
   const anyNonZero = (code) => amountCols.some((c) => Math.abs(results[c.id].byCode[code] || 0) >= 0.005);
   // Accounts in a section: zero rows hidden unless asked for (exports use
   // these); the search narrows what's on screen only — totals stay whole.
-  const visibleRows = (key) => main.sections[key].rows.filter((r) => showZero || anyNonZero(r.code));
+  // Sales returns & discounts always lists its accounts, even at zero, so the
+  // "Less:" line never stands alone (SME, 11 Nov); a company with no such
+  // accounts doesn't get the line — nor Net revenue, which would repeat Total
+  // revenue.
+  const hasContra = main.sections.contra.rows.length > 0;
+  const hiddenLine = (line) => !hasContra && (line.key === "contra" || line.key === "netRevenue");
+  const visibleRows = (key) => main.sections[key].rows.filter((r) => key === "contra" || showZero || anyNonZero(r.code));
   const q = search.trim().toLowerCase();
   const shownRows = (key) => visibleRows(key).filter((r) => !q || r.code.toLowerCase().includes(q) || r.name.toLowerCase().includes(q));
   const sectionKeys = PL_LINES.filter((l) => l.kind === "section").map((l) => l.key);
@@ -444,6 +450,7 @@ export default function ProfitLossPage() {
   const exportItems = () => {
     const items = [];
     for (const line of PL_LINES) {
+      if (hiddenLine(line)) continue;
       if (line.kind === "section") {
         const sec = main.sections[line.key];
         const rows = visibleRows(line.key);
@@ -482,6 +489,8 @@ export default function ProfitLossPage() {
     items.forEach((it, i) => {
       if (it.type === "secTotal" || it.type === "subtotal" || it.type === "margin") at[it.line.key] = first + i;
     });
+    // No returns & discounts line: total revenue is the net revenue.
+    if (!at.netRevenue) at.netRevenue = at.revenue;
     const secStart = {};
     items.forEach((it, i) => { if (it.type === "secHead") secStart[it.line.key] = first + i + 1; });
     const cellCol = (k) => colName(2 + cells.findIndex((c) => c.key === k));
@@ -600,11 +609,13 @@ export default function ProfitLossPage() {
 
   // The amount cells of a row, in the Trial Balance's column style. On an
   // account row an amount also opens the ledger for that column's dates.
+  // A loss on a profit line (or its margin) is red, so it reads at a glance.
   const amountCells = (src, { code, show = true } = {}) => cells.map((cell) => {
-    const cls = `lg-cell-total${cell.strong ? " tb-cell-end" : ""}${cell.muted ? " tb-cell-muted" : ""}${cell.kind !== "amt" ? " pl-cell-sub" : ""}`;
+    const v = show ? cellValue(cell, src) : null;
+    const loss = typeof src !== "string" && src.profit && cell.kind === "amt" && v != null && v < (src.kind === "margin" ? -0.0005 : -0.005);
+    const cls = `lg-cell-total${cell.strong ? " tb-cell-end" : ""}${cell.muted ? " tb-cell-muted" : ""}${cell.kind !== "amt" ? " pl-cell-sub" : ""}${loss ? " pl-loss" : ""}`;
     if (!show) return <div key={cell.key} className={cls} />;
     const text = cellText(cell, src);
-    const v = cellValue(cell, src);
     const body = text === "—" ? dash : text;
     if (code && cell.kind === "amt" && v && Math.abs(v) >= 0.005) {
       const c = cell.col;
@@ -683,6 +694,7 @@ export default function ProfitLossPage() {
   const statementRows = () => {
     const out = [];
     for (const line of PL_LINES) {
+      if (hiddenLine(line)) continue;
       if (line.kind === "section" && !line.nested) {
         out.push(<Group key={line.key} {...sectionGroup(line.key)} />);
       } else if (line.kind === "heading") {
@@ -766,7 +778,7 @@ export default function ProfitLossPage() {
               <span className="tb-foot" title="The Trial Balance tie-out uses every posted journal and every line.">Tie-out to the Trial Balance not checked while {dimList.length ? "filtered" : "adjustments are excluded"}</span>
             ) : (
               <span className={`tb-foot ${tiesOk ? "ok" : "off"}`} title="Net profit here against the sum of P&L accounts in the Trial Balance for the same dates.">
-                <span aria-hidden="true">{tiesOk ? "✓" : "✕"}</span> {tiesOk ? "Net profit ties to the Trial Balance" : `Net profit is off the Trial Balance by ${rp(r2(tbNet - main.totals.netProfit))}`}
+                <span aria-hidden="true">{tiesOk ? "✓" : "✕"}</span> {tiesOk ? "Net profit/(loss) ties to the Trial Balance" : `Net profit/(loss) is off the Trial Balance by ${rp(r2(tbNet - main.totals.netProfit))}`}
               </span>
             )}
             <span className="tb-status-sep">·</span>
@@ -810,7 +822,7 @@ export default function ProfitLossPage() {
                     <span className="meta-val">{ADJ_LABELS[adjEff]}</span>
                     {adjustingCount > 0 && <span className="tb-adj-count">{adjustingCount}</span>}
                   </button>
-                  {openPop === "adj" && <ChoicePopover className="tb-adj-pop" items={adjItems} value={adjEff} onPick={(k) => { setAdjMode(k); closePop(); }} onClose={closePop} />}
+                  {openPop === "adj" && <ChoicePopover className="tb-adj-pop" items={adjItems} value={adjEff} note={ADJ_NOTE} onPick={(k) => { setAdjMode(k); closePop(); }} onClose={closePop} />}
                 </div>
                 {dimList.map(([k, v]) => (
                   <div key={k} className="lg-meta-btn-wrap pl-chip-wrap">
@@ -864,7 +876,9 @@ export default function ProfitLossPage() {
               </div>
             </div>
 
-            {/* ── Statement: the Trial Balance's grid ───────────────────── */}
+            {/* ── Statement: the Trial Balance's grid, no wider than its
+                 columns need, so an amount stays close to its account ── */}
+            <div className="pl-statement">
             <div className="lg-col-header">
               <div><Lbl en="Account" id="Akun" lang={lang} /></div>
               {cells.map((c) => (
@@ -879,9 +893,10 @@ export default function ProfitLossPage() {
               {q && shownAccounts === 0 && <div className="lg-empty">No accounts match “{search.trim()}”. The totals below still cover every account.</div>}
               {statementRows()}
             </div>
+            </div>
             {!main.balanced && (
               <div className="pl-warn">
-                Net profit ({num(main.totals.netProfit)}) does not match the sum of P&amp;L accounts ({num(main.netProfitCheck)}).
+                Net profit/(loss) ({num(main.totals.netProfit)}) does not match the sum of P&amp;L accounts ({num(main.netProfitCheck)}).
               </div>
             )}
 
@@ -914,8 +929,8 @@ export default function ProfitLossPage() {
           <span className="lg-footer-lbl">Net revenue</span>
           <span className="lg-footer-total">{rp(main.totals.netRevenue)}</span>
           <span className="lg-footer-sep">·</span>
-          <span className="lg-footer-lbl">Net profit</span>
-          <span className="lg-footer-total">{rp(main.totals.netProfit)}</span>
+          <span className="lg-footer-lbl">Net profit/(loss)</span>
+          <span className={`lg-footer-total${main.totals.netProfit < -0.005 ? " pl-footer-loss" : ""}`}>{rp(main.totals.netProfit)}</span>
           {main.margins.netMargin != null && <span className="lg-footer-lbl">margin {pct(main.margins.netMargin)}</span>}
           <span className="lg-footer-sep">·</span>
           {partialView ? (
