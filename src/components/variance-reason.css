@@ -1,0 +1,38 @@
+/* The reason block in a variance review popover (P&L and Trial Balance). */
+.vr { margin-top: 10px; }
+.vr-changed { margin-bottom: 8px; padding: 7px 9px; border-radius: 6px; font-size: 11.5px; line-height: 1.45; background: var(--color-warning-surface); color: var(--color-warning-text); }
+.vr-form textarea { width: 100%; box-sizing: border-box; resize: vertical; font-family: var(--font-sans); font-size: 12px; line-height: 1.45; padding: 7px 9px; border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); background: var(--color-surface-raised); color: var(--color-text-primary); }
+.vr-form textarea:focus { outline: none; border-color: var(--color-action); }
+.vr-err { margin-top: 4px; font-size: 11.5px; color: var(--color-danger-text); }
+.vr-actions { display: flex; gap: 6px; margin-top: 8px; }
+.vr-save { padding: 5px 12px; font-size: 12px; }
+.vr-note { padding: 8px 10px; border-radius: 6px; background: var(--color-surface-sunken); }
+.vr-note-text { font-size: 12px; line-height: 1.5; color: var(--color-text-primary); }
+.vr-note-meta { margin-top: 3px; font-size: 11px; color: var(--color-text-tertiary); }
+.vr-note .vr-actions { margin-top: 6px; }
+
+/* The variance pill on a flagged account (P&L and Trial Balance): the change
+   in amber (+52% / −38% / New), green "Reviewed", amber "Changed" after a
+   review no longer covers the amount; "Unreconciled" for a bank or cash
+   account. It sits at the right of the account column, so pills line up. On a
+   flagged row the hover General Ledger button is dropped — the account name
+   already opens the ledger — so the pill takes no extra room from the name. */
+.var-pill {
+  display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0; margin-left: 2px;
+  padding: 1px 7px; border: none; border-radius: 9999px; cursor: pointer; white-space: nowrap;
+  font-family: var(--font-sans); font-size: 10.5px; font-weight: 600; line-height: 16px;
+  background: var(--color-warning-surface); color: var(--color-warning-text);
+}
+.var-pill svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.var-pill:hover, .var-pill.on { box-shadow: 0 0 0 1px var(--color-warning-text) inset; }
+.var-pill.reviewed { background: var(--color-success-surface); color: var(--color-success-text); }
+.var-pill.reviewed:hover, .var-pill.reviewed.on { box-shadow: 0 0 0 1px var(--color-success-text) inset; }
+.var-pill-more { margin-left: 2px; padding: 0 4px; border-radius: 9999px; font-size: 9.5px; background: var(--color-surface-raised); color: var(--color-warning-text); }
+.has-var-pill .var-pill { margin-left: auto; }
+.has-var-pill .tb-gl-btn { display: none !important; }
+/* Beside a Change % against the previous period (the flags' own basis) the
+   pill keeps only its icon, and the flagged Change % cell turns amber. */
+.var-pill.icon-only { padding: 3px 5px; gap: 0; }
+.var-pill.icon-only .var-pill-more { margin-left: 3px; }
+.lg-cell-total.var-cell, .lg-card.lg-table-tb .lg-cell-total.var-cell { color: var(--color-warning-text) !important; font-weight: 700 !important; }
+.lg-cell-total.var-cell { background: var(--color-warning-surface); border-radius: 4px; }

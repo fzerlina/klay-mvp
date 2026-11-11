@@ -370,7 +370,7 @@ export function FiltersPopover({ filters, onChange, parties }) {
               <select className="dje-input" value={filters.dims[k] || ""} onChange={(e) => set({ dims: { ...filters.dims, [k]: e.target.value } })}>
                 <option value="">Any</option>
                 {valuesOf(k).map((v) => <option key={v} value={v}>{v}</option>)}
-                <option value={UNTAGGED}>Untagged</option>
+                <option value={UNTAGGED}>Others (no value)</option>
               </select>
             </label>
           ))}

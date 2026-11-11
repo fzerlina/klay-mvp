@@ -68,7 +68,7 @@
 .pl-page .pl-statement > div:last-child > .lg-row:last-child { padding-bottom: 16px; }
 
 /* Column layout (SME, 11 Nov; user, 11 Nov): the account column is fixed at
-   the left and the amount columns are packed left right after it — 340px
+   the left and the amount columns are packed left right after it — 380px
    fits the longest P&L name with its code and indent, 150px the widest
    amount — so an amount is never far from its account. Rows, bands and the
    header still run the full width of the card; an empty last track takes
@@ -76,8 +76,8 @@
    sideways and the account column stays stuck at the left. */
 .pl-page .lg-card.lg-table-tb .lg-row,
 .pl-page .lg-card.lg-table-tb .lg-col-header {
-  grid-template-columns: 340px repeat(var(--tb-n, 1), 150px) minmax(0, 1fr);
-  min-width: calc(340px + var(--tb-n, 1) * 150px + 44px);
+  grid-template-columns: 380px repeat(var(--tb-n, 1), 150px) minmax(0, 1fr);
+  min-width: calc(380px + var(--tb-n, 1) * 150px + 44px);
 }
 .pl-page .lg-card.lg-table-tb .pl-statement .lg-row > :first-child,
 .pl-page .lg-card.lg-table-tb .pl-statement .lg-col-header > :first-child {
@@ -113,3 +113,80 @@
   .pl-lbl-print { display: inline; }
   .pl-amt-link { color: inherit; }
 }
+
+/* Variance review: the toolbar toggle and the review popover (which wears
+   the Trial Balance's .tb-review-* styles); the pill is in
+   components/variance-reason.css, shared with the Trial Balance. */
+.pl-review-toggle { white-space: nowrap; }
+.pl-review-toggle:disabled { opacity: .5; cursor: default; }
+.pl-review-done { margin-left: 5px; font-weight: 500; color: var(--color-success-text); }
+
+.pl-var-pop { max-height: min(520px, 80vh); }
+.pl-var-done { color: var(--color-success-text); }
+.pl-var-rule { color: var(--color-text-tertiary); }
+.pl-var-sub { margin: 10px 0 4px; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--color-text-tertiary); }
+.pl-var-lines { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; column-gap: 10px; row-gap: 4px; font-size: 11.5px; align-items: baseline; }
+.pl-var-je { font-family: var(--font-mono); font-size: 10.5px; color: var(--color-action); text-decoration: none; }
+.pl-var-je:hover { text-decoration: underline; }
+.pl-var-desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text-secondary); }
+.pl-var-amt { font-family: var(--font-mono); font-size: 10.5px; color: var(--color-text-primary); }
+/* Variance review list under the statement: where reasons are read, printed
+   and exported. */
+.pl-vr { padding: 0; overflow: hidden; }
+.pl-vr-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 14px 18px 10px; border-bottom: 1px solid var(--color-border-default); }
+.pl-vr-title { margin: 0; font-size: 13px; font-weight: 700; color: var(--color-text-primary); }
+.pl-vr-sub { font-size: 11.5px; color: var(--color-text-tertiary); }
+.pl-vr-count { margin-left: auto; font-size: 11.5px; color: var(--color-text-secondary); }
+.pl-vr-count strong { font-weight: 700; color: var(--color-text-primary); }
+.pl-vr-table { overflow-x: auto; }
+.pl-vr-row { display: grid; grid-template-columns: minmax(170px, 1.2fr) 110px 110px 130px minmax(200px, 2.4fr) 64px; column-gap: 12px; align-items: baseline; min-width: 860px; padding: 9px 18px; border-bottom: 1px solid var(--color-border-subtle); font-size: 12px; }
+.pl-vr-row:last-child { border-bottom: none; }
+.pl-vr-row.on { background: var(--color-action-wash); }
+.pl-vr-th { font-size: 9.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--color-text-tertiary); background: var(--color-surface-sunken); padding-top: 8px; padding-bottom: 8px; }
+.pl-vr-row .num { text-align: right; font-family: var(--font-mono); font-size: 11.5px; }
+.pl-vr-th .num { font-family: var(--font-sans); font-size: 9.5px; }
+.pl-vr-acct { display: flex; gap: 8px; min-width: 0; }
+.pl-vr-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-vr-pct { display: block; font-family: var(--font-sans); font-size: 10.5px; color: var(--color-warning-text); }
+.pl-vr-reason { line-height: 1.45; color: var(--color-text-primary); }
+.pl-vr-none { color: var(--color-text-tertiary); font-style: italic; }
+.pl-vr-flag { color: var(--color-warning-text); font-weight: 600; }
+.pl-vr-by { display: block; margin-top: 2px; font-size: 11px; color: var(--color-text-tertiary); }
+.pl-vr-act { text-align: right; }
+
+@media print {
+  .pl-vr { break-inside: avoid; border: none; box-shadow: none; }
+  .pl-vr-row { min-width: 0; grid-template-columns: 1.2fr 90px 90px 100px 2.4fr; padding: 4px 0; }
+}
+
+/* Review log page: an activity feed of variance reviews, grouped by day. */
+.pl-log-back { display: inline-block; margin-bottom: 6px; font-size: 12px; font-weight: 600; color: var(--color-text-secondary); text-decoration: none; }
+.pl-log-back:hover { color: var(--color-action); }
+.pl-log-intro { margin: 4px 0 0; font-size: 12.5px; color: var(--color-text-secondary); max-width: 640px; }
+.pl-log { max-width: 760px; padding: 4px 32px 40px; }
+.pl-log-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 6px 0 18px; }
+.pl-log-search { flex: 0 1 280px; min-width: 180px; }
+.pl-log-count { margin-left: auto; font-size: 11.5px; color: var(--color-text-tertiary); }
+.pl-log-day { margin-bottom: 22px; }
+.pl-log-day-lbl { margin-bottom: 8px; font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--color-text-tertiary); }
+.pl-log-item { position: relative; display: flex; gap: 12px; padding: 0 0 16px; }
+.pl-log-item::before { content: ""; position: absolute; left: 13px; top: 30px; bottom: 2px; width: 1px; background: var(--color-border-default); }
+.pl-log-item:last-child::before { display: none; }
+.pl-log-avatar { flex-shrink: 0; width: 27px; height: 27px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10.5px; font-weight: 700; background: var(--color-success-surface); color: var(--color-success-text); }
+.pl-log-item.reopened .pl-log-avatar { background: var(--color-warning-surface); color: var(--color-warning-text); }
+.pl-log-body { min-width: 0; flex: 1; }
+.pl-log-line { font-size: 13px; line-height: 1.5; color: var(--color-text-secondary); }
+.pl-log-line strong { font-weight: 600; color: var(--color-text-primary); }
+.pl-log-line .tb-code { margin-right: 2px; }
+.pl-log-time { margin-left: 8px; font-size: 11px; color: var(--color-text-tertiary); }
+.pl-log-meta { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin-top: 4px; font-size: 11.5px; }
+.pl-log-chip { padding: 1px 8px; border-radius: 9999px; background: var(--color-surface-sunken); color: var(--color-text-secondary); }
+.pl-log-move { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-secondary); }
+.pl-log-note { margin: 8px 0 0; padding: 8px 12px; border-left: 2px solid var(--color-border-strong); border-radius: 0; background: var(--color-surface-raised); font-size: 12.5px; line-height: 1.55; color: var(--color-text-primary); }
+.pl-log-open { margin-top: 6px; padding: 0; border: none; background: none; font-family: var(--font-sans); font-size: 11.5px; font-weight: 600; color: var(--color-action); cursor: pointer; }
+.pl-log-open:hover { text-decoration: underline; text-underline-offset: 2px; }
+.pl-log-empty { padding: 28px 20px; border: 1px dashed var(--color-border-strong); border-radius: 10px; text-align: center; font-size: 12.5px; color: var(--color-text-secondary); }
+.pl-log-empty-title { font-size: 14px; font-weight: 700; color: var(--color-text-primary); margin-bottom: 4px; }
+.pl-log-empty p { margin: 0 0 12px; }
+.pl-log-btn { text-decoration: none; }
+.pl-log-rep { background: var(--color-action-wash); color: var(--color-action); }

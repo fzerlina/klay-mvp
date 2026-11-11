@@ -17,6 +17,7 @@ import BillCreatePage from "./pages/BillCreatePage";
 import BillDetailPage from "./pages/BillDetailPage";
 import CashflowReportPage from "./pages/CashflowReportPage";
 import ProfitLossPage from "./pages/ProfitLossPage";
+import VarianceReviewLogPage from "./pages/VarianceReviewLogPage";
 import TaxRegisterPage from "./pages/TaxRegisterPage";
 import InvoicesPage from "./pages/InvoicesPage";
 import InvoiceCreatePage from "./pages/InvoiceCreatePage";
@@ -66,6 +67,7 @@ import InventorySettingsPage, { FixedAssetsSettingsPage } from "./pages/Inventor
 import ReconciliationSettingsPage from "./pages/ReconciliationSettingsPage";
 import { JournalEntriesProvider } from "./state/JournalEntriesContext";
 import { ClosePeriodProvider } from "./state/ClosePeriodContext";
+import { VarianceReviewsProvider } from "./state/VarianceReviewsContext";
 
 function ComingSoon({ title }) {
   return (
@@ -151,6 +153,7 @@ export default function App() {
             <PaymentsProvider>
             <BankReconProvider>
             <NonBankReconProvider>
+            <VarianceReviewsProvider>
             {/* Scheduled journal entries post themselves on their date. */}
             <ScheduledAutoPost />
             <Routes>
@@ -202,6 +205,8 @@ export default function App() {
                 <Route path="/reports/general-ledger" element={<GeneralLedgerPage />} />
                 <Route path="/reports/cashflow" element={<CashflowReportPage />} />
                 <Route path="/reports/profit-loss" element={<ProfitLossPage />} />
+                <Route path="/reports/review-log" element={<VarianceReviewLogPage />} />
+                <Route path="/reports/profit-loss/review-log" element={<Navigate to="/reports/review-log" replace />} />
                 <Route path="/reports/tax-register" element={<TaxRegisterPage />} />
                 <Route path="/trial-balance" element={<TrialBalancePage />} />
                 <Route path="/close" element={<ApCloseCommandCenterPage />} />
@@ -235,6 +240,7 @@ export default function App() {
                 <Route path="*" element={<RoleLanding />} />
               </Route>
             </Routes>
+            </VarianceReviewsProvider>
             </NonBankReconProvider>
             </BankReconProvider>
             </PaymentsProvider>

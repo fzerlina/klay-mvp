@@ -204,3 +204,11 @@
 /* The footing figures are long rupiah amounts: keep each on one line and let the size follow the viewport. */
 .tb-report .lg-kpi-cell{padding-left:18px;padding-right:18px;min-width:0}
 .tb-report .lg-kpi-val{white-space:nowrap;font-size:clamp(11px,1.2vw,19px)}
+
+/* Variance reviews (shared with the P&L): a reviewed account's marker turns
+   into a green check; the popover title says Reviewed. */
+.tb-flag.done{color:var(--color-success-text)}
+.tb-flag.done:hover,.tb-flag.done.on{background:var(--color-success-surface)}
+.tb-review-title.tb-review-done{color:var(--color-success-text)}
+.tb-review-done-count{margin-left:5px;font-weight:500;color:var(--color-success-text)}
+.tb-log-btn{text-decoration:none}

@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback, Fragment } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { COMPANY } from "../data/seed/company";
 import { COMPANY_BANK_ACCOUNTS } from "../data/seed/bankAccounts";
 import { NON_BANK_ACCOUNTS } from "../data/seed/nonBankAccounts";
@@ -11,6 +11,8 @@ import { useClosePeriod } from "../state/ClosePeriodContext";
 import { useBankRecon } from "../state/BankReconContext";
 import { useNonBankRecon } from "../state/NonBankReconContext";
 import { useDimensions } from "../state/DimensionsContext";
+import { useVarianceReviews, reviewKey } from "../state/VarianceReviewsContext";
+import VarianceReason from "../components/VarianceReason";
 import { periodPresets, rangeLabel, monthLabel, previousPeriod, todayIso, sameDayLastYear } from "../lib/reportPeriods";
 import { useClickOutside, Check, ChoicePopover, PeriodPopover, DimensionPopover, ViewsPopover, ExportPopover } from "../components/ReportControls";
 import { downloadCsv, reportHeader, exportName, printReport } from "../lib/reportExport";
@@ -55,7 +57,6 @@ const TYPE_BADGE_CLS = {
   expense: "draft",
 };
 
-const REVIEW_ICON = <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>;
 const GL_ICON = <svg viewBox="0 0 24 24"><path d="M7 17L17 7"/><path d="M8 7h9v9"/></svg>;
 
 const rp = (v) => {
@@ -70,6 +71,8 @@ const fmtIdDate = (s) =>
   new Date(s + "T00:00:00").toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const pctText = (v) => `${v > 0 ? "+" : ""}${(v * 100).toFixed(1)}%`;
+// A move as the variance pill and popover show it: whole percent, id-ID grouping.
+const movePct = (v) => (v == null ? "New" : `${v > 0 ? "+" : "−"}${Math.round(Math.abs(v) * 100).toLocaleString("id-ID")}%`);
 const r2 = (v) => Math.round(v * 100) / 100;
 
 const pad = (n) => String(n).padStart(2, "0");
@@ -167,8 +170,8 @@ function reviewChecks(tb, { prevByCode, prevLabel, curLabel, reconByCode, dateTo
       if (Math.abs(delta) >= materiality && (pct === null || Math.abs(pct) >= variancePct)) {
         const what = isPl ? "activity" : "ending balance";
         out.push({
-          code: r.code, kind: "variance",
-          title: pct === null ? `New ${what} vs ${prevLabel}` : `${what[0].toUpperCase() + what.slice(1)} ${pctText(pct)} vs ${prevLabel}`,
+          code: r.code, kind: "variance", cur, was, delta, pct,
+          title: pct === null ? `New ${what} vs ${prevLabel}` : `${what[0].toUpperCase() + what.slice(1)} ${movePct(pct)} vs ${prevLabel}`,
           desc: `${r.name}'s ${what} was ${rp(was) === "—" ? "Rp 0" : rp(was)} in ${prevLabel} and ${rp(cur) === "—" ? "Rp 0" : rp(cur)} in ${curLabel} — a change of ${rp(delta)}.`,
           action: "Check the period's journals for a one-off, a missed or doubled accrual, or a mispost, and note the reason before closing.",
         });
@@ -258,7 +261,10 @@ function SettingsPopover({ excludeZero, onExcludeZero, group, onGroup, sort, sor
 // viewport so the table's sideways scroll can't clip it; opens below the
 // marker, or above it near the bottom of the screen. Closes on a click
 // elsewhere, Esc, scroll or resize. Each finding links to where it's fixed.
-function ReviewPopover({ anchor, account, findings, glTo, onClose }) {
+// A variance finding also takes a reason (the shared VarianceReason block, as
+// on the P&L): `onSave(f, note)` / `onReopen(f)`; reconciliation findings are
+// fixed by reconciling, not explained.
+function ReviewPopover({ anchor, account, findings, glTo, onClose, onSave, onReopen }) {
   const ref = useRef(null);
   useEffect(() => {
     const onDown = (e) => {
@@ -281,9 +287,9 @@ function ReviewPopover({ anchor, account, findings, glTo, onClose }) {
       window.removeEventListener("scroll", onScroll, true);
     };
   }, [account.code, onClose]);
-  const W = 340;
+  const W = 360;
   const left = Math.max(12, Math.min(anchor.left - 12, window.innerWidth - W - 12));
-  const below = anchor.bottom < window.innerHeight * 0.6;
+  const below = anchor.bottom < window.innerHeight * 0.5;
   const style = below
     ? { position: "fixed", left, right: "auto", width: W, top: anchor.bottom + 6, bottom: "auto" }
     : { position: "fixed", left, right: "auto", width: W, top: "auto", bottom: window.innerHeight - anchor.top + 6 };
@@ -295,9 +301,11 @@ function ReviewPopover({ anchor, account, findings, glTo, onClose }) {
       </div>
       {findings.map((f, i) => (
         <div key={i} className="tb-review-item">
-          <div className="tb-review-title">{f.title}</div>
+          <div className={`tb-review-title${f.status === "reviewed" ? " tb-review-done" : ""}`}>{f.status === "reviewed" ? `Reviewed · ${f.title}` : f.title}</div>
           <div className="tb-review-desc">{f.desc}</div>
-          <div className="tb-review-next"><strong>Next step:</strong> {f.action}</div>
+          {f.status && onSave
+            ? <VarianceReason review={f.review} status={f.status} onSave={(note) => onSave(f, note)} onReopen={() => onReopen(f)} />
+            : <div className="tb-review-next"><strong>Next step:</strong> {f.action}</div>}
           <Link className="tb-review-link" to={f.to || glTo} onClick={onClose}>
             {f.to ? f.toLabel : "Open in General Ledger"} {GL_ICON}
           </Link>
@@ -325,6 +333,7 @@ export default function TrialBalancePage() {
   const { resolutions } = useBankRecon();
   const { records: nonBankRecords } = useNonBankRecon();
   const { valuesOf } = useDimensions();
+  const { reviews, markReviewed, reopen } = useVarianceReviews();
 
   const [search, setSearch] = useState("");
   // The Needs review toggle narrows the table to flagged accounts.
@@ -341,6 +350,20 @@ export default function TrialBalancePage() {
   // The account whose review popover is open, and where its marker sits.
   const [reviewPop, setReviewPop] = useState(null); // { code, anchor: { left, top, bottom } }
   const closeReview = useCallback(() => setReviewPop(null), []);
+  // Arriving from the Review log: that period, flagged accounts shown, the
+  // account highlighted.
+  const location = useLocation();
+  useEffect(() => {
+    const p = location.state?.period;
+    if (!p) return;
+    setPeriodChoice({ key: "custom", from: p.from, to: p.to });
+    if (location.state.review) {
+      setFocusCode(location.state.review);
+      setReviewOnly(true);
+      setTimeout(() => document.querySelector(".tb-report .tb-acct-row.selected")?.scrollIntoView({ block: "center" }), 150);
+    }
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.state]); // eslint-disable-line react-hooks/exhaustive-deps
 
 
   const [openPop, setOpenPop] = useState(null); // settings | period | export | compare | dim | views
@@ -453,16 +476,43 @@ export default function TrialBalancePage() {
   // The company's own variance thresholds (Settings → Accounting Preferences).
   const variancePct = varianceThreshold.pct;
   const materiality = varianceThreshold.amount;
-  const findings = useMemo(
-    () => reviewChecks(CUR_TB, { prevByCode, prevLabel, curLabel: periodRange, reconByCode: dim ? null : reconByCode, dateTo, periodOver, materiality, variancePct }),
-    [CUR_TB, prevByCode, prevLabel, periodRange, reconByCode, dim, dateTo, periodOver, materiality, variancePct],
-  );
+  // A variance finding carries its review (shared with the P&L: one reason per
+  // account and period, written on either report). Reviews explain the whole
+  // company's figures, so they're off while a dimension filter is on.
+  const findings = useMemo(() => {
+    const raw = reviewChecks(CUR_TB, { prevByCode, prevLabel, curLabel: periodRange, reconByCode: dim ? null : reconByCode, dateTo, periodOver, materiality, variancePct });
+    if (dim) return raw;
+    return raw.map((f) => {
+      if (f.kind !== "variance") return f;
+      const rv = reviews[reviewKey(f.code, dateFrom, dateTo)];
+      const status = !rv || rv.reopened ? "open" : Math.abs((rv.amount || 0) - f.cur) >= 0.5 ? "changed" : "reviewed";
+      return { ...f, review: rv || null, status };
+    });
+  }, [CUR_TB, prevByCode, prevLabel, periodRange, reconByCode, dim, dateTo, dateFrom, periodOver, materiality, variancePct, reviews]);
   const findingsByCode = useMemo(() => {
     const m = {};
     findings.forEach((f) => { (m[f.code] ||= []).push(f); });
     return m;
   }, [findings]);
-  const flaggedCount = Object.keys(findingsByCode).length;
+  // An account still needs review while any of its checks is open; a reviewed
+  // variance (and nothing else) counts as reviewed.
+  const isDone = (fs) => fs.every((f) => f.status === "reviewed");
+  const flaggedCount = Object.values(findingsByCode).filter((fs) => !isDone(fs)).length;
+  const reviewedCount = Object.values(findingsByCode).filter(isDone).length;
+  // Comparing with the previous period (the flags' basis), a balance-sheet
+  // account's Change % is the very move that was flagged, so its pill shrinks
+  // to the icon and the cell turns amber. Not for P&L accounts: the flag is on
+  // the period's activity, the Change column on the year-to-date balance.
+  const compactPills = compare === "prev";
+  const trippedCodes = new Set(findings.filter((f) => f.kind === "variance" && f.status !== "reviewed" && f.pct !== null && ALL_TB.find((r) => r.code === f.code)?.fs !== "PL").map((f) => f.code));
+  const saveReview = (f, note) => {
+    markReviewed(reviewKey(f.code, dateFrom, dateTo), { note, by: user?.name || "You", amount: f.cur, prev: f.was, report: "tb" });
+    showToast(`${f.code} marked reviewed`);
+  };
+  const reopenReview = (f) => {
+    reopen(reviewKey(f.code, dateFrom, dateTo), user?.name || "You", "tb");
+    showToast(`${f.code} reopened for review`);
+  };
 
   // Period status: closed / open, and what isn't in the numbers yet.
   const closeState = periodCloseState(dateFrom, dateTo, closedThrough);
@@ -753,15 +803,31 @@ export default function TrialBalancePage() {
     const flags = findingsByCode[r.code] || [];
     if (!flags.length) return null;
     const open = reviewPop?.code === r.code;
+    const done = isDone(flags);
+    // The same pill as the P&L: the change (or Reviewed / Changed) for a
+    // variance, "Unreconciled" for a bank or cash account, "+1" when both.
+    const v = flags.find((f) => f.kind === "variance");
+    const text = !v ? "Unreconciled"
+      : v.status === "reviewed" ? "Reviewed"
+        : v.status === "changed" ? "Changed"
+          : movePct(v.pct);
+    // Beside a Change % against the previous period the move would show twice:
+    // a variance pill keeps only its icon ("Unreconciled" has no number to repeat).
+    const iconOnly = compactPills && !!v && r.fs !== "PL" && v.pct !== null;
     return (
-      <button type="button" className={`tb-flag no-print${open ? " on" : ""}`} data-review-code={r.code}
-        aria-label={`${plural(flags.length, "review check")} on ${r.name}`} aria-haspopup="dialog" aria-expanded={open}
+      <button type="button" className={`var-pill no-print${open ? " on" : ""}${done ? " reviewed" : ""}${iconOnly ? " icon-only" : ""}`} data-review-code={r.code}
+        aria-label={done ? `${r.name}: variance reviewed — open review` : `${r.name}: ${flags.map((f) => f.title).join("; ")} — open review`} aria-haspopup="dialog" aria-expanded={open}
+        title={done ? `Reviewed by ${v?.review?.by}` : flags.map((f) => f.title).join(" · ")}
         onClick={(e) => {
           e.stopPropagation();
           const { left, top, bottom } = e.currentTarget.getBoundingClientRect();
           setReviewPop((p) => (p?.code === r.code ? null : { code: r.code, anchor: { left, top, bottom } }));
         }}>
-        {REVIEW_ICON}
+        {done
+          ? <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+          : <svg viewBox="0 0 24 24"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg>}
+        {!iconOnly && text}
+        {flags.length > 1 && <span className="var-pill-more">+{flags.length - 1}</span>}
       </button>
     );
   };
@@ -779,7 +845,7 @@ export default function TrialBalancePage() {
     };
     return (
       <div className={`lg-row tb-acct-row${isAlt ? " alt" : ""}${focusCode === r.code || reviewPop?.code === r.code ? " selected" : ""}`} onClick={onRowClick}>
-        <div className="tb-cell-name" style={{ paddingLeft: (depth + 1) * INDENT }}>
+        <div className={`tb-cell-name${findingsByCode[r.code] ? " has-var-pill" : ""}`} style={{ paddingLeft: (depth + 1) * INDENT }}>
           <span className="tb-code">{r.code}</span>
           <Link className="tb-name tb-acct-link" to={glUrl(r.code)} title={`Open ${r.name} in the General Ledger`} onClick={(e) => e.stopPropagation()}>{r.name}</Link>
           <ReviewFlag r={r} />
@@ -787,7 +853,7 @@ export default function TrialBalancePage() {
             General Ledger {GL_ICON}
           </Link>
         </div>
-        {cols.map((c) => <div key={c.key} className={cellCls(c)}>{cellView(c, r)}</div>)}
+        {cols.map((c) => <div key={c.key} className={`${cellCls(c)}${compactPills && c.key === "change_pct" && trippedCodes.has(r.code) ? " var-cell" : ""}`}>{cellView(c, r)}</div>)}
       </div>
     );
   }
@@ -870,6 +936,11 @@ export default function TrialBalancePage() {
               <h1 className="lg-title">Trial Balance</h1>
             </div>
             <div className="lg-head-actions no-print">
+              {/* Every variance reason (Trial Balance and P&L), as a feed. */}
+              <Link className="lg-btn-ghost tb-log-btn" to="/reports/review-log" state={{ back: "/trial-balance" }} title="Every variance reason written on the Trial Balance and P&L">
+                <svg viewBox="0 0 24 24"><path d="M12 8v4l3 2"/><circle cx="12" cy="12" r="9"/></svg>
+                Review log
+              </Link>
               <div className="lg-meta-btn-wrap">
                 <button className={`lg-btn-ghost${activeViewId ? " tb-btn-on" : ""}`} onClick={() => togglePop("views")} aria-haspopup="dialog" aria-expanded={openPop === "views"}>
                   <svg viewBox="0 0 24 24"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>
@@ -966,9 +1037,10 @@ export default function TrialBalancePage() {
                 </div>
               </div>
               <div className="lg-filter-meta">
-                <button className={`lg-toggle${reviewOnly ? " on" : ""}`} onClick={() => setReviewOnly((v) => !v)} aria-pressed={reviewOnly} disabled={flaggedCount === 0 && !reviewOnly}
+                <button className={`lg-toggle${reviewOnly ? " on" : ""}`} onClick={() => setReviewOnly((v) => !v)} aria-pressed={reviewOnly} disabled={flaggedCount + reviewedCount === 0 && !reviewOnly}
                   title={`Moves of ${Math.round(variancePct * 100)}% and ${rp(materiality)} or more against ${prevLabel} (Settings › General Settings › Preferences), and bank or cash accounts not reconciled to the end of a finished period.`}>
                   Needs review <span className="tb-toggle-count">{flaggedCount}</span>
+                  {reviewedCount > 0 && <span className="tb-review-done-count">· {reviewedCount} reviewed</span>}
                 </button>
                 {tree && (
                 <>
@@ -1059,8 +1131,9 @@ export default function TrialBalancePage() {
       </div>
 
       {reviewPop && findingsByCode[reviewPop.code] && (
-        <ReviewPopover anchor={reviewPop.anchor} account={ALL_TB.find((r) => r.code === reviewPop.code)}
-          findings={findingsByCode[reviewPop.code]} glTo={glUrl(reviewPop.code)} onClose={closeReview} />
+        <ReviewPopover key={`${reviewPop.code}-${findingsByCode[reviewPop.code].map((f) => f.status || f.kind).join()}`} anchor={reviewPop.anchor} account={ALL_TB.find((r) => r.code === reviewPop.code)}
+          findings={findingsByCode[reviewPop.code]} glTo={glUrl(reviewPop.code)} onClose={closeReview}
+          onSave={dim ? null : saveReview} onReopen={reopenReview} />
       )}
 
       {toast && <div className="toast show">{toast}</div>}

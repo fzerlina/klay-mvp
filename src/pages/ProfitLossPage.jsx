@@ -3,7 +3,7 @@
 // The V1 P&L from the competitor benchmark (Superhuman Docs › Reporting ›
 // Profit & Loss - Competitor Analysis, §6), modelled on DualEntry:
 //   • One statement, many columns: Total only, By month, By quarter or by a
-//     dimension (one column per value + Untagged + Total); or a
+//     dimension (one column per value + Others + Total); or a
 //     comparison (previous period, same period last year, prior year to
 //     date). One at a time, as DualEntry does.
 //   • Rows from account types (lib/profitLoss.js), with a margin row under
@@ -19,8 +19,8 @@
 //     CSV, and a signed print / PDF — with Bahasa Indonesia labels in print and
 //     Excel by default.
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { COMPANY } from "../data/seed/company";
 import { DIM_BY_KEY } from "../data/seed/dimensions";
 import { useJournalEntries } from "../state/JournalEntriesContext";
@@ -28,6 +28,8 @@ import { useAccountingSettings } from "../state/AccountingSettingsContext";
 import { useCurrentUser } from "../state/CurrentUserContext";
 import { useClosePeriod } from "../state/ClosePeriodContext";
 import { useDimensions } from "../state/DimensionsContext";
+import { useVarianceReviews, reviewKey } from "../state/VarianceReviewsContext";
+import VarianceReason, { shortDate } from "../components/VarianceReason";
 import { computeProfitLoss, PL_LINES, lineValue, unpostedInPeriod, change, plAccounts } from "../lib/profitLoss";
 import {
   periodPresets, previousPeriod, rangeLabel, monthLabel, sameDayLastYear,
@@ -92,6 +94,73 @@ const longRange = (from, to, lang) => {
 function Lbl({ en, id, lang }) {
   if (lang !== "id" || !id || id === en) return en;
   return <><span className="pl-lbl-screen">{en}</span><span className="pl-lbl-print">{id}</span></>;
+}
+
+// The review of one flagged account, anchored to its pill — positioned like
+// the Trial Balance's review popover (fixed, so sideways scroll can't clip
+// it). What moved, the biggest lines behind it, and a note: Mark reviewed
+// needs a reason. A review that no longer covers the amount says so.
+function VariancePopover({ anchor, account, v, prevLabel, curLabel, rule, drivers, glTo, onSave, onReopen, onClose }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const onDown = (e) => {
+      if (ref.current?.contains(e.target)) return;
+      if (e.target.closest?.(`[data-review-code="${account.code}"]`)) return;
+      onClose();
+    };
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    const onScroll = (e) => { if (!ref.current?.contains(e.target)) onClose(); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("resize", onClose);
+    window.addEventListener("scroll", onScroll, true);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", onClose);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  }, [account.code, onClose]);
+  const W = 380;
+  const left = Math.max(12, Math.min(anchor.left - 12, window.innerWidth - W - 12));
+  const below = anchor.bottom < window.innerHeight * 0.5;
+  const style = below
+    ? { position: "fixed", left, width: W, top: anchor.bottom + 6 }
+    : { position: "fixed", left, width: W, bottom: window.innerHeight - anchor.top + 6 };
+  const dir = v.pct === null ? `New vs ${prevLabel}` : `${v.delta > 0 ? "Up" : "Down"} ${Math.round(Math.abs(v.pct) * 100)}% vs ${prevLabel}`;
+  return (
+    <div className="lg-popover tb-review-pop pl-var-pop" ref={ref} style={style} role="dialog" aria-label={`Variance review: ${account.name}`}>
+      <div className="tb-review-head">
+        <span className="tb-review-code">{account.code}</span>
+        <span className="tb-review-name">{account.name}</span>
+      </div>
+      <div className="tb-review-item">
+        <div className={`tb-review-title${v.status === "reviewed" ? " pl-var-done" : ""}`}>{v.status === "reviewed" ? `Reviewed · ${dir}` : dir}</div>
+        <div className="tb-review-desc">
+          {rp(v.was)} in {prevLabel} → {rp(v.cur)} in {curLabel}, {v.delta > 0 ? "+" : "−"}{rp(Math.abs(v.delta))}.
+          <span className="pl-var-rule"> Flagged for moves of {rule} or more.</span>
+        </div>
+        {drivers.length > 0 && (
+          <>
+            <div className="pl-var-sub">Biggest lines this period</div>
+            <div className="pl-var-lines">
+              {drivers.map((d) => (
+                <Fragment key={`${d.je}-${d.i}`}>
+                  <Link className="pl-var-je" to={`/journal-entry/${encodeURIComponent(d.je)}`} onClick={onClose}>{d.je}</Link>
+                  <span className="pl-var-desc" title={d.desc}>{d.desc}</span>
+                  <span className="pl-var-amt">{Math.abs(d.amount).toLocaleString("id-ID")} {d.amount >= 0 ? "Dr" : "Cr"}</span>
+                </Fragment>
+              ))}
+            </div>
+          </>
+        )}
+        <VarianceReason review={v.review} status={v.status} onSave={onSave} onReopen={onReopen} />
+        <Link className="tb-review-link" to={glTo} onClick={onClose}>
+          Open in General Ledger <svg viewBox="0 0 24 24"><path d="M7 17L17 7"/><path d="M8 7h9v9"/></svg>
+        </Link>
+      </div>
+    </div>
+  );
 }
 
 const GEAR = <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>;
@@ -164,7 +233,8 @@ function SettingsPopover({ showZero, onShowZero, showPct, onShowPct, unit, onUni
 export default function ProfitLossPage() {
   const navigate = useNavigate();
   const { entries } = useJournalEntries();
-  const { fiscalYearStart } = useAccountingSettings();
+  const { fiscalYearStart, varianceThreshold } = useAccountingSettings();
+  const { reviews, markReviewed, reopen } = useVarianceReviews();
   const { user } = useCurrentUser();
   const { closedThrough } = useClosePeriod();
   const { valuesOf } = useDimensions();
@@ -189,6 +259,24 @@ export default function ProfitLossPage() {
   const [search, setSearch] = useState("");
   // A row the user clicked to keep their place across the columns.
   const [focusCode, setFocusCode] = useState(null);
+  // Needs review: show only flagged accounts; the account whose review popover is open.
+  const [reviewOnly, setReviewOnly] = useState(false);
+  const [reviewPop, setReviewPop] = useState(null); // { code, anchor }
+  const closeReview = useCallback(() => setReviewPop(null), []);
+  // Arriving from the Review log ("Open in Profit & Loss"): that period, with
+  // the account highlighted and the flagged accounts shown.
+  const location = useLocation();
+  useEffect(() => {
+    const p = location.state?.period;
+    if (!p) return;
+    setPeriodChoice({ key: "custom", from: p.from, to: p.to });
+    if (location.state.review) {
+      setFocusCode(location.state.review);
+      setReviewOnly(true);
+      setTimeout(() => document.querySelector(".pl-page .tb-acct-row.selected")?.scrollIntoView({ block: "center" }), 150);
+    }
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.state]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [openPop, setOpenPop] = useState(null); // period | columns | compare | dim | settings | views | export
   const [dimEdit, setDimEdit] = useState(null); // the dimension key being edited, or null to add one
@@ -251,7 +339,7 @@ export default function ProfitLossPage() {
   const monthPieces = useMemo(() => splitPeriod(from, to, "month", fiscalYearStart), [from, to, fiscalYearStart]);
   const quarterPieces = useMemo(() => splitPeriod(from, to, "quarter", fiscalYearStart), [from, to, fiscalYearStart]);
   // Split by a dimension: one column per value with activity in the period
-  // (after the filters), an Untagged column for P&L lines without a value, so
+  // (after the filters), an Others column for P&L lines without a value, so
   // the columns add up to Total — Jurnal's "Non-Departemen" column; DualEntry
   // and QBO have no such column and their split doesn't visibly tie.
   const dimActivity = useMemo(() => {
@@ -284,7 +372,10 @@ export default function ProfitLossPage() {
     prev_year: { from: sameDayLastYear(from), to: sameDayLastYear(to) },
     prior_ytd: { from: fiscalYearStartFor(sameDayLastYear(to), fiscalYearStart), to: sameDayLastYear(to) },
   }), [from, to, fiscalYearStart]);
-  const compRange = !multi && compare !== "none" ? compareRanges[compare] : null;
+  // Reviewing variances lays the previous period beside this one, unless
+  // another layout was picked.
+  const compareEff = reviewOnly && compare === "none" && !multi ? "prev" : compare;
+  const compRange = !multi && compareEff !== "none" ? compareRanges[compareEff] : null;
   const compLabel = compRange ? rangeLabel(compRange.from, compRange.to) : "";
   const layout = compRange ? "compare" : splitKey ? "dims" : multi ? "periods" : "total";
 
@@ -321,7 +412,7 @@ export default function ProfitLossPage() {
       return [
         ...splitValues(splitKey).map((v, i) => ({ id: `d${i}`, range, dim: { key: splitKey, value: v }, label: v })),
         ...(dimActivity[splitKey].untagged
-          ? [{ id: "dU", range, dim: { key: splitKey, value: UNTAGGED }, label: "Untagged", id_label: "Tanpa tag", muted: true,
+          ? [{ id: "dU", range, dim: { key: splitKey, value: UNTAGGED }, label: "Others", id_label: "Lainnya", muted: true,
             title: `P&L lines with no ${DIM_BY_KEY[splitKey]?.label || splitKey} — e.g. accounts that don't carry it` }]
           : []),
         { ...cur, label: "Total", id_label: "Jumlah" },
@@ -361,6 +452,53 @@ export default function ProfitLossPage() {
   const partialView = dimList.length > 0;
   const tiesOk = Math.abs(r2(tbNet - main.totals.netProfit)) < 0.5 && main.balanced;
 
+  // ── Variance review ───────────────────────────────────────────────────────
+  // Each account against the previous period of the same length, with the
+  // Trial Balance's rule — a company setting (Settings › Preferences): a move
+  // of at least `pct` AND `amount`. Off while a dimension filter is on: a
+  // review explains the company's figures, not a slice of them.
+  const prevRange = compareRanges.prev;
+  const prevLabel = rangeLabel(prevRange.from, prevRange.to);
+  const reviewable = dimList.length === 0;
+  const prevRes = useMemo(() => (reviewable ? computeProfitLoss(entries, prevRange) : null), [reviewable, entries, prevRange.from, prevRange.to]); // eslint-disable-line react-hooks/exhaustive-deps
+  const curRes = useMemo(() => (reviewable ? computeProfitLoss(entries, { from, to }) : null), [reviewable, entries, from, to]);
+  const variances = useMemo(() => {
+    const out = {};
+    if (!curRes || !prevRes) return out;
+    for (const [code, cur] of Object.entries(curRes.byCode)) {
+      const was = prevRes.byCode[code] || 0;
+      const delta = r2(cur - was);
+      const pctChange = was ? delta / Math.abs(was) : null;
+      if (Math.abs(delta) < varianceThreshold.amount || (pctChange !== null && Math.abs(pctChange) < varianceThreshold.pct)) continue;
+      const rv = reviews[reviewKey(code, from, to)];
+      const status = !rv || rv.reopened ? "open" : Math.abs((rv.amount || 0) - cur) >= 0.5 ? "changed" : "reviewed";
+      out[code] = { code, cur, was, delta, pct: pctChange, review: rv || null, status };
+    }
+    return out;
+  }, [curRes, prevRes, varianceThreshold, reviews, from, to]);
+  const varList = Object.values(variances);
+  // Comparing with the previous period — the flags' own basis — the Change %
+  // column already shows each move: pills shrink to their icon then.
+  const compactPills = layout === "compare" && compareEff === "prev";
+  // The review list under the statement: still to review first, then biggest moves.
+  const reviewList = [...varList].sort((a, b) => (a.status === "reviewed") - (b.status === "reviewed") || Math.abs(b.delta) - Math.abs(a.delta));
+  const openCount = varList.filter((v) => v.status !== "reviewed").length;
+  const reviewedCount = varList.length - openCount;
+  useEffect(() => { if (reviewOnly && !reviewable) setReviewOnly(false); }, [reviewOnly, reviewable]);
+  // The posted lines behind a flagged account this period, biggest first.
+  const driversFor = (code) => {
+    const out = [];
+    for (const je of entries) {
+      if (je.status !== "posted" || je.je_date < from || je.je_date > to) continue;
+      (je.lines || []).forEach((l, i) => {
+        if (l.account_code !== code) return;
+        out.push({ je: je.je_number, i, desc: l.description || je.memo || "", amount: r2((Number(l.debit) || 0) - (Number(l.credit) || 0)) });
+      });
+    }
+    return out.sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount)).slice(0, 3);
+  };
+  const acctName = (code) => Object.values(main.sections).flatMap((s) => s.rows).find((r) => r.code === code)?.name || code;
+
   // ── Rows ──────────────────────────────────────────────────────────────────
   const anyNonZero = (code) => amountCols.some((c) => Math.abs(results[c.id].byCode[code] || 0) >= 0.005);
   // Accounts in a section: zero rows hidden unless asked for (exports use
@@ -371,9 +509,10 @@ export default function ProfitLossPage() {
   // revenue.
   const hasContra = main.sections.contra.rows.length > 0;
   const hiddenLine = (line) => !hasContra && (line.key === "contra" || line.key === "netRevenue");
-  const visibleRows = (key) => main.sections[key].rows.filter((r) => key === "contra" || showZero || anyNonZero(r.code));
+  // A flagged account shows even at zero (it may have dropped to nothing).
+  const visibleRows = (key) => main.sections[key].rows.filter((r) => key === "contra" || showZero || anyNonZero(r.code) || variances[r.code]);
   const q = search.trim().toLowerCase();
-  const shownRows = (key) => visibleRows(key).filter((r) => !q || r.code.toLowerCase().includes(q) || r.name.toLowerCase().includes(q));
+  const shownRows = (key) => visibleRows(key).filter((r) => (!q || r.code.toLowerCase().includes(q) || r.name.toLowerCase().includes(q)) && (!reviewOnly || variances[r.code]));
   const sectionKeys = PL_LINES.filter((l) => l.kind === "section").map((l) => l.key);
   const totalAccounts = sectionKeys.reduce((n, k) => n + visibleRows(k).length, 0);
   const shownAccounts = sectionKeys.reduce((n, k) => n + shownRows(k).length, 0);
@@ -433,7 +572,7 @@ export default function ProfitLossPage() {
 
   // ── Drill: the General Ledger for the account, the column's dates and the
   // same dimension filter. One whole month goes as that month.
-  // A dimension column adds its own value (or Untagged).
+  // A dimension column adds its own value (or Others: no value).
   const glUrl = (code, range, dim = null) => {
     const qs = new URLSearchParams({ account: code });
     const whole = range.from.slice(0, 7) === range.to.slice(0, 7) && range.from.endsWith("-01") && range.to === monthEnd(range.from);
@@ -475,7 +614,7 @@ export default function ProfitLossPage() {
   const layoutNote = {
     compare: `Compared with ${COMPARE_LABELS[compare].toLowerCase()} (${compLabel})`,
     periods: columnLabel(colEff),
-    dims: `${columnLabel(colEff)}, with Untagged`,
+    dims: `${columnLabel(colEff)}, with Others`,
     total: null,
   }[layout];
   const viewNote = [layoutNote, dimText ? `Filtered to ${dimText}` : null].filter(Boolean).join(" · ");
@@ -572,6 +711,29 @@ export default function ProfitLossPage() {
       }
       rows.push(row);
     });
+    // The variance review travels with the statement, before the sign-off.
+    if (reviewable && reviewList.length) {
+      const id = lang === "id";
+      rows.push([], [
+        { v: id ? "Tinjauan varians" : "Variance review", s: "bold" },
+        { v: `${periodRange} vs ${prevLabel} · ${id ? "perubahan" : "moves of"} ${Math.round(varianceThreshold.pct * 100)}% & ${rp(varianceThreshold.amount)}+`, s: "muted" },
+      ]);
+      rows.push([
+        { v: id ? "Kode" : "Code", s: "head" }, { v: id ? "Akun" : "Account", s: "head" },
+        { v: prevLabel, s: "headNum" }, { v: periodRange, s: "headNum" }, { v: id ? "Perubahan" : "Change", s: "headNum" },
+        { v: id ? "Status" : "Status", s: "head" }, { v: id ? "Penjelasan" : "Reason", s: "head" }, { v: id ? "Ditinjau oleh" : "Reviewed by", s: "head" },
+      ]);
+      const statusText = { reviewed: id ? "Sudah ditinjau" : "Reviewed", changed: id ? "Berubah setelah ditinjau" : "Changed since review", open: id ? "Perlu ditinjau" : "To review" };
+      reviewList.forEach((v) => {
+        const explained = v.review && !v.review.reopened;
+        rows.push([
+          v.code, acctName(v.code),
+          { v: scaled(v.was), s: "num" }, { v: scaled(v.cur), s: "num" }, { v: scaled(v.delta), s: "num" },
+          statusText[v.status], explained ? v.review.note : "",
+          v.status === "reviewed" ? `${v.review.by} · ${shortDate(v.review.at)}` : "",
+        ]);
+      });
+    }
     const sign = lang === "id" ? ["Disiapkan oleh", "Diperiksa oleh", "Disetujui oleh", "Tanggal:", "Nama"] : ["Prepared by", "Reviewed by", "Approved by", "Date:", "Name"];
     rows.push([], []);
     rows.push(["", { v: sign[0], s: "bold" }, { v: sign[1], s: "bold" }, { v: sign[2], s: "bold" }]);
@@ -628,7 +790,7 @@ export default function ProfitLossPage() {
       const filtered = !!dims[k];
       return {
         k: `dim:${k}`, lbl: columnLabel(`dim:${k}`),
-        hint: filtered ? "filtered" : n > MAX_PERIOD_COLS ? `more than ${MAX_PERIOD_COLS} values` : n ? `${plural(n, "value")}${dimActivity[k].untagged ? " + Untagged" : ""}` : "no values",
+        hint: filtered ? "filtered" : n > MAX_PERIOD_COLS ? `more than ${MAX_PERIOD_COLS} values` : n ? `${plural(n, "value")}${dimActivity[k].untagged ? " + Others" : ""}` : "no values",
         disabled: !!compRange || filtered || !n || n > MAX_PERIOD_COLS,
         title: compRange ? "Turn Compare off to split by a dimension."
           : filtered ? `Remove the ${label} filter to split by ${label.toLowerCase()}.`
@@ -657,7 +819,10 @@ export default function ProfitLossPage() {
   const amountCells = (src, { code, show = true } = {}) => cells.map((cell) => {
     const v = show ? cellValue(cell, src) : null;
     const loss = typeof src !== "string" && src.profit && cell.kind === "amt" && v != null && v < (src.kind === "margin" ? -0.0005 : -0.005);
-    const cls = `lg-cell-total${cell.strong ? " tb-cell-end" : ""}${cell.muted ? " tb-cell-muted" : ""}${cell.kind !== "amt" ? " pl-cell-sub" : ""}${loss ? " pl-loss" : ""}`;
+    // A flagged account's Change % against the previous period is the number
+    // that tripped the rule: amber, like its pill.
+    const tripped = compactPills && cell.kind === "diffPct" && typeof src === "string" && variances[src] && variances[src].status !== "reviewed" && variances[src].pct !== null;
+    const cls = `lg-cell-total${cell.strong ? " tb-cell-end" : ""}${cell.muted ? " tb-cell-muted" : ""}${cell.kind !== "amt" ? " pl-cell-sub" : ""}${loss ? " pl-loss" : ""}${tripped ? " var-cell" : ""}`;
     if (!show) return <div key={cell.key} className={cls} />;
     const text = cellText(cell, src);
     const body = text === "—" ? dash : text;
@@ -674,6 +839,31 @@ export default function ProfitLossPage() {
     return <div key={cell.key} className={cls}>{body}</div>;
   });
 
+  // A flagged account's pill: the change (amber), "Reviewed" (green) or
+  // "Changed" (amber, the amount moved after it was reviewed). It opens the
+  // review popover.
+  const VarPill = ({ v, name }) => {
+    if (!v) return null;
+    const open = reviewPop?.code === v.code;
+    const text = v.status === "reviewed" ? "Reviewed" : v.status === "changed" ? "Changed" : v.pct === null ? "New" : `${v.delta > 0 ? "+" : "−"}${Math.round(Math.abs(v.pct) * 100).toLocaleString("id-ID")}%`;
+    // Beside a Change % against the previous period the number would show
+    // twice, so the pill keeps only its icon there.
+    return (
+      <button type="button" className={`var-pill no-print ${v.status}${open ? " on" : ""}${compactPills && v.pct !== null ? " icon-only" : ""}`} data-review-code={v.code}
+        aria-haspopup="dialog" aria-expanded={open}
+        aria-label={`${name}: ${v.status === "reviewed" ? "variance reviewed" : `moved ${text} vs ${prevLabel}`} — open review`}
+        title={v.status === "reviewed" ? `Reviewed by ${v.review?.by}` : `Moved ${rp(v.delta)} vs ${prevLabel}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          const { left, top, bottom } = e.currentTarget.getBoundingClientRect();
+          setReviewPop((p) => (p?.code === v.code ? null : { code: v.code, anchor: { left, top, bottom } }));
+        }}>
+        {v.status === "reviewed" ? <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> : <svg viewBox="0 0 24 24"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg>}
+        {!(compactPills && v.pct !== null) && text}
+      </button>
+    );
+  };
+
   // An account row: code, name (the link to the General Ledger for the
   // report's dates, with a "General Ledger" button on hover), numbers.
   // Clicking elsewhere only highlights the row, as on the Trial Balance.
@@ -684,10 +874,11 @@ export default function ProfitLossPage() {
       setFocusCode((c) => (c === r.code ? null : r.code));
     };
     return (
-      <div className={`lg-row tb-acct-row${isAlt ? " alt" : ""}${focusCode === r.code ? " selected" : ""}`} onClick={onRowClick}>
-        <div className="tb-cell-name" style={{ paddingLeft: (depth + 1) * INDENT }}>
+      <div className={`lg-row tb-acct-row${isAlt ? " alt" : ""}${focusCode === r.code || reviewPop?.code === r.code ? " selected" : ""}`} onClick={onRowClick}>
+        <div className={`tb-cell-name${variances[r.code] ? " has-var-pill" : ""}`} style={{ paddingLeft: (depth + 1) * INDENT }}>
           <span className="tb-code">{r.code}</span>
           <Link className="tb-name tb-acct-link" to={to} title={`Open ${r.name} in the General Ledger`} onClick={(e) => e.stopPropagation()}>{r.name}</Link>
+          <VarPill v={variances[r.code]} name={r.name} />
           <Link className="tb-gl-btn no-print" to={to} onClick={(e) => e.stopPropagation()} aria-label={`Open ${r.code} ${r.name} in the General Ledger`}>
             General Ledger {GL_ICON}
           </Link>
@@ -781,6 +972,11 @@ export default function ProfitLossPage() {
               <h1 className="lg-title">Profit &amp; Loss</h1>
             </div>
             <div className="lg-head-actions no-print">
+              {/* Every variance reason, as a feed, on its own page. */}
+              <Link className="lg-btn-ghost pl-log-btn" to="/reports/review-log" state={{ back: "/reports/profit-loss" }} title="Every variance reason written on the P&L and Trial Balance">
+                <svg viewBox="0 0 24 24"><path d="M12 8v4l3 2"/><circle cx="12" cy="12" r="9"/></svg>
+                Review log
+              </Link>
               <div className="lg-meta-btn-wrap">
                 <button className={`lg-btn-ghost${activeViewId ? " tb-btn-on" : ""}`} onClick={() => togglePop("views")} aria-haspopup="dialog" aria-expanded={openPop === "views"}>
                   <svg viewBox="0 0 24 24"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>
@@ -855,9 +1051,9 @@ export default function ProfitLossPage() {
                     title={multi ? "Comparison works on a single Total column. Set Columns to Total only to compare." : undefined}
                     aria-haspopup="menu" aria-expanded={openPop === "compare"}>
                     <span className="meta-lbl">Compare:</span>
-                    <span className="meta-val">{compRange ? COMPARE_LABELS[compare] : "None"}</span>
+                    <span className="meta-val">{compRange ? COMPARE_LABELS[compareEff] : "None"}</span>
                   </button>
-                  {openPop === "compare" && <ChoicePopover className="tb-compare-pop" items={compareItems} value={compRange ? compare : "none"} onPick={(k) => { setCompare(k); closePop(); }} onClose={closePop} />}
+                  {openPop === "compare" && <ChoicePopover className="tb-compare-pop" items={compareItems} value={compRange ? compareEff : "none"} onPick={(k) => { setCompare(k); closePop(); }} onClose={closePop} />}
                 </div>
                 {dimList.map(([k, v]) => (
                   <div key={k} className="lg-meta-btn-wrap pl-chip-wrap">
@@ -869,7 +1065,7 @@ export default function ProfitLossPage() {
                       onClick={() => setDims((d) => { const n = { ...d }; delete n[k]; return n; })}>×</button>
                     {openPop === "dim" && dimEdit === k && (
                       <DimensionPopover value={{ key: k, value: v }} valuesOf={valuesOf} keys={[k]} applyLabel="Apply" clearLabel="Remove filter"
-                        note="Only journal lines tagged with this value count. Untagged lines are left out."
+                        note="Only journal lines tagged with this value count. Lines without a value are left out."
                         onApply={(val) => { setDims((d) => { const n = { ...d }; delete n[k]; if (val) n[val.key] = val.value; return n; }); closePop(); }} onClose={closePop} />
                     )}
                   </div>
@@ -892,6 +1088,14 @@ export default function ProfitLossPage() {
                 </div>
               </div>
               <div className="lg-filter-meta">
+                <button className={`lg-toggle pl-review-toggle${reviewOnly ? " on" : ""}`} onClick={() => setReviewOnly((x) => !x)} aria-pressed={reviewOnly}
+                  disabled={!reviewable || (!varList.length && !reviewOnly)}
+                  title={!reviewable ? "Variance review uses the whole company's figures — remove the dimension filters to review."
+                    : `Accounts that moved ${Math.round(varianceThreshold.pct * 100)}% and ${rp(varianceThreshold.amount)} or more against ${prevLabel} (Settings › General Settings › Preferences). Shows them with the previous period beside.`}>
+                  Needs review <span className="tb-toggle-count">{reviewable ? openCount : "—"}</span>
+                  {reviewable && reviewedCount > 0 && <span className="pl-review-done">· {reviewedCount} reviewed</span>}
+                </button>
+                <span className="tb-tool-sep" aria-hidden="true" />
                 <button className="tb-icon-btn" onClick={() => setLevel(toCollapse, false)} disabled={!toCollapse.length} title="Collapse one level" aria-label="Collapse one level">
                   <svg viewBox="0 0 24 24"><polyline points="7 15 12 10 17 15"/><line x1="5" y1="20" x2="19" y2="20"/></svg>
                 </button>
@@ -947,6 +1151,60 @@ export default function ProfitLossPage() {
               ))}
             </div>
           </div>
+          {/* ── Variance review, print only: on screen the reasons are read on
+               the Review log page; on paper (and in Excel) they travel with
+               the statement so they reach the approver. ── */}
+          {reviewable && reviewList.length > 0 && (
+            <section className="lg-card pl-vr print-only" aria-labelledby="pl-vr-title">
+              <div className="pl-vr-head">
+                <h2 id="pl-vr-title" className="pl-vr-title"><Lbl en="Variance review" id="Tinjauan varians" lang={lang} /></h2>
+                <span className="pl-vr-sub">
+                  {periodRange} vs {prevLabel} · moves of {Math.round(varianceThreshold.pct * 100)}% and {rp(varianceThreshold.amount)} or more
+                </span>
+                <span className="pl-vr-count">
+                  <strong>{openCount}</strong> to review · <strong>{reviewedCount}</strong> reviewed
+                </span>
+              </div>
+              <div className="pl-vr-table" role="table">
+                <div className="pl-vr-row pl-vr-th" role="row">
+                  <span role="columnheader"><Lbl en="Account" id="Akun" lang={lang} /></span>
+                  <span role="columnheader" className="num">{prevLabel}</span>
+                  <span role="columnheader" className="num">{periodRange}</span>
+                  <span role="columnheader" className="num"><Lbl en="Change" id="Perubahan" lang={lang} /></span>
+                  <span role="columnheader"><Lbl en="Reason · reviewed by" id="Penjelasan · ditinjau oleh" lang={lang} /></span>
+                  <span role="columnheader" className="no-print" />
+                </div>
+                {reviewList.map((v) => (
+                  <div key={v.code} className={`pl-vr-row${reviewPop?.code === v.code ? " on" : ""}`} role="row">
+                    <span role="cell" className="pl-vr-acct">
+                      <span className="tb-code">{v.code}</span>
+                      <span className="pl-vr-name" title={acctName(v.code)}>{acctName(v.code)}</span>
+                    </span>
+                    <span role="cell" className="num">{num(v.was)}</span>
+                    <span role="cell" className="num">{num(v.cur)}</span>
+                    <span role="cell" className="num">
+                      {num(v.delta)}
+                      <span className="pl-vr-pct">{v.pct === null ? "new" : `${v.delta > 0 ? "+" : "−"}${Math.round(Math.abs(v.pct) * 100)}%`}</span>
+                    </span>
+                    <span role="cell" className="pl-vr-reason">
+                      {v.status === "changed" && <span className="pl-vr-flag">Changed since review · </span>}
+                      {v.review && !v.review.reopened ? `“${v.review.note}”` : <span className="pl-vr-none">Not explained yet</span>}
+                      {v.review && !v.review.reopened && <span className="pl-vr-by">{v.review.by} · {shortDate(v.review.at)}</span>}
+                    </span>
+                    <span role="cell" className="pl-vr-act no-print">
+                      <button type="button" className={`var-pill no-print ${v.status}`} data-review-code={v.code}
+                        onClick={(e) => {
+                          const { left, top, bottom } = e.currentTarget.getBoundingClientRect();
+                          setReviewPop((p) => (p?.code === v.code ? null : { code: v.code, anchor: { left, top, bottom } }));
+                        }}>
+                        {v.status === "reviewed" ? "View" : "Review"}
+                      </button>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
           <p className="pl-foot no-print">
             Click a group to open or close it. An account&apos;s name opens the General Ledger for the period; an amount opens it for that column&apos;s dates{dimList.length ? ", with the same filters" : ""}.
             {" "}Expenses and deductions are shown as positive amounts and subtracted in the subtotals; negative results are in parentheses.
@@ -976,6 +1234,18 @@ export default function ProfitLossPage() {
         </div>
       </div>
 
+      {reviewPop && variances[reviewPop.code] && (() => {
+        const v = variances[reviewPop.code];
+        const key = reviewKey(v.code, from, to);
+        const by = user?.name || "You";
+        return (
+          <VariancePopover key={`${v.code}-${v.status}`} anchor={reviewPop.anchor} account={{ code: v.code, name: acctName(v.code) }} v={v}
+            prevLabel={prevLabel} curLabel={periodRange} rule={`${Math.round(varianceThreshold.pct * 100)}% and ${rp(varianceThreshold.amount)}`}
+            drivers={driversFor(v.code)} glTo={glUrl(v.code, { from, to })} onClose={closeReview}
+            onSave={(note) => { markReviewed(key, { note, by, amount: v.cur, prev: v.was }); showToast(`${v.code} marked reviewed`); }}
+            onReopen={() => { reopen(key, by); showToast(`${v.code} reopened for review`); }} />
+        );
+      })()}
       {toast && <div className="toast show">{toast}</div>}
     </div>
   );

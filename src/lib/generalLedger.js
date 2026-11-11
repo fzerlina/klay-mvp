@@ -205,9 +205,10 @@ function inCodeRange(code, from, to) {
 // A line passes when it meets every filter. Dates are the caller's (the period
 // decides what is opening balance and what is movement).
 // A dimension filter value meaning "lines with no value for this dimension" —
-// the Profit & Loss's Untagged column drills to it.
+// the Profit & Loss's Others column drills to it. Shown as "Others" (Lainnya),
+// the usual name for the rest of a dimension split.
 export const UNTAGGED = "__untagged";
-export const dimValueLabel = (v) => (v === UNTAGGED ? "Untagged" : v);
+export const dimValueLabel = (v) => (v === UNTAGGED ? "Others" : v);
 
 export function lineMatches(l, f) {
   if (!f.statuses.includes(l.status)) return false;
