@@ -46,6 +46,17 @@ const REPORTS = [
     ),
   },
   {
+    key: "bs",
+    title: "Balance Sheet",
+    blurb: "What the company owns, owes and is worth on a date — assets, liabilities and equity, proved to balance.",
+    to: "/reports/balance-sheet",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 3v18" /><path d="M5 21h14" /><path d="M3 8h18" /><path d="M6 8l-3 6a3 3 0 0 0 6 0z" /><path d="M18 8l-3 6a3 3 0 0 0 6 0z" />
+      </svg>
+    ),
+  },
+  {
     key: "cashflow",
     title: "Cash Position & Aging",
     blurb: "Cash in the bank, what customers owe and what you owe vendors — by age, as of any date.",

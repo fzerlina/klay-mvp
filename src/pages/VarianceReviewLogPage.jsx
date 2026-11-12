@@ -1,6 +1,7 @@
 // Reports → Review log.
 //
-// Every variance review, on the Profit & Loss and the Trial Balance, as one
+// Every variance review, on the Profit & Loss, the Trial Balance and the
+// Balance Sheet, as one
 // feed, newest first (user, 11 Nov 2026: "a Log page, accessible through a
 // button" rather than a table; one feed, no type filter). A reason belongs to
 // an account and a period, so one written on either report counts on both;
@@ -24,6 +25,7 @@ const ACTION = { reviewed: "marked reviewed", updated: "updated the reason on", 
 const REPORTS = {
   pl: { label: "P&L", name: "Profit & Loss", to: "/reports/profit-loss" },
   tb: { label: "Trial Balance", name: "Trial Balance", to: "/trial-balance" },
+  bs: { label: "Balance Sheet", name: "Balance Sheet", to: "/reports/balance-sheet" },
 };
 
 export default function VarianceReviewLogPage() {
@@ -58,7 +60,7 @@ export default function VarianceReviewLogPage() {
             <div style={{ flex: 1, minWidth: 0 }}>
               <h1 className="lg-title">Review log</h1>
               <p className="pl-log-intro">
-                Every variance reason written on the Profit &amp; Loss and the Trial Balance — who reviewed which account, for which period, and why it moved.
+                Every variance reason written on the Profit &amp; Loss, the Trial Balance and the Balance Sheet — who reviewed which account, for which period, and why it moved.
               </p>
             </div>
           </div>
@@ -76,7 +78,7 @@ export default function VarianceReviewLogPage() {
           {events.length === 0 && (
             <div className="pl-log-empty">
               <div className="pl-log-empty-title">No reviews yet</div>
-              <p>Accounts flagged on the Profit &amp; Loss or the Trial Balance get a reason when someone reviews them. Those reasons collect here.</p>
+              <p>Accounts flagged on the Profit &amp; Loss, the Trial Balance or the Balance Sheet get a reason when someone reviews them. Those reasons collect here.</p>
               <Link to={back.to} className="lg-btn-ghost">Go to {back.name}</Link>
             </div>
           )}

@@ -1,0 +1,24 @@
+/* Balance Sheet — on top of the Trial Balance grid (trial-balance.css) and the
+   Profit & Loss statement styles (profit-loss.css); the page wears .pl-page
+   too, so only what differs lives here. */
+
+/* Two pills on one row (a variance and Unreconciled): only the first pushes right. */
+.bs-page .has-var-pill .var-pill + .var-pill { margin-left: 4px; }
+.bs-recon-pill { text-decoration: none; }
+
+/* The computed Current year profit/(loss) line: "Calc." where a code would be. */
+.bs-code-calc { font-style: italic; }
+.bs-page .lg-row.bs-computed-row .tb-name { font-style: italic; }
+
+/* Retained earnings carries the earlier years rolled in — said quietly. */
+.bs-rolled {
+  margin-left: 8px; font-size: 10.5px; color: var(--color-text-tertiary);
+  border-bottom: 1px dotted var(--color-text-tertiary); cursor: help; white-space: nowrap;
+}
+
+/* A side (Assets, Liabilities, Equity) heading reads as the top of its tree. */
+.bs-page .lg-row.tb-group-row.bs-side-row .lg-group-lbl { font-weight: 700; }
+
+/* Ratios: a little air between the statement and the ratio rows. */
+.bs-ratio-gap { height: 10px; }
+.bs-page .lg-card.lg-table-tb .lg-row.bs-ratio-row { cursor: help; }

@@ -143,6 +143,60 @@ export function splitPeriod(from, to, mode, fyStart = 1) {
   return out;
 }
 
+// A single date as the reports print it: "31 Mar 2025".
+export function dayLabel(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return `${d} ${MONTHS[m - 1]} ${y}`;
+}
+
+// The day before an ISO date.
+export function dayBefore(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return d > 1 ? ymd(y, m, d - 1) : (() => { const [py, pm] = addMonths(y, m, -1); return ymd(py, pm, lastDay(py, pm)); })();
+}
+
+// The end of the month before the one an ISO date falls in.
+export function previousMonthEnd(iso) {
+  const [y, m] = iso.split("-").map(Number);
+  const [py, pm] = addMonths(y, m, -1);
+  return ymd(py, pm, lastDay(py, pm));
+}
+
+// As-of presets for a point-in-time report (Balance Sheet): today, the end of
+// last month / last fiscal quarter / last fiscal year, and the end of the last
+// locked period (`closedThrough` "YYYY-MM"), so a saved view rolls forward
+// with the close.
+export function asOfPresets({ fiscalYearStart = 1, closedThrough = null, today = TODAY } = {}) {
+  const t = todayIso(today);
+  const y = today.getFullYear();
+  const m = today.getMonth() + 1;
+  const [ly, lm] = addMonths(y, m, -1);
+  const [fyY, fyM] = fiscalYearStartOf(y, m, fiscalYearStart);
+  const monthsIn = (y * 12 + m) - (fyY * 12 + fyM);
+  const [qy, qm] = addMonths(fyY, fyM, Math.floor(monthsIn / 3) * 3); // this fiscal quarter's first month
+  const [pqy, pqm] = addMonths(qy, qm, -1);
+  const [pfy, pfm] = addMonths(fyY, fyM, -1);
+  const out = [
+    { key: "today", label: "Today", date: t },
+    { key: "last_month_end", label: "End of last month", date: ymd(ly, lm, lastDay(ly, lm)) },
+    { key: "last_quarter_end", label: "End of last quarter", date: ymd(pqy, pqm, lastDay(pqy, pqm)) },
+    { key: "last_fy_end", label: "End of last fiscal year", date: ymd(pfy, pfm, lastDay(pfy, pfm)) },
+  ];
+  if (closedThrough) {
+    const [cy, cm] = closedThrough.split("-").map(Number);
+    out.push({ key: "locked", label: "End of last locked period", date: ymd(cy, cm, lastDay(cy, cm)) });
+  } else {
+    out.push({ key: "locked", label: "End of last locked period", disabled: true, hint: "no period locked yet", title: "Lock a period in the close to use this." });
+  }
+  return out;
+}
+
+// Month-ends (or fiscal quarter-ends) from `from` through `to`; the last one
+// is `to` itself when it falls mid-month — a balance "to date".
+export function periodEnds(from, to, mode = "month", fyStart = 1) {
+  return splitPeriod(from, to, mode, fyStart).map((p) => p.to);
+}
+
 // Recent month-ends up to today, newest first — for as-of pickers.
 export function recentMonthEnds(count = 6, today = TODAY) {
   const out = [];
