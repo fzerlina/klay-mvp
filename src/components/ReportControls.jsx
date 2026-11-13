@@ -77,6 +77,37 @@ export function PeriodPopover({ presets, period, onPick, onClose }) {
   );
 }
 
+// As-of picker — a point-in-time report's presets (each with its `date`, or
+// `disabled` with `title` and `hint`), plus a custom date.
+export function AsOfPopover({ presets, asOf, onPick, onClose, dateLabel = (d) => d }) {
+  const ref = useRef(null);
+  useClickOutside(ref, onClose);
+  const [date, setDate] = useState(asOf.date);
+  return (
+    <div className="lg-popover lg-filter-pop tb-period-pop" ref={ref}>
+      <div className="lg-popover-list">
+        {presets.map((p) => (
+          <button key={p.key} className={`lg-popover-item${asOf.key === p.key ? " selected" : ""}`} disabled={p.disabled} title={p.title}
+            onClick={() => onPick({ key: p.key })}>
+            <span>{p.label}</span>
+            <span className="tb-period-range">{p.hint ?? (p.date ? dateLabel(p.date) : "")}{asOf.key === p.key && <Check />}</span>
+          </button>
+        ))}
+      </div>
+      <div className="lg-filter-body">
+        <div className="lg-filter-fld">
+          <div className="lg-filter-fld-lbl">Custom date</div>
+          <input type="date" className="lg-filter-input" value={date} onChange={(e) => setDate(e.target.value)} aria-label="As of date" />
+        </div>
+      </div>
+      <div className="lg-filter-foot">
+        <button className="lg-filter-reset" onClick={onClose}>Cancel</button>
+        <button className="lg-filter-apply" disabled={!date} onClick={() => onPick({ key: "custom", date })}>Apply date</button>
+      </div>
+    </div>
+  );
+}
+
 // Dimension filter — one dimension, one value. `keys` limits the dimensions
 // offered; `note` explains what filtering does to this report.
 export function DimensionPopover({ value, valuesOf, onApply, onClose, keys = FILTER_DIMS, note, applyLabel = "Apply", clearLabel }) {

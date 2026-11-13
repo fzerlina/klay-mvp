@@ -29,7 +29,8 @@ import { useCurrentUser } from "../state/CurrentUserContext";
 import { useClosePeriod } from "../state/ClosePeriodContext";
 import { useDimensions } from "../state/DimensionsContext";
 import { useVarianceReviews, reviewKey } from "../state/VarianceReviewsContext";
-import VarianceReason, { shortDate } from "../components/VarianceReason";
+import { shortDate } from "../components/VarianceReason";
+import VariancePopover from "../components/VariancePopover";
 import { computeProfitLoss, PL_LINES, lineValue, unpostedInPeriod, change, plAccounts } from "../lib/profitLoss";
 import {
   periodPresets, previousPeriod, rangeLabel, monthLabel, sameDayLastYear,
@@ -94,73 +95,6 @@ const longRange = (from, to, lang) => {
 function Lbl({ en, id, lang }) {
   if (lang !== "id" || !id || id === en) return en;
   return <><span className="pl-lbl-screen">{en}</span><span className="pl-lbl-print">{id}</span></>;
-}
-
-// The review of one flagged account, anchored to its pill — positioned like
-// the Trial Balance's review popover (fixed, so sideways scroll can't clip
-// it). What moved, the biggest lines behind it, and a note: Mark reviewed
-// needs a reason. A review that no longer covers the amount says so.
-function VariancePopover({ anchor, account, v, prevLabel, curLabel, rule, drivers, glTo, onSave, onReopen, onClose }) {
-  const ref = useRef(null);
-  useEffect(() => {
-    const onDown = (e) => {
-      if (ref.current?.contains(e.target)) return;
-      if (e.target.closest?.(`[data-review-code="${account.code}"]`)) return;
-      onClose();
-    };
-    const onKey = (e) => { if (e.key === "Escape") onClose(); };
-    const onScroll = (e) => { if (!ref.current?.contains(e.target)) onClose(); };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    window.addEventListener("resize", onClose);
-    window.addEventListener("scroll", onScroll, true);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-      window.removeEventListener("resize", onClose);
-      window.removeEventListener("scroll", onScroll, true);
-    };
-  }, [account.code, onClose]);
-  const W = 380;
-  const left = Math.max(12, Math.min(anchor.left - 12, window.innerWidth - W - 12));
-  const below = anchor.bottom < window.innerHeight * 0.5;
-  const style = below
-    ? { position: "fixed", left, width: W, top: anchor.bottom + 6 }
-    : { position: "fixed", left, width: W, bottom: window.innerHeight - anchor.top + 6 };
-  const dir = v.pct === null ? `New vs ${prevLabel}` : `${v.delta > 0 ? "Up" : "Down"} ${Math.round(Math.abs(v.pct) * 100)}% vs ${prevLabel}`;
-  return (
-    <div className="lg-popover tb-review-pop pl-var-pop" ref={ref} style={style} role="dialog" aria-label={`Variance review: ${account.name}`}>
-      <div className="tb-review-head">
-        <span className="tb-review-code">{account.code}</span>
-        <span className="tb-review-name">{account.name}</span>
-      </div>
-      <div className="tb-review-item">
-        <div className={`tb-review-title${v.status === "reviewed" ? " pl-var-done" : ""}`}>{v.status === "reviewed" ? `Reviewed · ${dir}` : dir}</div>
-        <div className="tb-review-desc">
-          {rp(v.was)} in {prevLabel} → {rp(v.cur)} in {curLabel}, {v.delta > 0 ? "+" : "−"}{rp(Math.abs(v.delta))}.
-          <span className="pl-var-rule"> Flagged for moves of {rule} or more.</span>
-        </div>
-        {drivers.length > 0 && (
-          <>
-            <div className="pl-var-sub">Biggest lines this period</div>
-            <div className="pl-var-lines">
-              {drivers.map((d) => (
-                <Fragment key={`${d.je}-${d.i}`}>
-                  <Link className="pl-var-je" to={`/journal-entry/${encodeURIComponent(d.je)}`} onClick={onClose}>{d.je}</Link>
-                  <span className="pl-var-desc" title={d.desc}>{d.desc}</span>
-                  <span className="pl-var-amt">{Math.abs(d.amount).toLocaleString("id-ID")} {d.amount >= 0 ? "Dr" : "Cr"}</span>
-                </Fragment>
-              ))}
-            </div>
-          </>
-        )}
-        <VarianceReason review={v.review} status={v.status} onSave={onSave} onReopen={onReopen} />
-        <Link className="tb-review-link" to={glTo} onClick={onClose}>
-          Open in General Ledger <svg viewBox="0 0 24 24"><path d="M7 17L17 7"/><path d="M8 7h9v9"/></svg>
-        </Link>
-      </div>
-    </div>
-  );
 }
 
 const GEAR = <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>;

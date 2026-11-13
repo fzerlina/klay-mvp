@@ -36,6 +36,7 @@ import AssetCreatePage from "./pages/AssetCreatePage";
 import AssetDetailPage from "./pages/AssetDetailPage";
 import GeneralLedgerPage from "./pages/GeneralLedgerPage";
 import TrialBalancePage from "./pages/TrialBalancePage";
+import BalanceSheetPage from "./pages/BalanceSheetPage";
 import ApCloseCommandCenterPage from "./pages/ApCloseCommandCenterPage";
 import BankReconciliationPage from "./pages/BankReconciliationPage";
 import NonBankReconciliationPage from "./pages/NonBankReconciliationPage";
@@ -205,6 +206,7 @@ export default function App() {
                 <Route path="/reports/general-ledger" element={<GeneralLedgerPage />} />
                 <Route path="/reports/cashflow" element={<CashflowReportPage />} />
                 <Route path="/reports/profit-loss" element={<ProfitLossPage />} />
+                <Route path="/reports/balance-sheet" element={<BalanceSheetPage />} />
                 <Route path="/reports/review-log" element={<VarianceReviewLogPage />} />
                 <Route path="/reports/profit-loss/review-log" element={<Navigate to="/reports/review-log" replace />} />
                 <Route path="/reports/tax-register" element={<TaxRegisterPage />} />
