@@ -14,7 +14,7 @@ import { useDimensions } from "../state/DimensionsContext";
 import { useVarianceReviews, reviewKey } from "../state/VarianceReviewsContext";
 import VarianceReason from "../components/VarianceReason";
 import { periodPresets, rangeLabel, monthLabel, previousPeriod, todayIso, sameDayLastYear } from "../lib/reportPeriods";
-import { useClickOutside, Check, ChoicePopover, PeriodPopover, DimensionPopover, ViewsPopover, ExportPopover } from "../components/ReportControls";
+import { useClickOutside, Check, ChoicePopover, ComparePopover, PeriodPopover, DimensionPopover, ViewsPopover, ExportPopover } from "../components/ReportControls";
 import { downloadCsv, reportHeader, exportName, printReport } from "../lib/reportExport";
 import { downloadXlsx, colName } from "../lib/xlsxExport";
 import { lineDimensions } from "../lib/generalLedger";
@@ -87,15 +87,24 @@ const monthEndOf = (ym) => { const [y, m] = ym.split("-").map(Number); return `$
 //            Mutasi · Saldo Akhir). Every posted journal counts, adjusting
 //            ones included — the Adjustments control (Excluded / As columns)
 //            was removed 11 Nov 2026.
-//   compare  Ending Debit / Credit for the comparison period and this one, then
-//            the change on the account's normal side (brackets = it went down)
-function columnsFor(layout, compareLbl, currentLbl) {
+//   compare  Ending Debit / Credit for each comparison period and this one,
+//            then — with one comparison — the change on the account's normal
+//            side (brackets = it went down). Several previous periods lay
+//            side by side, Odoo-style (SME, 15 Nov 2026), as a trend with no
+//            Change columns; `order` puts the oldest or the newest first.
+function columnsFor(layout, compareLbls, currentLbl, order = "asc") {
   if (layout === "compare") {
+    const pair = (prefix, sup, extra) => [
+      { key: `${prefix}ending_dr`, label: "Debit",  sup, sum: true, ...extra },
+      { key: `${prefix}ending_cr`, label: "Credit", sup, sum: true, ...extra },
+    ];
+    // The first comparison keeps its old keys (prev_*); the others are cmp2_, cmp3_…
+    const cmps = compareLbls.map((lbl, i) => pair(i === 0 ? "prev_" : `cmp${i + 1}_`, lbl, { muted: true }));
+    const cur = pair("", currentLbl, { strong: true });
+    const dated = (order === "desc" ? [cur, ...cmps] : [...[...cmps].reverse(), cur]).flat();
+    if (compareLbls.length > 1) return dated;
     return [
-      { key: "prev_ending_dr", label: "Debit",  sup: compareLbl, sum: true, muted: true },
-      { key: "prev_ending_cr", label: "Credit", sup: compareLbl, sum: true, muted: true },
-      { key: "ending_dr",      label: "Debit",  sup: currentLbl, sum: true, strong: true },
-      { key: "ending_cr",      label: "Credit", sup: currentLbl, sum: true, strong: true },
+      ...dated,
       { key: "change",         label: "Amount", sup: "Change",   sum: true, title: "Ending balance now less the comparison period's, on the account's normal side. Brackets: the balance went down." },
       { key: "change_pct",     label: "%",      sup: "Change",   pct: true },
     ];
@@ -344,6 +353,10 @@ export default function TrialBalancePage() {
   const [periodChoice, setPeriodChoice] = useState(DEFAULT_PERIOD);
   const [showZero, setShowZero] = useState(false);
   const [compare, setCompare] = useState("none");
+  // How many previous periods to lay side by side, and which way they run
+  // (oldest first by default — the TB has always put the comparison left).
+  const [compareCount, setCompareCount] = useState(1);
+  const [cmpOrder, setCmpOrder] = useState("asc");
   const [dim, setDim] = useState(null); // { key, value }
   // A row the user clicked to keep their place across the columns.
   const [focusCode, setFocusCode] = useState(null);
@@ -406,9 +419,21 @@ export default function TrialBalancePage() {
     return null;
   }, [compare, prevRange, dateFrom, dateTo]);
   const compLabel = compRange ? rangeLabel(compRange.from, compRange.to) : "";
+  // Previous periods can run several deep (1–12), each the length of this one.
+  const compRanges = useMemo(() => {
+    if (!compRange) return [];
+    const out = [compRange];
+    if (compare === "prev") while (out.length < compareCount) { const l = out[out.length - 1]; out.push(previousPeriod(l.from, l.to)); }
+    return out;
+  }, [compRange, compare, compareCount]);
+  const multiCmp = compRanges.length > 1;
+  const compText = multiCmp ? `${compRanges.length} previous periods` : compLabel;
   // A comparison lays ending balances side by side.
   const layout = compRange ? "compare" : "six";
-  const cols = useMemo(() => columnsFor(layout, compLabel, periodRange), [layout, compLabel, periodRange]);
+  const cols = useMemo(
+    () => columnsFor(layout, compRanges.map((r) => rangeLabel(r.from, r.to)), periodRange, cmpOrder),
+    [layout, compRanges, periodRange, cmpOrder],
+  );
   const spans = useMemo(() => superSpans(cols), [cols]);
   // Excel and CSV export exactly what's on screen.
   const exportCols = cols;
@@ -429,6 +454,11 @@ export default function TrialBalancePage() {
     return run(compRange.from, compRange.to);
   }, [compRange, compare, PREV_TB, JOURNAL_ENTRIES, fiscalYearStart, lineFilter]); // eslint-disable-line react-hooks/exhaustive-deps
   const prevByCode = useMemo(() => Object.fromEntries(PREV_TB.map((r) => [r.code, r])), [PREV_TB]);
+  // The further previous periods (2nd, 3rd…), by account code.
+  const MORE_TBS = useMemo(
+    () => compRanges.slice(1).map((r) => Object.fromEntries(run(r.from, r.to).map((x) => [x.code, x]))),
+    [compRanges, JOURNAL_ENTRIES, fiscalYearStart, lineFilter], // eslint-disable-line react-hooks/exhaustive-deps
+  );
 
   // Rows with the comparison laid on: the comparison period's ending sides,
   // and the change on the account's normal side.
@@ -438,17 +468,26 @@ export default function TrialBalancePage() {
     return CUR_TB.map((r) => {
       const p = byCode[r.code];
       const change = r2(r.closing_balance - (p?.closing_balance || 0));
+      const more = {};
+      let moreActivity = false;
+      MORE_TBS.forEach((m, i) => {
+        const x = m[r.code];
+        more[`cmp${i + 2}_ending_dr`] = x?.ending_dr || 0;
+        more[`cmp${i + 2}_ending_cr`] = x?.ending_cr || 0;
+        if (x?.has_activity) moreActivity = true;
+      });
       return {
         ...r,
         prev_ending_dr: p?.ending_dr || 0,
         prev_ending_cr: p?.ending_cr || 0,
         prev_closing: p?.closing_balance || 0,
+        ...more,
         change,
         change_pct: p?.closing_balance ? change / Math.abs(p.closing_balance) : null,
-        has_activity: r.has_activity || !!p?.has_activity,
+        has_activity: r.has_activity || !!p?.has_activity || moreActivity,
       };
     });
-  }, [CUR_TB, COMP_TB]);
+  }, [CUR_TB, COMP_TB, MORE_TBS]);
 
   // Bank and cash accounts: how far each is reconciled (Bank and Non-Bank Reconciliation).
   const reconByCode = useMemo(() => {
@@ -503,7 +542,7 @@ export default function TrialBalancePage() {
   // account's Change % is the very move that was flagged, so its pill shrinks
   // to the icon and the cell turns amber. Not for P&L accounts: the flag is on
   // the period's activity, the Change column on the year-to-date balance.
-  const compactPills = compare === "prev";
+  const compactPills = compare === "prev" && !multiCmp;
   const trippedCodes = new Set(findings.filter((f) => f.kind === "variance" && f.status !== "reviewed" && f.pct !== null && ALL_TB.find((r) => r.code === f.code)?.fs !== "PL").map((f) => f.code));
   const saveReview = (f, note) => {
     markReviewed(reviewKey(f.code, dateFrom, dateTo), { note, by: user?.name || "You", amount: f.cur, prev: f.was, report: "tb" });
@@ -540,7 +579,7 @@ export default function TrialBalancePage() {
     return showZero ? ALL_TB : ALL_TB.filter((r) => r.has_activity);
   }, [reviewOnly, findings, showZero, ALL_TB]);
 
-  const viewState = { periodChoice, compare, groupChoice, sortChoice, showZero, dim };
+  const viewState = { periodChoice, compare, compareCount, cmpOrder, groupChoice, sortChoice, showZero, dim };
   const viewSig = JSON.stringify(viewState);
   // Views saved before the Adjustments control was removed still carry `adjMode`; it's ignored.
   const activeViewId = views.find((v) => JSON.stringify({ ...v.state, adjMode: undefined }) === viewSig)?.id || null;
@@ -558,7 +597,7 @@ export default function TrialBalancePage() {
   }, [corpus, search]);
 
   // "Largest change" only means something with a comparison on.
-  const effectiveSort = sortChoice === "change-desc" && !compRange ? "code-asc" : (sortChoice || "code-asc");
+  const effectiveSort = sortChoice === "change-desc" && (!compRange || multiCmp) ? "code-asc" : (sortChoice || "code-asc");
   const effectiveGroup = groupChoice || "type";
 
   const sortedRows = useMemo(() => {
@@ -639,6 +678,8 @@ export default function TrialBalancePage() {
     setPeriodChoice(DEFAULT_PERIOD);
     setShowZero(false);
     setCompare("none");
+    setCompareCount(1);
+    setCmpOrder("asc");
     setDim(null);
     setSearch("");
     setReviewOnly(false);
@@ -648,6 +689,8 @@ export default function TrialBalancePage() {
     const s = v.state;
     setPeriodChoice(s.periodChoice || DEFAULT_PERIOD);
     setCompare(s.compare || "none");
+    setCompareCount(s.compareCount || 1);
+    setCmpOrder(s.cmpOrder || "asc");
     setGroupChoice(s.groupChoice ?? null);
     setSortChoice(s.sortChoice ?? null);
     setShowZero(!!s.showZero);
@@ -683,7 +726,7 @@ export default function TrialBalancePage() {
   const dimLabel = dim ? `${DIM_BY_KEY[dim.key]?.label || dim.key}: ${dim.value}` : null;
   const colTitle = (c) => (c.sup ? `${c.sup} ${c.label}` : c.label);
   const viewNote = [
-    compRange ? `Compared with ${compLabel}` : null,
+    compRange ? `Compared with ${compText}` : null,
     `Grouped by ${GROUP_LABELS[effectiveGroup] === "—" ? "nothing" : GROUP_LABELS[effectiveGroup]}`,
     dimLabel ? `Filtered to ${dimLabel}` : null,
   ].filter(Boolean).join(" · ");
@@ -911,11 +954,20 @@ export default function TrialBalancePage() {
 
   const compareItems = [
     { k: "none", lbl: "No comparison" },
-    { k: "prev", lbl: "Previous period", hint: rangeLabel(prevRange.from, prevRange.to) },
-    { k: "prev_year", lbl: "Same period last year", hint: rangeLabel(sameDayLastYear(dateFrom), sameDayLastYear(dateTo)) },
+    { k: "prev", lbl: "Previous periods", counted: true, unit: "periods" },
+    { k: "prev_year", lbl: "Same period last year" },
   ];
+  // A run of previous periods, newest first: the hint shows its span.
+  const compareHint = (k, n) => {
+    if (k === "none") return "";
+    if (k === "prev_year") return rangeLabel(sameDayLastYear(dateFrom), sameDayLastYear(dateTo));
+    let last = prevRange;
+    for (let i = 1; i < n; i++) last = previousPeriod(last.from, last.to);
+    return rangeLabel(last.from, prevRange.to);
+  };
+  // Largest change sorts on the Change column, which shows with one comparison only.
   const sortItems = Object.entries(SORT_LABELS)
-    .filter(([k]) => k !== "change-desc" || compRange)
+    .filter(([k]) => k !== "change-desc" || (compRange && !multiCmp))
     .map(([k, lbl]) => ({ k, lbl }));
 
   return (
@@ -926,7 +978,7 @@ export default function TrialBalancePage() {
           <div className="tb-print-company">{COMPANY.legalName}</div>
           <div className="tb-print-title">Trial Balance</div>
           <div className="tb-print-period">
-            {periodRange}{compRange ? ` compared with ${compLabel}` : ""} · {dim ? `Filtered to ${dimLabel}` : balance.balanced ? "In balance" : `Out of balance by ${rp(balance.variance)}`} · Amounts in IDR
+            {periodRange}{compRange ? ` compared with ${compText}` : ""} · {dim ? `Filtered to ${dimLabel}` : balance.balanced ? "In balance" : `Out of balance by ${rp(balance.variance)}`} · Amounts in IDR
           </div>
         </div>
 
@@ -1017,11 +1069,15 @@ export default function TrialBalancePage() {
                 <div className="lg-meta-btn-wrap">
                   <button className={`lg-meta-btn${compRange ? " active" : ""}`} onClick={() => togglePop("compare")} aria-haspopup="menu" aria-expanded={openPop === "compare"}>
                     <span className="meta-lbl">Compare:</span>
-                    <span className="meta-val">{compRange ? compLabel : "None"}</span>
+                    <span className="meta-val">{compRange ? compText : "None"}</span>
                   </button>
                   {openPop === "compare" && (
-                    <ChoicePopover className="tb-compare-pop" items={compareItems} value={compare}
-                      onPick={(k) => { setCompare(k); if (k === "none" && sortChoice === "change-desc") setSortChoice(null); closePop(); }} onClose={closePop} />
+                    <ComparePopover items={compareItems} value={compare} count={compareCount} order={cmpOrder} onOrder={setCmpOrder} hintFor={compareHint}
+                      onPick={(k, n, keepOpen) => {
+                        setCompare(k); setCompareCount(n);
+                        if ((k === "none" || n > 1) && sortChoice === "change-desc") setSortChoice(null);
+                        if (!keepOpen) closePop();
+                      }} onClose={closePop} />
                   )}
                 </div>
                 <div className="lg-meta-btn-wrap">
