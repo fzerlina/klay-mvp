@@ -25,3 +25,16 @@
 /* Ratios: a little air between the statement and the ratio rows. */
 .bs-ratio-gap { height: 10px; }
 .bs-page .lg-card.lg-table-tb .lg-row.bs-ratio-row { cursor: help; }
+
+/* The account name opens the transactions panel: a button styled as the link it replaces. */
+.bs-page button.bs-name-btn { border: none; background: none; padding: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+/* With the transactions panel open, the statement keeps to the left of it:
+   a narrower account column and amount columns, sideways scroll for the rest. */
+@media (min-width: 1100px) {
+  .bs-page.txp-is-open .lg-scroll-container { padding-right: min(600px, 46vw); }
+  .bs-page.txp-is-open .lg-card.lg-table-tb .lg-row,
+  .bs-page.txp-is-open .lg-card.lg-table-tb .lg-col-header {
+    grid-template-columns: 270px repeat(var(--tb-n, 1), 128px) minmax(0, 1fr);
+    min-width: calc(270px + var(--tb-n, 1) * 128px + 44px);
+  }
+}

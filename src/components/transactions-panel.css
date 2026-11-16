@@ -1,0 +1,85 @@
+/* Transactions panel (components/TransactionsPanel.jsx): fixed on the right,
+   the report stays in view beside it. */
+.txp {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 60;
+  width: min(600px, 46vw, 100vw - 24px);
+  display: flex; flex-direction: column;
+  background: var(--color-surface-raised);
+  border-left: 1px solid var(--color-border-default);
+  box-shadow: -12px 0 32px rgba(0, 0, 0, .10);
+  outline: none;
+  animation: txp-in .16s ease-out;
+}
+@keyframes txp-in { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+.txp-head { padding: 14px 18px 10px; border-bottom: 1px solid var(--color-border-default); }
+.txp-back { display: inline-flex; align-items: center; gap: 3px; margin: 0 0 6px -4px; padding: 2px 6px 2px 2px; border: none; background: none; font: inherit; font-size: 11.5px; color: var(--color-action); cursor: pointer; border-radius: var(--radius-sm); }
+.txp-back:hover { background: var(--color-action-wash); }
+.txp-back svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; }
+.txp-title-row { display: flex; align-items: flex-start; gap: 10px; }
+.txp-title { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+.txp-code { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-tertiary); }
+.txp-name { font-size: 15px; font-weight: 700; color: var(--color-text-primary); }
+.txp-x { border: none; background: none; font-size: 20px; line-height: 1; color: var(--color-text-tertiary); cursor: pointer; padding: 0 4px; border-radius: var(--radius-sm); }
+.txp-x:hover { color: var(--color-text-primary); background: var(--color-surface-sunken); }
+.txp-sub { margin-top: 3px; font-size: 11.5px; color: var(--color-text-secondary); }
+
+.txp-tools { display: flex; align-items: center; gap: 10px; padding: 8px 18px; border-bottom: 1px solid var(--color-border-subtle); }
+.txp-search { flex: 1; min-width: 0; }
+.txp-count { font-size: 11px; color: var(--color-text-tertiary); white-space: nowrap; }
+
+.txp-body { flex: 1; overflow: auto; }
+.txp-grid { min-width: 520px; }
+.txp-row {
+  display: grid; grid-template-columns: 72px minmax(0, 1fr) 92px 92px 104px; column-gap: 8px;
+  align-items: baseline; padding: 7px 18px; border-bottom: 1px solid var(--color-border-subtle); font-size: 12px;
+}
+.txp-th { position: sticky; top: 0; z-index: 1; background: var(--color-surface-sunken); font-size: 9.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--color-text-tertiary); padding-top: 8px; padding-bottom: 8px; }
+.txp-row .num { text-align: right; font-family: var(--font-mono); font-size: 11.5px; }
+.txp-th .num { font-family: var(--font-sans); font-size: 9.5px; }
+.txp-open { color: var(--color-text-secondary); font-style: italic; }
+.txp-span2 { grid-column: 1 / span 2; }
+.txp-date { color: var(--color-text-secondary); white-space: nowrap; }
+.txp-detail { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.txp-je { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.txp-je a { font-family: var(--font-mono); font-size: 11px; color: var(--color-action); text-decoration: none; }
+.txp-je a:hover { text-decoration: underline; }
+.txp-src { font-size: 10.5px; color: var(--color-text-tertiary); }
+.txp-src a { font-family: var(--font-sans); font-size: 10.5px; }
+.txp-desc { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.txp-desc .txp-party::after { content: " — "; font-weight: 400; color: var(--color-text-tertiary); }
+.txp-party { font-weight: 600; color: var(--color-text-primary); }
+.txp-desc-txt { color: var(--color-text-secondary); }
+.txp-bal { color: var(--color-text-secondary); }
+.txp-synth { background: var(--color-warning-surface); }
+.txp-synth .txp-desc-txt { color: var(--color-warning-text); }
+.txp-empty { padding: 18px; font-size: 12px; color: var(--color-text-tertiary); }
+
+.txp-foot { border-top: 1px solid var(--color-border-default); padding: 10px 18px 14px; background: var(--color-surface-sunken); }
+.txp-sum { display: grid; grid-template-columns: 1fr auto; row-gap: 3px; font-size: 12px; color: var(--color-text-secondary); }
+.txp-sum .num { font-family: var(--font-mono); font-size: 11.5px; text-align: right; }
+.txp-sum-total { font-weight: 700; color: var(--color-text-primary); }
+.txp-tie { margin-top: 6px; font-size: 11.5px; font-weight: 600; }
+.txp-tie.ok { color: var(--color-success-text); }
+.txp-tie.off { color: var(--color-danger-text); }
+.txp-note { margin-top: 6px; font-size: 11px; color: var(--color-text-tertiary); line-height: 1.45; }
+.txp-gl { display: inline-flex; align-items: center; gap: 4px; margin-top: 8px; font-size: 12px; font-weight: 600; color: var(--color-action); text-decoration: none; }
+.txp-gl:hover { text-decoration: underline; }
+.txp-gl svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; }
+
+.txp-bd { display: flex; flex-direction: column; }
+.txp-bd-row {
+  display: grid; grid-template-columns: 64px minmax(0, 1fr) 130px 14px; column-gap: 10px; align-items: baseline;
+  padding: 9px 18px; border: none; border-bottom: 1px solid var(--color-border-subtle); background: none;
+  font: inherit; font-size: 12.5px; text-align: left; color: var(--color-text-primary); cursor: pointer;
+}
+.txp-bd-row:hover:not(:disabled) { background: var(--color-action-wash); }
+.txp-bd-row:disabled { cursor: default; }
+.txp-bd-row .num { text-align: right; font-family: var(--font-mono); font-size: 11.5px; }
+.txp-bd-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.txp-bd-go { color: var(--color-text-tertiary); font-size: 15px; }
+
+/* An amount that opens the panel: reads like the old GL link. */
+.txp-amt { border: none; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+.txp-amt:hover, .txp-amt:focus-visible { color: var(--color-action); text-decoration: underline; text-underline-offset: 2px; outline: none; }
+.txp-amt.on { color: var(--color-action); font-weight: 700; }
