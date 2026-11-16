@@ -808,10 +808,12 @@ export default function ProfitLossPage() {
     if (!v) return null;
     const open = reviewPop?.code === v.code;
     const text = v.status === "reviewed" ? "Reviewed" : v.status === "changed" ? "Changed" : v.pct === null ? "New" : `${v.delta > 0 ? "+" : "−"}${Math.round(Math.abs(v.pct) * 100).toLocaleString("id-ID")}%`;
-    // Beside a Change % against the previous period the number would show
-    // twice, so the pill keeps only its icon there.
+    // A flag to review carries no number (user, 16 Nov, all reports): the move
+    // is against the previous period, which isn't always a column on screen.
+    // It's in the tooltip and the review popover. Reviewed / Changed keep their word.
+    const iconOnly = v.status === "open";
     return (
-      <button type="button" className={`var-pill no-print ${v.status}${open ? " on" : ""}${compactPills && v.pct !== null ? " icon-only" : ""}`} data-review-code={v.code}
+      <button type="button" className={`var-pill no-print ${v.status}${open ? " on" : ""}${iconOnly ? " icon-only" : ""}`} data-review-code={v.code}
         aria-haspopup="dialog" aria-expanded={open}
         aria-label={`${name}: ${v.status === "reviewed" ? "variance reviewed" : `moved ${text} vs ${prevLabel}`} — open review`}
         title={v.status === "reviewed" ? `Reviewed by ${v.review?.by}` : `Moved ${rp(v.delta)} vs ${prevLabel}`}
@@ -821,7 +823,7 @@ export default function ProfitLossPage() {
           setReviewPop((p) => (p?.code === v.code ? null : { code: v.code, anchor: { left, top, bottom } }));
         }}>
         {v.status === "reviewed" ? <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> : <svg viewBox="0 0 24 24"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg>}
-        {!(compactPills && v.pct !== null) && text}
+        {!iconOnly && text}
       </button>
     );
   };

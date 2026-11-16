@@ -811,9 +811,10 @@ export default function TrialBalancePage() {
       : v.status === "reviewed" ? "Reviewed"
         : v.status === "changed" ? "Changed"
           : movePct(v.pct);
-    // Beside a Change % against the previous period the move would show twice:
-    // a variance pill keeps only its icon ("Unreconciled" has no number to repeat).
-    const iconOnly = compactPills && !!v && r.fs !== "PL" && v.pct !== null;
+    // A variance to review carries no number (user, 16 Nov, all reports): the
+    // move is in the tooltip and the review popover. "Unreconciled", Reviewed
+    // and Changed keep their word.
+    const iconOnly = !!v && v.status !== "reviewed" && v.status !== "changed";
     return (
       <button type="button" className={`var-pill no-print${open ? " on" : ""}${done ? " reviewed" : ""}${iconOnly ? " icon-only" : ""}`} data-review-code={r.code}
         aria-label={done ? `${r.name}: variance reviewed — open review` : `${r.name}: ${flags.map((f) => f.title).join("; ")} — open review`} aria-haspopup="dialog" aria-expanded={open}
