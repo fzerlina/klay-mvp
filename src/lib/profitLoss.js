@@ -81,7 +81,14 @@ export function plBucket(acct) {
   }
 }
 
-export const plAccounts = (coa = COA) => coa.filter((n) => n.code && n.type !== "group" && n.fs === "PL");
+// P&L accounts in code order within their sections (SME, 15 Nov 2026: users
+// look an account up by its code). "1-1500" and "11110" both read as five
+// digits, so the dash is ignored when comparing.
+const byAccountCode = (a, b) => {
+  const ka = a.code.replace(/-/g, ""), kb = b.code.replace(/-/g, "");
+  return ka.localeCompare(kb, "en", { numeric: true }) || a.code.localeCompare(b.code);
+};
+export const plAccounts = (coa = COA) => coa.filter((n) => n.code && n.type !== "group" && n.fs === "PL").sort(byAccountCode);
 
 // Raw credit − debit per P&L account code over posted entries dated in
 // [from, to] (inclusive ISO dates). Entries carry the date; lines don't.

@@ -212,3 +212,22 @@
 .tb-review-title.tb-review-done{color:var(--color-success-text)}
 .tb-review-done-count{margin-left:5px;font-weight:500;color:var(--color-success-text)}
 .tb-log-btn{text-decoration:none}
+
+/* Compare menu with a period count and column order (components/ReportControls
+   ComparePopover — Odoo-style, SME 15 Nov 2026). Shared by P&L and Balance Sheet. */
+.rc-compare-pop{min-width:380px}
+.rc-compare-item{gap:10px}
+.rc-compare-item[aria-disabled]{color:var(--color-text-disabled);cursor:not-allowed}
+.rc-compare-item > span:first-child{flex:1}
+.rc-count{display:inline-flex;align-items:center;border:1px solid var(--color-border-default);border-radius:var(--radius-sm);background:var(--color-surface-raised);overflow:hidden}
+.rc-count input{width:30px;border:none;text-align:center;font:inherit;font-size:12px;font-weight:600;color:var(--color-text-primary);background:transparent;-moz-appearance:textfield;appearance:textfield}
+.rc-count input::-webkit-outer-spin-button,.rc-count input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.rc-count-btn{width:20px;height:22px;border:none;background:transparent;color:var(--color-text-secondary);cursor:pointer;font-size:13px;line-height:1}
+.rc-count-btn:hover:not(:disabled){background:var(--color-surface-sunken);color:var(--color-text-primary)}
+.rc-count-btn:disabled{color:var(--color-text-disabled);cursor:default}
+.rc-order{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border-top:1px solid var(--color-border-default);font-size:12px}
+.rc-order-lbl{color:var(--color-text-secondary)}
+.rc-seg{display:inline-flex;border:1px solid var(--color-border-default);border-radius:var(--radius-sm);overflow:hidden}
+.rc-seg button{border:none;background:transparent;padding:4px 9px;font:inherit;font-size:11.5px;color:var(--color-text-secondary);cursor:pointer}
+.rc-seg button + button{border-left:1px solid var(--color-border-default)}
+.rc-seg button.on{background:var(--color-action-wash);color:var(--color-action);font-weight:600}

@@ -77,6 +77,51 @@ export function PeriodPopover({ presets, period, onPick, onClose }) {
   );
 }
 
+// Compare menu, Odoo-style (SME, 15 Nov 2026): pick a comparison; the one
+// marked `counted` takes how many periods to lay side by side (1–`max`), so
+// a run of months shows as a trend in one table; then which way the columns
+// run. `hintFor(k, count)` labels each choice.
+export function ComparePopover({ items, value, count, onPick, order, onOrder, onClose, max = 12, hintFor }) {
+  const ref = useRef(null);
+  useClickOutside(ref, onClose);
+  const [n, setN] = useState(count);
+  const clamp = (v) => Math.max(1, Math.min(max, Math.round(Number(v) || 1)));
+  return (
+    <div className="lg-popover tb-compare-pop rc-compare-pop" ref={ref}>
+      <div className="lg-popover-list">
+        {items.map((it) => (
+          <div key={it.k} className={`lg-popover-item rc-compare-item${value === it.k ? " selected" : ""}`} role="button" tabIndex={0}
+            aria-disabled={it.disabled || undefined} title={it.title}
+            onClick={() => !it.disabled && onPick(it.k, it.counted ? n : 1)}
+            onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && !it.disabled) { e.preventDefault(); onPick(it.k, it.counted ? n : 1); } }}>
+            <span>{it.lbl}</span>
+            {it.counted && (
+              <span className="rc-count" onClick={(e) => e.stopPropagation()}>
+                <button type="button" className="rc-count-btn" aria-label="One period fewer" disabled={n <= 1} onClick={() => { const v = clamp(n - 1); setN(v); onPick(it.k, v, true); }}>−</button>
+                <input type="number" min={1} max={max} value={n} aria-label={`Number of ${it.unit || "periods"}`}
+                  onChange={(e) => setN(e.target.value === "" ? "" : clamp(e.target.value))}
+                  onBlur={() => { const v = clamp(n); setN(v); onPick(it.k, v, true); }}
+                  onKeyDown={(e) => { if (e.key === "Enter") { const v = clamp(n); setN(v); onPick(it.k, v, true); } }} />
+                <button type="button" className="rc-count-btn" aria-label="One period more" disabled={n >= max} onClick={() => { const v = clamp(n + 1); setN(v); onPick(it.k, v, true); }}>+</button>
+              </span>
+            )}
+            <span className="tb-period-range">{hintFor ? hintFor(it.k, it.counted ? clamp(n) : 1) : it.hint}{value === it.k && <Check />}</span>
+          </div>
+        ))}
+      </div>
+      {value !== "none" && (
+        <div className="rc-order">
+          <span className="rc-order-lbl">Column order</span>
+          <div className="rc-seg" role="group" aria-label="Column order">
+            <button type="button" className={order === "desc" ? "on" : ""} aria-pressed={order === "desc"} onClick={() => onOrder("desc")}>Newest first</button>
+            <button type="button" className={order === "asc" ? "on" : ""} aria-pressed={order === "asc"} onClick={() => onOrder("asc")}>Oldest first</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // As-of picker — a point-in-time report's presets (each with its `date`, or
 // `disabled` with `title` and `hint`), plus a custom date.
 export function AsOfPopover({ presets, asOf, onPick, onClose, dateLabel = (d) => d }) {

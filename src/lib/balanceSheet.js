@@ -78,7 +78,16 @@ export const CURRENT_YEAR_PROFIT = {
   computed: true,
 };
 
-export const bsAccounts = (coa = COA) => coa.filter((n) => n.code && n.type !== "group" && n.fs === "BS");
+// Account code order. The chart mixes "1-1500" and "11110"; users read both
+// as five digits (SME, 15 Nov: "CoA 11500 muncul sebelum 11400"), so the dash
+// is ignored when comparing.
+export const byAccountCode = (a, b) => {
+  const ka = a.code.replace(/-/g, ""), kb = b.code.replace(/-/g, "");
+  return ka.localeCompare(kb, "en", { numeric: true }) || a.code.localeCompare(b.code);
+};
+
+// Balance-sheet accounts in code order: users look an account up by its code.
+export const bsAccounts = (coa = COA) => coa.filter((n) => n.code && n.type !== "group" && n.fs === "BS").sort(byAccountCode);
 
 // Seeded opening balances, debit-positive.
 const SEED_OPENING = OPENING_BALANCES.reduce((m, r) => {

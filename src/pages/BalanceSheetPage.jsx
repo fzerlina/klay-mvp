@@ -48,7 +48,7 @@ import {
 import { downloadCsv, reportHeader, exportName, printReport } from "../lib/reportExport";
 import { downloadXlsx, colName } from "../lib/xlsxExport";
 import {
-  useClickOutside, Check, ChoicePopover, AsOfPopover, ViewsPopover, ExportPopover, loadLocal, saveLocal,
+  useClickOutside, Check, ChoicePopover, ComparePopover, AsOfPopover, ViewsPopover, ExportPopover, loadLocal, saveLocal,
 } from "../components/ReportControls";
 import "./modules.css";
 import "./invoices-ledger.css";
@@ -109,6 +109,9 @@ const GL_ICON = <svg viewBox="0 0 24 24"><path d="M7 17L17 7"/><path d="M8 7h9v9
 const COLUMN_LABELS = { single: "Single date", month: "By month-end", quarter: "By quarter-end" };
 const COMPARE_LABELS = { none: "None", prev_month: "Previous month-end", prior_fy: "End of last fiscal year", prev_year: "Same date last year" };
 const MAX_COLS = 12;
+// Equity accounts that may go negative without anything being wrong.
+const ABNORMAL_EXEMPT = new Set([DEFAULT_ACCOUNTS.retainedEarnings, "3-1400" /* Current Year Earnings */]);
+const ACCOUNT_KIND = { asset: "an asset", contra_asset: "a contra account", liability: "a liability", equity: "an equity account" };
 
 // Opens on the end of last month — the date the close reviews — beside the end
 // of last fiscal year: the comparative SAK EP asks for and every printed
@@ -118,6 +121,8 @@ const DEFAULTS = {
   asOfChoice: { key: "last_month_end" },
   colMode: "single",
   compare: "prior_fy",
+  compareCount: 1,
+  cmpOrder: "desc",
   showZero: false,
   showRatios: true,
   unit: 1,
@@ -187,6 +192,8 @@ export default function BalanceSheetPage() {
   });
   const [colMode, setColMode] = useState(DEFAULTS.colMode);
   const [compare, setCompare] = useState(DEFAULTS.compare);
+  const [compareCount, setCompareCount] = useState(DEFAULTS.compareCount);
+  const [cmpOrder, setCmpOrder] = useState(DEFAULTS.cmpOrder);
   const [showZero, setShowZero] = useState(DEFAULTS.showZero);
   const [showRatios, setShowRatios] = useState(DEFAULTS.showRatios);
   const [unit, setUnit] = useState(DEFAULTS.unit);
@@ -258,16 +265,29 @@ export default function BalanceSheetPage() {
   const compareEff = reviewOnly && !multi ? "prev_month" : compare;
   const compDate = !multi && compareEff !== "none" ? compareDates[compareEff] : null;
   const layout = compDate ? "compare" : multi ? "periods" : "single";
+  // Previous month-ends can run several deep, Odoo-style (SME, 15 Nov): 3 lays
+  // Feb, Jan and Dec beside March. Needs review's own comparison is one deep.
+  const nCmp = compareEff === "prev_month" && compare === "prev_month" ? compareCount : 1;
+  const compDates = useMemo(() => {
+    if (!compDate) return [];
+    const out = [compDate];
+    while (out.length < nCmp) out.push(previousMonthEnd(out[out.length - 1]));
+    return out;
+  }, [compDate, nCmp]);
 
   const amountCols = useMemo(() => {
     const cur = { id: "cur", date, main: true };
-    if (layout === "compare") return [{ ...cur, label: dateLbl }, { id: "cmp", date: compDate, label: dayLabel(compDate), muted: true }];
+    if (layout === "compare") {
+      const cmps = compDates.map((d, i) => ({ id: i === 0 ? "cmp" : `cmp${i + 1}`, date: d, label: dayLabel(d), muted: true }));
+      const curCol = { ...cur, label: dateLbl };
+      return cmpOrder === "asc" ? [...[...cmps].reverse(), curCol] : [curCol, ...cmps];
+    }
     if (layout === "periods") {
       const ends = colEff === "month" ? monthEnds : quarterEnds;
       return ends.map((d, i) => (d === date ? { ...cur, label: dayLabel(d) } : { id: `p${i}`, date: d, label: dayLabel(d), muted: true }));
     }
     return [{ ...cur, label: dateLbl }];
-  }, [layout, date, dateLbl, compDate, colEff, monthEnds, quarterEnds]);
+  }, [layout, date, dateLbl, compDates, cmpOrder, colEff, monthEnds, quarterEnds]);
 
   const results = useMemo(() => {
     const out = {};
@@ -278,12 +298,14 @@ export default function BalanceSheetPage() {
 
   const cells = useMemo(() => {
     const out = amountCols.map((c) => ({ key: c.id, kind: "amt", col: c, label: c.label, muted: c.muted, strong: c.main && amountCols.length > 1 }));
-    if (layout === "compare") {
+    // Change columns compare two dates; with several month-ends beside each
+    // other the columns themselves are the trend.
+    if (layout === "compare" && compDates.length === 1) {
       out.push({ key: "diff", kind: "diff", label: "Change", id_label: "Perubahan" });
       out.push({ key: "diffPct", kind: "diffPct", label: "Change %", id_label: "Perubahan %" });
     }
     return out;
-  }, [amountCols, layout]);
+  }, [amountCols, layout, compDates.length]);
 
   // ── Status ────────────────────────────────────────────────────────────────
   const closeState = periodCloseState(date, date, closedThrough);
@@ -352,13 +374,29 @@ export default function BalanceSheetPage() {
     return out;
   }, [reconByCode, main, date, today]);
 
+  // Abnormal balance (SME, 15 Nov 2026): an account on the wrong side of its
+  // normal balance — an asset in credit, a liability in debit, a contra
+  // account in debit. It shows in parentheses like a contra account does, so
+  // it gets its own flag to tell the two apart. Retained earnings and current
+  // year earnings may legitimately go negative (a deficit) and aren't flagged.
+  const abnormal = useMemo(() => {
+    const out = {};
+    for (const code of Object.keys(main.byCode)) {
+      if (code === CURRENT_YEAR_PROFIT.code || ABNORMAL_EXEMPT.has(code)) continue;
+      const v = normal(code, main);
+      if (v < -0.5) out[code] = { amount: -v, side: COA_BY_CODE[code].normal_balance === "debit" ? "credit" : "debit" };
+    }
+    return out;
+  }, [main]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const varList = Object.values(variances);
   const openVar = varList.filter((v) => v.status !== "reviewed").length;
   const reviewedCount = varList.length - openVar;
   const reconCount = Object.keys(unreconciled).length;
-  const needsCount = openVar + reconCount;
-  const flagged = (code) => !!variances[code] || !!unreconciled[code];
-  const compactPills = layout === "compare" && compareEff === "prev_month";
+  const abnormalCount = Object.keys(abnormal).length;
+  const needsCount = openVar + reconCount + abnormalCount;
+  const flagged = (code) => !!variances[code] || !!unreconciled[code] || !!abnormal[code];
+  const compactPills = layout === "compare" && compareEff === "prev_month" && compDates.length === 1;
 
   const driversFor = (code) => {
     const out = [];
@@ -383,14 +421,14 @@ export default function BalanceSheetPage() {
     const rows = node.rows.filter((r) => visible(r) && matches(r));
     const nodes = node.nodes.map(shape).filter((n) => n.rows.length || n.nodes.length);
     return { ...node, rows, nodes };
-  }, [showZero, q, reviewOnly, variances, unreconciled, results]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [showZero, q, reviewOnly, variances, unreconciled, abnormal, results]); // eslint-disable-line react-hooks/exhaustive-deps
   const tree = useMemo(() => BS_SIDES.map((s) => ({ side: s, node: shape(main.sides[s.key].node) })), [main, shape]);
   const countRows = (n) => n.rows.length + n.nodes.reduce((k, c) => k + countRows(c), 0);
   const shownAccounts = tree.reduce((k, t) => k + countRows(t.node), 0);
   const totalAccounts = useMemo(() => {
     const walk = (n) => n.rows.filter(visible).length + n.nodes.reduce((k, c) => k + walk(c), 0);
     return BS_SIDES.reduce((k, s) => k + walk(main.sides[s.key].node), 0);
-  }, [main, showZero, results, variances, unreconciled]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [main, showZero, results, variances, unreconciled, abnormal]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Expand / Collapse one level over the nodes on screen.
   const levelNodes = useMemo(() => {
@@ -455,13 +493,15 @@ export default function BalanceSheetPage() {
   const plState = (d) => ({ period: { from: fiscalYearStartFor(d, fiscalYearStart), to: d } });
 
   // ── Views ─────────────────────────────────────────────────────────────────
-  const viewState = { asOfChoice: asOf.key === "custom" ? asOfChoice : { key: asOf.key }, colMode, compare, showZero, showRatios, unit, lang };
+  const viewState = { asOfChoice: asOf.key === "custom" ? asOfChoice : { key: asOf.key }, colMode, compare, compareCount, cmpOrder, showZero, showRatios, unit, lang };
   const viewSig = JSON.stringify(viewState);
   const activeViewId = views.find((v) => JSON.stringify(v.state) === viewSig)?.id || null;
   const applyState = (s) => {
     setAsOfChoice(s.asOfChoice || DEFAULTS.asOfChoice);
     setColMode(s.colMode || DEFAULTS.colMode);
     setCompare(s.compare || DEFAULTS.compare);
+    setCompareCount(s.compareCount || DEFAULTS.compareCount);
+    setCmpOrder(s.cmpOrder || DEFAULTS.cmpOrder);
     setShowZero(!!s.showZero);
     setShowRatios(s.showRatios ?? DEFAULTS.showRatios);
     setUnit(s.unit || DEFAULTS.unit);
@@ -479,7 +519,9 @@ export default function BalanceSheetPage() {
   const resetAll = () => { applyState(DEFAULTS); setSearch(""); setReviewOnly(false); };
 
   const layoutNote = {
-    compare: `Compared with ${COMPARE_LABELS[compareEff].toLowerCase()} (${compDate ? dayLabel(compDate) : ""})`,
+    compare: compDates.length > 1
+      ? `Compared with ${compDates.length} previous month-ends (${dayLabel(compDates[compDates.length - 1])} – ${dayLabel(compDates[0])})`
+      : `Compared with ${COMPARE_LABELS[compareEff].toLowerCase()} (${compDate ? dayLabel(compDate) : ""})`,
     periods: `${COLUMN_LABELS[colEff]}, this fiscal year`,
     single: null,
   }[layout];
@@ -636,9 +678,17 @@ export default function BalanceSheetPage() {
     { k: "quarter", lbl: "By quarter-end", hint: tooFew.quarter ? "one quarter-end this year" : plural(quarterEnds.length, "column"),
       disabled: tooFew.quarter, title: tooFew.quarter ? "The fiscal year has only reached its first quarter." : undefined },
   ];
+  // A run of month-ends, newest first: the hint shows its span.
+  const compareHint = (k, n) => {
+    if (k === "none") return "";
+    if (k !== "prev_month" || n <= 1) return dayLabel(compareDates[k]);
+    let d = compareDates.prev_month;
+    for (let i = 1; i < n; i++) d = previousMonthEnd(d);
+    return `${dayLabel(d)} – ${dayLabel(compareDates.prev_month)}`;
+  };
   const compareItems = [
     { k: "none", lbl: "No comparison" },
-    ...["prev_month", "prior_fy", "prev_year"].map((k) => ({ k, lbl: COMPARE_LABELS[k], hint: dayLabel(compareDates[k]) })),
+    ...["prev_month", "prior_fy", "prev_year"].map((k) => ({ k, lbl: k === "prev_month" ? "Previous month-ends" : COMPARE_LABELS[k], counted: k === "prev_month", unit: "month-ends" })),
   ];
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -703,6 +753,20 @@ export default function BalanceSheetPage() {
     </Link>
   );
 
+  // A balance on the wrong side is fixed in the ledger, not explained: the pill
+  // opens the General Ledger.
+  const AbnormalPill = ({ code, name }) => {
+    const a = abnormal[code];
+    const kind = ACCOUNT_KIND[COA_BY_CODE[code].type] || "this account";
+    return (
+      <Link className="var-pill no-print bs-abnormal-pill" to={glUrl(code, date)} onClick={(e) => e.stopPropagation()}
+        title={`${name} has a ${a.side} balance of ${rp(a.amount)} at ${dateLbl} — ${kind} normally has a ${a.side === "credit" ? "debit" : "credit"} balance. Check for a mispost, a missed reclassification or a reversal posted twice.`}>
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v5"/><path d="M12 16h.01"/></svg>
+        Abnormal balance
+      </Link>
+    );
+  };
+
   const reCode = DEFAULT_ACCOUNTS.retainedEarnings;
   const AcctRow = ({ r, isAlt, depth }) => {
     const computed = r.computed;
@@ -716,7 +780,9 @@ export default function BalanceSheetPage() {
         <div className={`tb-cell-name${flagged(r.code) ? " has-var-pill" : ""}`} style={{ paddingLeft: (depth + 1) * INDENT }}>
           {computed ? (
             <>
-              <span className="tb-code bs-code-calc" title="Calculated — not an account">Calc.</span>
+              {/* No code: it's calculated, not an account, and the name says
+                  what it is (SME, 15 Nov — as other ERPs leave it). */}
+              <span className="tb-code" aria-hidden="true" />
               <Link className="tb-name tb-acct-link" to="/reports/profit-loss" state={plState(date)} onClick={(e) => e.stopPropagation()}
                 title="Profit & Loss from the start of the fiscal year to this date — not a posting">
                 <Lbl en={r.name} id={r.idName} lang={lang} />
@@ -734,6 +800,7 @@ export default function BalanceSheetPage() {
                   incl. earlier years
                 </span>
               )}
+              {abnormal[r.code] && <AbnormalPill code={r.code} name={r.name} />}
               <VarPill v={variances[r.code]} name={r.name} />
               {unreconciled[r.code] && <ReconPill rec={unreconciled[r.code]} />}
               <Link className="tb-gl-btn no-print" to={to} onClick={(e) => e.stopPropagation()} aria-label={`Open ${r.code} ${r.name} in the General Ledger`}>
@@ -900,9 +967,12 @@ export default function BalanceSheetPage() {
                     title={multi ? "Comparison works on a single date. Set Columns to Single date to compare." : undefined}
                     aria-haspopup="menu" aria-expanded={openPop === "compare"}>
                     <span className="meta-lbl">Compare:</span>
-                    <span className="meta-val">{compDate ? COMPARE_LABELS[compareEff] : "None"}</span>
+                    <span className="meta-val">{!compDate ? "None" : compDates.length > 1 ? `${compDates.length} previous month-ends` : COMPARE_LABELS[compareEff]}</span>
                   </button>
-                  {openPop === "compare" && <ChoicePopover className="tb-compare-pop" items={compareItems} value={compDate ? compareEff : "none"} onPick={(k) => { setCompare(k); closePop(); }} onClose={closePop} />}
+                  {openPop === "compare" && (
+                    <ComparePopover items={compareItems} value={compDate ? compareEff : "none"} count={compareCount} order={cmpOrder} onOrder={setCmpOrder} hintFor={compareHint}
+                      onPick={(k, n, keepOpen) => { setCompare(k); setCompareCount(n); if (!keepOpen) closePop(); }} onClose={closePop} />
+                  )}
                 </div>
                 <div className="lg-search">
                   <svg viewBox="0 0 14 14"><circle cx="6" cy="6" r="3.5"/><path d="M9 9l3 3" strokeLinecap="round"/></svg>
@@ -913,7 +983,7 @@ export default function BalanceSheetPage() {
                 <button className={`lg-toggle pl-review-toggle${reviewOnly ? " on" : ""}`} onClick={() => setReviewOnly((x) => !x)} aria-pressed={reviewOnly}
                   disabled={multi || (!needsCount && !reviewedCount && !reviewOnly)}
                   title={multi ? "Review works on a single date. Set Columns to Single date."
-                    : `Balances that moved ${Math.round(varianceThreshold.pct * 100)}% and ${rp(varianceThreshold.amount)} or more since ${prevLbl} (Settings › General Settings › Preferences), and bank or cash accounts not reconciled to ${dateLbl}. Shows them with ${prevLbl} beside.`}>
+                    : `Balances that moved ${Math.round(varianceThreshold.pct * 100)}% and ${rp(varianceThreshold.amount)} or more since ${prevLbl} (Settings › General Settings › Preferences), bank or cash accounts not reconciled to ${dateLbl}, and accounts with an abnormal balance (on the wrong side). Shows them with ${prevLbl} beside.`}>
                   Needs review <span className="tb-toggle-count">{needsCount}</span>
                   {reviewedCount > 0 && <span className="pl-review-done">· {reviewedCount} reviewed</span>}
                 </button>
