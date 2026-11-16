@@ -6,9 +6,12 @@
 .bs-page .has-var-pill .var-pill + .var-pill { margin-left: 4px; }
 .bs-recon-pill { text-decoration: none; }
 
-/* The computed Current year profit/(loss) line: "Calc." where a code would be. */
-.bs-code-calc { font-style: italic; }
+/* The computed Current year profit/(loss) line: no code, name in italics. */
 .bs-page .lg-row.bs-computed-row .tb-name { font-style: italic; }
+
+/* Abnormal balance: red, so it never reads like a contra account's parentheses. */
+.var-pill.bs-abnormal-pill { background: var(--color-danger-surface); color: var(--color-danger-text); text-decoration: none; }
+.var-pill.bs-abnormal-pill:hover { box-shadow: 0 0 0 1px var(--color-danger-text) inset; }
 
 /* Retained earnings carries the earlier years rolled in — said quietly. */
 .bs-rolled {

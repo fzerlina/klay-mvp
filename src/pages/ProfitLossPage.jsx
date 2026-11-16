@@ -41,7 +41,7 @@ import { lineDimensions, UNTAGGED } from "../lib/generalLedger";
 import { downloadCsv, reportHeader, exportName, printReport } from "../lib/reportExport";
 import { downloadXlsx, colName } from "../lib/xlsxExport";
 import {
-  useClickOutside, Check, ChoicePopover, PeriodPopover, DimensionPopover,
+  useClickOutside, Check, ChoicePopover, ComparePopover, PeriodPopover, DimensionPopover,
   ViewsPopover, ExportPopover, loadLocal, saveLocal,
 } from "../components/ReportControls";
 import "./modules.css";
@@ -115,6 +115,8 @@ const DEFAULTS = {
   periodChoice: { key: "ytd" },
   colMode: "total",
   compare: "none",
+  compareCount: 1,
+  cmpOrder: "desc",
   dims: {},
   showZero: false,
   // % of revenue on every line is off by default: DualEntry only offers it as
@@ -181,6 +183,8 @@ export default function ProfitLossPage() {
   });
   const [colMode, setColMode] = useState(DEFAULTS.colMode);
   const [compare, setCompare] = useState(DEFAULTS.compare);
+  const [compareCount, setCompareCount] = useState(DEFAULTS.compareCount);
+  const [cmpOrder, setCmpOrder] = useState(DEFAULTS.cmpOrder);
   const [dims, setDims] = useState(DEFAULTS.dims);
   const [showZero, setShowZero] = useState(DEFAULTS.showZero);
   const [showPct, setShowPct] = useState(DEFAULTS.showPct);
@@ -312,6 +316,16 @@ export default function ProfitLossPage() {
   const compRange = !multi && compareEff !== "none" ? compareRanges[compareEff] : null;
   const compLabel = compRange ? rangeLabel(compRange.from, compRange.to) : "";
   const layout = compRange ? "compare" : splitKey ? "dims" : multi ? "periods" : "total";
+  // Previous periods can run several deep, Odoo-style (SME, 15 Nov 2026): a
+  // month compared with 3 previous periods lays Feb, Jan and Dec beside it.
+  // Needs review's own comparison is one deep.
+  const nCmp = compareEff === "prev" && compare === "prev" ? compareCount : 1;
+  const compRanges = useMemo(() => {
+    if (!compRange) return [];
+    const out = [compRange];
+    while (out.length < nCmp) { const last = out[out.length - 1]; out.push(previousPeriod(last.from, last.to)); }
+    return out;
+  }, [compRange?.from, compRange?.to, nCmp]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Numbers ───────────────────────────────────────────────────────────────
   // A column's own dimension value narrows the filters further.
@@ -329,10 +343,9 @@ export default function ProfitLossPage() {
   const amountCols = useMemo(() => {
     const cur = { id: "cur", range: { from, to }, main: true };
     if (layout === "compare") {
-      return [
-        { ...cur, label: periodRange },
-        { id: "cmp", range: compRange, label: compLabel, muted: true },
-      ];
+      const cmps = compRanges.map((r, i) => ({ id: i === 0 ? "cmp" : `cmp${i + 1}`, range: r, label: rangeLabel(r.from, r.to), muted: true }));
+      const curCol = { ...cur, label: periodRange };
+      return cmpOrder === "asc" ? [...[...cmps].reverse(), curCol] : [curCol, ...cmps];
     }
     if (layout === "periods") {
       const pieces = colEff === "month" ? monthPieces : quarterPieces;
@@ -353,7 +366,7 @@ export default function ProfitLossPage() {
       ];
     }
     return [{ ...cur, label: periodRange }];
-  }, [layout, from, to, periodRange, compRange, compLabel, colEff, monthPieces, quarterPieces, splitKey, dimActivity]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [layout, from, to, periodRange, compRanges, cmpOrder, colEff, monthPieces, quarterPieces, splitKey, dimActivity]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const results = useMemo(() => {
     const out = {};
@@ -370,12 +383,14 @@ export default function ProfitLossPage() {
       out.push({ key: c.id, kind: "amt", col: c, label: c.label, id_label: c.id_label || c.label, muted: c.muted, strong: c.main && amountCols.length > 1 });
       if (c.main && showPct) out.push({ key: `${c.id}-pct`, kind: "pct", col: c, label: "% of rev.", id_label: "% pendapatan" });
     }
-    if (layout === "compare") {
+    // Change columns compare two periods; with several periods beside each
+    // other the columns themselves are the trend.
+    if (layout === "compare" && compRanges.length === 1) {
       out.push({ key: "diff", kind: "diff", label: "Change", id_label: "Perubahan" });
       out.push({ key: "diffPct", kind: "diffPct", label: "Change %", id_label: "Perubahan %" });
     }
     return out;
-  }, [amountCols, showPct, layout]);
+  }, [amountCols, showPct, layout, compRanges.length]);
 
   // ── Status ────────────────────────────────────────────────────────────────
   const closeState = periodCloseState(from, to, closedThrough);
@@ -413,7 +428,7 @@ export default function ProfitLossPage() {
   const varList = Object.values(variances);
   // Comparing with the previous period — the flags' own basis — the Change %
   // column already shows each move: pills shrink to their icon then.
-  const compactPills = layout === "compare" && compareEff === "prev";
+  const compactPills = layout === "compare" && compareEff === "prev" && compRanges.length === 1;
   // The review list under the statement: still to review first, then biggest moves.
   const reviewList = [...varList].sort((a, b) => (a.status === "reviewed") - (b.status === "reviewed") || Math.abs(b.delta) - Math.abs(a.delta));
   const openCount = varList.filter((v) => v.status !== "reviewed").length;
@@ -518,7 +533,7 @@ export default function ProfitLossPage() {
   };
 
   // ── Views ─────────────────────────────────────────────────────────────────
-  const viewState = { periodChoice: period.key === "custom" ? periodChoice : { key: period.key }, colMode, compare, dims, showZero, showPct, unit, lang };
+  const viewState = { periodChoice: period.key === "custom" ? periodChoice : { key: period.key }, colMode, compare, compareCount, cmpOrder, dims, showZero, showPct, unit, lang };
   const viewSig = JSON.stringify(viewState);
   // Views saved before the Adjustments control was removed still carry `adjMode`; it's ignored.
   const activeViewId = views.find((v) => JSON.stringify({ ...v.state, adjMode: undefined }) === viewSig)?.id || null;
@@ -526,6 +541,8 @@ export default function ProfitLossPage() {
     setPeriodChoice(s.periodChoice || DEFAULTS.periodChoice);
     setColMode(s.colMode || DEFAULTS.colMode);
     setCompare(s.compare || DEFAULTS.compare);
+    setCompareCount(s.compareCount || DEFAULTS.compareCount);
+    setCmpOrder(s.cmpOrder || DEFAULTS.cmpOrder);
     setDims(s.dims || {});
     setShowZero(!!s.showZero);
     setShowPct(s.showPct ?? DEFAULTS.showPct);
@@ -546,7 +563,9 @@ export default function ProfitLossPage() {
   // ── Descriptions ──────────────────────────────────────────────────────────
   const dimText = dimList.map(([k, v]) => `${DIM_BY_KEY[k]?.label || k}: ${v}`).join(" · ");
   const layoutNote = {
-    compare: `Compared with ${COMPARE_LABELS[compare].toLowerCase()} (${compLabel})`,
+    compare: compRanges.length > 1
+      ? `Compared with ${compRanges.length} previous periods (${rangeLabel(compRanges[compRanges.length - 1].from, compRanges[0].to)})`
+      : `Compared with ${COMPARE_LABELS[compareEff].toLowerCase()} (${compLabel})`,
     periods: columnLabel(colEff),
     dims: `${columnLabel(colEff)}, with Others`,
     total: null,
@@ -732,9 +751,18 @@ export default function ProfitLossPage() {
       };
     }),
   ];
+  // A run of previous periods, newest first: the hint shows its span.
+  const compareHint = (k, n) => {
+    if (k === "none") return "";
+    const first = compareRanges[k];
+    if (k !== "prev" || n <= 1) return rangeLabel(first.from, first.to);
+    let last = first;
+    for (let i = 1; i < n; i++) last = previousPeriod(last.from, last.to);
+    return rangeLabel(last.from, first.to);
+  };
   const compareItems = [
     { k: "none", lbl: "No comparison" },
-    ...["prev", "prev_year", "prior_ytd"].map((k) => ({ k, lbl: COMPARE_LABELS[k], hint: rangeLabel(compareRanges[k].from, compareRanges[k].to) })),
+    ...["prev", "prev_year", "prior_ytd"].map((k) => ({ k, lbl: k === "prev" ? "Previous periods" : COMPARE_LABELS[k], counted: k === "prev", unit: "periods" })),
   ];
   const usedDimKeys = dimList.map(([k]) => k);
   // Filtering on the dimension the columns split by would leave one column.
@@ -985,9 +1013,12 @@ export default function ProfitLossPage() {
                     title={multi ? "Comparison works on a single Total column. Set Columns to Total only to compare." : undefined}
                     aria-haspopup="menu" aria-expanded={openPop === "compare"}>
                     <span className="meta-lbl">Compare:</span>
-                    <span className="meta-val">{compRange ? COMPARE_LABELS[compareEff] : "None"}</span>
+                    <span className="meta-val">{!compRange ? "None" : compRanges.length > 1 ? `${compRanges.length} previous periods` : COMPARE_LABELS[compareEff]}</span>
                   </button>
-                  {openPop === "compare" && <ChoicePopover className="tb-compare-pop" items={compareItems} value={compRange ? compareEff : "none"} onPick={(k) => { setCompare(k); closePop(); }} onClose={closePop} />}
+                  {openPop === "compare" && (
+                    <ComparePopover items={compareItems} value={compRange ? compareEff : "none"} count={compareCount} order={cmpOrder} onOrder={setCmpOrder} hintFor={compareHint}
+                      onPick={(k, n, keepOpen) => { setCompare(k); setCompareCount(n); if (!keepOpen) closePop(); }} onClose={closePop} />
+                  )}
                 </div>
                 {dimList.map(([k, v]) => (
                   <div key={k} className="lg-meta-btn-wrap pl-chip-wrap">
