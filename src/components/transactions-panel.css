@@ -13,9 +13,6 @@
 @keyframes txp-in { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
 
 .txp-head { padding: 14px 18px 10px; border-bottom: 1px solid var(--color-border-default); }
-.txp-back { display: inline-flex; align-items: center; gap: 3px; margin: 0 0 6px -4px; padding: 2px 6px 2px 2px; border: none; background: none; font: inherit; font-size: 11.5px; color: var(--color-action); cursor: pointer; border-radius: var(--radius-sm); }
-.txp-back:hover { background: var(--color-action-wash); }
-.txp-back svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; }
 .txp-title-row { display: flex; align-items: flex-start; gap: 10px; }
 .txp-title { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
 .txp-code { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-tertiary); }
@@ -67,19 +64,30 @@
 .txp-gl:hover { text-decoration: underline; }
 .txp-gl svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; }
 
-.txp-bd { display: flex; flex-direction: column; }
-.txp-bd-row {
-  display: grid; grid-template-columns: 64px minmax(0, 1fr) 130px 14px; column-gap: 10px; align-items: baseline;
-  padding: 9px 18px; border: none; border-bottom: 1px solid var(--color-border-subtle); background: none;
-  font: inherit; font-size: 12.5px; text-align: left; color: var(--color-text-primary); cursor: pointer;
-}
-.txp-bd-row:hover:not(:disabled) { background: var(--color-action-wash); }
-.txp-bd-row:disabled { cursor: default; }
-.txp-bd-row .num { text-align: right; font-family: var(--font-mono); font-size: 11.5px; }
-.txp-bd-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.txp-bd-go { color: var(--color-text-tertiary); font-size: 15px; }
+/* Period switcher on the journal-lines view: one period at a time. */
+.txp-periods { display: flex; align-items: center; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--color-border-subtle); }
+.txp-step { flex: none; width: 24px; height: 24px; display: grid; place-items: center; border: 1px solid var(--color-border-default); border-radius: var(--radius-sm); background: var(--color-surface-raised); color: var(--color-text-secondary); cursor: pointer; }
+.txp-step:disabled { opacity: .4; cursor: default; }
+.txp-step svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; }
+.txp-chips { flex: 1; min-width: 0; display: flex; gap: 4px; overflow-x: auto; scrollbar-width: thin; }
+.txp-chip { flex: none; border: 1px solid var(--color-border-default); border-radius: 9999px; background: var(--color-surface-raised); padding: 3px 10px; font: inherit; font-size: 11.5px; color: var(--color-text-secondary); cursor: pointer; white-space: nowrap; }
+.txp-chip:hover { color: var(--color-text-primary); }
+.txp-chip.on { background: var(--color-action-wash); border-color: var(--color-action); color: var(--color-action); font-weight: 600; }
 
 /* An amount that opens the panel: reads like the old GL link. */
 .txp-amt { border: none; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; }
 .txp-amt:hover, .txp-amt:focus-visible { color: var(--color-action); text-decoration: underline; text-underline-offset: 2px; outline: none; }
 .txp-amt.on { color: var(--color-action); font-weight: 700; }
+
+/* On the reports (P&L and Balance Sheet both wear .pl-page): the account name
+   opens the panel — a button styled as the link it replaces — and with the
+   panel open the statement keeps to its left, with narrower columns. */
+.pl-page button.bs-name-btn { border: none; background: none; padding: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+@media (min-width: 1100px) {
+  .pl-page.txp-is-open .lg-scroll-container { padding-right: min(600px, 46vw); }
+  .pl-page.txp-is-open .lg-card.lg-table-tb .lg-row,
+  .pl-page.txp-is-open .lg-card.lg-table-tb .lg-col-header {
+    grid-template-columns: 270px repeat(var(--tb-n, 1), 128px) minmax(0, 1fr);
+    min-width: calc(270px + var(--tb-n, 1) * 128px + 44px);
+  }
+}

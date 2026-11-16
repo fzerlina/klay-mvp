@@ -499,25 +499,29 @@ export default function BalanceSheetPage() {
   };
   const plState = (d) => ({ period: { from: fiscalYearStartFor(d, fiscalYearStart), to: d } });
 
-  // ── Transactions panel (CEO / CFO feedback, 16 Nov) ───────────────────────
-  // An amount opens, beside the statement, the journal lines that make it up:
-  //   • an account's balance — the start of its fiscal year to the date, from
-  //     the balance before it;
-  //   • a group total — its accounts, each opening its own lines.
-  // Opening and closing come from the statement itself, so the panel always
-  // has to land on the number clicked. Retained earnings also moves at a
-  // fiscal year-end without a posting (the year's profit rolls in): that roll
-  // shows as its own, marked line.
+  // ── Journal lines behind a balance (CEO / CFO feedback, 16 Nov) ─────────
+  // The statement is already the tree (groups expand to accounts, Compare lays
+  // periods side by side), so only an account opens the panel (user, 16 Nov):
+  // its posted journal lines for one column, from the start of that date's
+  // fiscal year, stepping from column to column. Opening and closing come from
+  // the statement itself, so the panel always has to land on the number
+  // clicked. Retained earnings also moves at a fiscal year-end without a
+  // posting (the year's profit rolls in): that roll shows as its own line.
   const allLines = useMemo(() => glLines(entries, { bills, invoices }).filter((l) => l.status === "posted"), [entries, bills, invoices]);
-  const [drill, setDrill] = useState(null); // { kind: "acct", code, from, to, back? } | { kind: "node", nodeId, colId }
+  const [drill, setDrill] = useState(null); // { code, colId }
   const closeDrill = useCallback(() => setDrill(null), []);
   const bsAt = (d) => computeBalanceSheet(entries, d, { fiscalYearStart });
-  const acctView = (code, from, to) => {
+  const colById = (id) => amountCols.find((c) => c.id === id) || amountCols.find((c) => c.main);
+  const periodChips = amountCols.map((c) => ({ id: c.id, label: c.label }));
+  const acctView = (code, colId) => {
     const a = COA_BY_CODE[code];
+    const col = colById(colId);
+    const to = col.date;
+    const from = fiscalYearStartFor(to, fiscalYearStart);
     const assetSide = a.type === "asset" || a.type === "contra_asset";
     const before = dayBefore(from);
     const opening = bsAt(before).byCode[code] || 0;
-    const closing = bsAt(to).byCode[code] || 0;
+    const closing = results[col.id]?.byCode[code] ?? (bsAt(to).byCode[code] || 0);
     const lines = allLines
       .filter((l) => l.code === code && l.date >= from && l.date <= to)
       .map((l) => ({
@@ -527,15 +531,15 @@ export default function BalanceSheetPage() {
       }));
     const residual = r2(closing - opening - lines.reduce((s, l) => s + l.amount, 0));
     if (code === reCodeAll && Math.abs(residual) >= 0.5) {
-      const fy = fiscalYearStartFor(to, fiscalYearStart);
-      lines.push({ key: "roll", date: fy, source: "roll", synthetic: true, amount: residual,
-        desc: `Fiscal year to ${dayLabel(dayBefore(fy))}: profit/(loss) rolled in at year-end — calculated, not a posting` });
+      lines.push({ key: "roll", date: from, source: "roll", synthetic: true, amount: residual,
+        desc: `Fiscal year to ${dayLabel(before)}: profit/(loss) rolled in at year-end — calculated, not a posting` });
       lines.sort((x, y) => x.date.localeCompare(y.date));
     }
     const qs = new URLSearchParams({ account: code, period: "custom", from, to });
     return {
       kind: "lines", code, name: a.name,
       rangeLabel: `${dayLabel(from)} – ${dayLabel(to)} · posted journals`,
+      periods: periodChips, periodId: col.id, onPeriod: (id) => setDrill((d) => ({ ...d, colId: id })),
       opening: { label: `Balance at ${dayLabel(before)}`, amount: opening },
       closing: { label: `Balance at ${dayLabel(to)}`, amount: closing },
       lines,
@@ -543,33 +547,7 @@ export default function BalanceSheetPage() {
       note: assetSide ? null : "Increase and decrease are on the account's own side: a liability or equity account grows with credits.",
     };
   };
-  const findNode = (res, id) => {
-    let hit = null;
-    const walk = (n) => { if (n.id === id) hit = n; n.nodes.forEach(walk); };
-    BS_SIDES.forEach((s) => walk(res.sides[s.key].node));
-    return hit;
-  };
-  const nodeView = (nodeId, colId) => {
-    const res = results[colId];
-    const node = findNode(res, nodeId);
-    const d = amountCols.find((c) => c.id === colId).date;
-    const rows = [];
-    const walk = (n) => { n.rows.forEach((r) => rows.push(r)); n.nodes.forEach(walk); };
-    walk(node);
-    return {
-      kind: "breakdown", name: node.label,
-      rangeLabel: `Balances at ${dayLabel(d)} · ${node.rows.length + node.nodes.length ? "by account" : ""}`,
-      rows: rows
-        .filter((r) => r.computed || showZero || Math.abs(res.byCode[r.code] || 0) >= 0.005)
-        .map((r) => ({
-          code: r.code, name: r.name, computed: r.computed, amount: res.byCode[r.code] || 0,
-          title: r.computed ? "Calculated from the Profit & Loss — open it from the statement" : undefined,
-          onOpen: r.computed ? null : () => setDrill({ kind: "acct", code: r.code, from: fiscalYearStartFor(d, fiscalYearStart), to: d, back: { kind: "node", nodeId, colId } }),
-        })),
-      total: { label: `Total ${node.label.toLowerCase()}`, amount: res.byNode[nodeId] || 0 },
-    };
-  };
-  const drillView = drill ? (drill.kind === "acct" ? acctView(drill.code, drill.from, drill.to) : nodeView(drill.nodeId, drill.colId)) : null;
+  const drillView = drill ? acctView(drill.code, drill.colId) : null;
   // The statement narrows when the panel opens: keep the amount that was
   // clicked in view beside it.
   useEffect(() => {
@@ -577,10 +555,8 @@ export default function BalanceSheetPage() {
     const t = setTimeout(() => document.querySelector(".bs-page .txp-amt.on")?.scrollIntoView({ block: "nearest", inline: "nearest" }), 60);
     return () => clearTimeout(t);
   }, [drill]);
-  // A drill on a column that's no longer on screen closes.
-  useEffect(() => { if (drill?.kind === "node" && !results[drill.colId]) setDrill(null); }, [drill, results]);
-  const openAcct = (code, d) => setDrill({ kind: "acct", code, from: fiscalYearStartFor(d, fiscalYearStart), to: d });
-  const isOn = (code, from, to) => drill?.kind === "acct" && drill.code === code && drill.from === from && drill.to === to;
+  const openAcct = (code, colId = "cur") => setDrill({ code, colId });
+  const isOn = (code, colId) => drill?.code === code && colById(drill.colId).id === colId;
 
   // ── Views ─────────────────────────────────────────────────────────────────
   const viewState = { asOfChoice: asOf.key === "custom" ? asOfChoice : { key: asOf.key }, colMode, compare, compareCount, cmpOrder, showZero, showRatios, unit, lang };
@@ -808,22 +784,13 @@ export default function BalanceSheetPage() {
       const from = fiscalYearStartFor(d, fiscalYearStart);
       return (
         <div key={cell.key} className={cls}>
-          <button type="button" className={`txp-amt${isOn(code, from, d) ? " on" : ""}`} onClick={(e) => { e.stopPropagation(); openAcct(code, d); }}
+          <button type="button" className={`txp-amt${isOn(code, cell.col.id) ? " on" : ""}`} onClick={(e) => { e.stopPropagation(); openAcct(code, cell.col.id); }}
             title={`Show the journal lines behind this balance (${dayLabel(from)} – ${dayLabel(d)})`}>{body}</button>
         </div>
       );
     }
-    // Change cells stay plain numbers (user, 16 Nov): the lines in between
-    // don't explain why a balance moved. A group's total: its accounts.
-    if (typeof src !== "string" && src.node && cell.kind === "amt" && v && Math.abs(v) >= 0.005) {
-      const on = drill?.kind === "node" && drill.nodeId === src.node && drill.colId === cell.col.id;
-      return (
-        <div key={cell.key} className={cls}>
-          <button type="button" className={`txp-amt${on ? " on" : ""}`} onClick={(e) => { e.stopPropagation(); setDrill({ kind: "node", nodeId: src.node, colId: cell.col.id }); }}
-            title="Show the accounts in this total">{body}</button>
-        </div>
-      );
-    }
+    // Change cells and totals stay plain numbers (user, 16 Nov): the statement
+    // already shows what a total is made of; only an account opens its journals.
     return <div key={cell.key} className={cls}>{body}</div>;
   });
 
@@ -883,7 +850,7 @@ export default function BalanceSheetPage() {
     };
     return (
       <div className={`lg-row tb-acct-row${isAlt ? " alt" : ""}${computed ? " bs-computed-row" : ""}${focusCode === r.code || reviewPop?.code === r.code || drill?.code === r.code ? " selected" : ""}`} onClick={onRowClick}
-        onDoubleClick={computed ? undefined : () => { window.getSelection?.().removeAllRanges(); openAcct(r.code, date); }}>
+        onDoubleClick={computed ? undefined : () => { window.getSelection?.().removeAllRanges(); openAcct(r.code); }}>
         <div className={`tb-cell-name${flagged(r.code) ? " has-var-pill" : ""}`} style={{ paddingLeft: (depth + 1) * INDENT }}>
           {computed ? (
             <>
@@ -902,7 +869,7 @@ export default function BalanceSheetPage() {
             <>
               <span className="tb-code">{r.code}</span>
               <button type="button" className="tb-name tb-acct-link bs-name-btn" title={`Show ${r.name}'s journal lines this fiscal year`}
-                onClick={(e) => { e.stopPropagation(); openAcct(r.code, date); }}>{r.name}</button>
+                onClick={(e) => { e.stopPropagation(); openAcct(r.code); }}>{r.name}</button>
               {r.code === reCode && Math.abs(main.rolledProfit) >= 0.5 && (
                 <span className="bs-rolled no-print" title={`Includes ${rp(main.rolledProfit)} of earlier fiscal years' profit/(loss), rolled in at each year-end. It isn't a posting, so the General Ledger for this account won't show it.`}>
                   incl. earlier years
@@ -1152,7 +1119,7 @@ export default function BalanceSheetPage() {
             </div>
           </div>
           <p className="pl-foot no-print">
-            Click a group to open or close it. Click an account, an amount or a total (or double-click a row) to see the journal lines behind it beside the statement. Current year profit/(loss) opens the Profit &amp; Loss for the same dates.
+            Click a group to open or close it. Click an account or one of its amounts (or double-click its row) to see the journal lines behind it beside the statement, one column at a time. Current year profit/(loss) opens the Profit &amp; Loss for the same dates.
             {" "}Contra accounts (accumulated depreciation, allowances) and dividends are in parentheses and reduce their group.
             {" "}Retained earnings includes every earlier fiscal year&apos;s profit/(loss); no closing journal is needed.
           </p>
@@ -1189,8 +1156,7 @@ export default function BalanceSheetPage() {
         );
       })()}
       {drillView && (
-        <TransactionsPanel view={drillView} onClose={closeDrill}
-          onBack={drill?.back ? () => setDrill(drill.back) : null} backLabel={drill?.back ? `Back to ${findNode(results[drill.back.colId], drill.back.nodeId)?.label || "group"}` : null} />
+        <TransactionsPanel view={drillView} onClose={closeDrill} />
       )}
       {toast && <div className="toast show">{toast}</div>}
     </div>

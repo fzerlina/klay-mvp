@@ -31,13 +31,16 @@ import { useDimensions } from "../state/DimensionsContext";
 import { useVarianceReviews, reviewKey } from "../state/VarianceReviewsContext";
 import { shortDate } from "../components/VarianceReason";
 import VariancePopover from "../components/VariancePopover";
+import TransactionsPanel from "../components/TransactionsPanel";
+import { useBills } from "../state/BillsContext";
+import { useInvoices } from "../state/InvoicesContext";
 import { computeProfitLoss, PL_LINES, lineValue, unpostedInPeriod, change, plAccounts } from "../lib/profitLoss";
 import {
   periodPresets, previousPeriod, rangeLabel, monthLabel, sameDayLastYear,
   monthEnd, fiscalYearStartFor, splitPeriod,
 } from "../lib/reportPeriods";
 import { netProfitForPeriod, periodCloseState } from "../lib/trialBalance";
-import { lineDimensions, UNTAGGED } from "../lib/generalLedger";
+import { lineDimensions, UNTAGGED, glLines } from "../lib/generalLedger";
 import { downloadCsv, reportHeader, exportName, printReport } from "../lib/reportExport";
 import { downloadXlsx, colName } from "../lib/xlsxExport";
 import {
@@ -174,6 +177,8 @@ export default function ProfitLossPage() {
   const { user } = useCurrentUser();
   const { closedThrough } = useClosePeriod();
   const { valuesOf } = useDimensions();
+  const { bills } = useBills();
+  const { invoices } = useInvoices();
 
   const storeKey = (what) => `klay.profitLoss.${what}.${user?.id || "anon"}`;
 
@@ -532,6 +537,59 @@ export default function ProfitLossPage() {
     return `/reports/general-ledger?${qs}`;
   };
 
+  // ── Journal lines behind an amount (CEO / CFO feedback, 16 Nov) ─────────
+  // The statement is already the tree (groups expand to accounts, Compare and
+  // By month lay periods side by side), so only an account opens the panel
+  // (user, 16 Nov): its posted journal lines for one column — its dates and
+  // dimension filters — stepping from column to column.
+  const filterText = dimList.map(([k, v]) => `${DIM_BY_KEY[k]?.label || k}: ${v}`).join(" · ");
+  const allLines = useMemo(() => glLines(entries, { bills, invoices }).filter((l) => l.status === "posted"), [entries, bills, invoices]);
+  const [drill, setDrill] = useState(null); // { code, colId }
+  const closeDrill = useCallback(() => setDrill(null), []);
+  const colById = (id) => amountCols.find((c) => c.id === id) || amountCols.find((c) => c.main);
+  const periodChips = amountCols.map((c) => ({ id: c.id, label: c.label }));
+  const DEDUCT = new Set(["contra", "cogs", "selling", "ga", "otherExpense", "tax"]);
+  const bucketOf = useMemo(() => {
+    const m = {};
+    for (const k of Object.keys(main.sections)) main.sections[k].rows.forEach((r) => { m[r.code] = k; });
+    return m;
+  }, [main]);
+  const acctView = (code, colId) => {
+    const col = colById(colId);
+    const deduct = DEDUCT.has(bucketOf[code]);
+    const inCol = (l) => {
+      if (l.code !== code || l.date < col.range.from || l.date > col.range.to) return false;
+      if (!dimList.every(([k, v]) => l.dims[k] === v)) return false;
+      if (col.dim) return col.dim.value === UNTAGGED ? !l.dims[col.dim.key] : l.dims[col.dim.key] === col.dim.value;
+      return true;
+    };
+    const lines = allLines.filter(inCol).map((l) => ({
+      key: l.key, date: l.date, je_number: l.je_number, source: l.source, party: l.party, desc: l.desc,
+      docTo: l.source === "bills" && l.reference_id ? `/bills/${encodeURIComponent(l.reference_id)}` : null,
+      amount: r2((deduct ? l.dc - l.cc : l.cc - l.dc) / 100),
+    }));
+    const scope = [filterText, col.dim ? `${DIM_BY_KEY[col.dim.key]?.label || col.dim.key}: ${col.label}` : ""].filter(Boolean).join(" · ");
+    const rng = rangeLabel(col.range.from, col.range.to);
+    return {
+      kind: "lines", code, name: acctName(code),
+      rangeLabel: `${rng}${scope ? ` · ${scope}` : ""} · posted journals`,
+      periods: periodChips, periodId: col.id, onPeriod: (id) => setDrill((d) => ({ ...d, colId: id })),
+      opening: null,
+      closing: { label: `Total, ${col.dim ? col.label : rng}`, amount: results[col.id]?.byCode[code] || 0 },
+      lines,
+      glTo: glUrl(code, col.range, col.dim),
+      note: deduct ? "Expenses and deductions read as positive here, as on the statement: a debit increases them." : null,
+    };
+  };
+  const drillView = drill ? acctView(drill.code, drill.colId) : null;
+  useEffect(() => {
+    if (!drill) return;
+    const t = setTimeout(() => document.querySelector(".pl-page .txp-amt.on")?.scrollIntoView({ block: "nearest", inline: "nearest" }), 60);
+    return () => clearTimeout(t);
+  }, [drill]);
+  const openAcct = (code, colId = "cur") => setDrill({ code, colId });
+  const isOn = (code, colId) => drill?.code === code && colById(drill.colId).id === colId;
+
   // ── Views ─────────────────────────────────────────────────────────────────
   const viewState = { periodChoice: period.key === "custom" ? periodChoice : { key: period.key }, colMode, compare, compareCount, cmpOrder, dims, showZero, showPct, unit, lang };
   const viewSig = JSON.stringify(viewState);
@@ -788,16 +846,18 @@ export default function ProfitLossPage() {
     if (!show) return <div key={cell.key} className={cls} />;
     const text = cellText(cell, src);
     const body = text === "—" ? dash : text;
+    // An account's amount: its journal lines for that column.
     if (code && cell.kind === "amt" && v && Math.abs(v) >= 0.005) {
       const c = cell.col;
-      const scope = [dimText, c.dim ? `${DIM_BY_KEY[c.dim.key]?.label || c.dim.key}: ${c.label}` : ""].filter(Boolean).join(" · ");
       return (
         <div key={cell.key} className={cls}>
-          <Link className="pl-amt-link" to={glUrl(code, c.range, c.dim)} onClick={(e) => e.stopPropagation()}
-            title={`Open ${code} in the General Ledger for ${rangeLabel(c.range.from, c.range.to)}${scope ? ` (${scope})` : ""}`}>{body}</Link>
+          <button type="button" className={`txp-amt${isOn(code, c.id) ? " on" : ""}`} onClick={(e) => { e.stopPropagation(); openAcct(code, c.id); }}
+            title={`Show the journal lines behind this amount (${rangeLabel(c.range.from, c.range.to)})`}>{body}</button>
         </div>
       );
     }
+    // Totals and subtotals stay plain numbers (user, 16 Nov): the statement
+    // already shows what they're made of; only an account opens its journals.
     return <div key={cell.key} className={cls}>{body}</div>;
   });
 
@@ -838,10 +898,12 @@ export default function ProfitLossPage() {
       setFocusCode((c) => (c === r.code ? null : r.code));
     };
     return (
-      <div className={`lg-row tb-acct-row${isAlt ? " alt" : ""}${focusCode === r.code || reviewPop?.code === r.code ? " selected" : ""}`} onClick={onRowClick}>
+      <div className={`lg-row tb-acct-row${isAlt ? " alt" : ""}${focusCode === r.code || reviewPop?.code === r.code || drill?.code === r.code ? " selected" : ""}`} onClick={onRowClick}
+        onDoubleClick={() => { window.getSelection?.().removeAllRanges(); openAcct(r.code); }}>
         <div className={`tb-cell-name${variances[r.code] ? " has-var-pill" : ""}`} style={{ paddingLeft: (depth + 1) * INDENT }}>
           <span className="tb-code">{r.code}</span>
-          <Link className="tb-name tb-acct-link" to={to} title={`Open ${r.name} in the General Ledger`} onClick={(e) => e.stopPropagation()}>{r.name}</Link>
+          <button type="button" className="tb-name tb-acct-link bs-name-btn" title={`Show ${r.name}'s journal lines for the period`}
+            onClick={(e) => { e.stopPropagation(); openAcct(r.code); }}>{r.name}</button>
           <VarPill v={variances[r.code]} name={r.name} />
           <Link className="tb-gl-btn no-print" to={to} onClick={(e) => e.stopPropagation()} aria-label={`Open ${r.code} ${r.name} in the General Ledger`}>
             General Ledger {GL_ICON}
@@ -919,7 +981,7 @@ export default function ProfitLossPage() {
   };
 
   return (
-    <div className="lg-page tb-report pl-page">
+    <div className={`lg-page tb-report pl-page${drillView ? " txp-is-open" : ""}`}>
       <div className="lg-scroll-container">
         {/* ── Print header (print / PDF only) ───────────────────────── */}
         <div className="print-only tb-print-head">
@@ -1173,7 +1235,7 @@ export default function ProfitLossPage() {
             </section>
           )}
           <p className="pl-foot no-print">
-            Click a group to open or close it. An account&apos;s name opens the General Ledger for the period; an amount opens it for that column&apos;s dates{dimList.length ? ", with the same filters" : ""}.
+            Click a group to open or close it. Click an account or one of its amounts (or double-click its row) to see the journal lines behind it beside the statement, one column at a time{dimList.length ? ", with the same filters" : ""}.
             {" "}Expenses and deductions are shown as positive amounts and subtracted in the subtotals; negative results are in parentheses.
             {" "}Margins and % of revenue are against net revenue.
           </p>
@@ -1213,6 +1275,9 @@ export default function ProfitLossPage() {
             onReopen={() => { reopen(key, by); showToast(`${v.code} reopened for review`); }} />
         );
       })()}
+      {drillView && (
+        <TransactionsPanel view={drillView} onClose={closeDrill} />
+      )}
       {toast && <div className="toast show">{toast}</div>}
     </div>
   );
