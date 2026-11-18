@@ -19,6 +19,7 @@ import CashflowReportPage from "./pages/CashflowReportPage";
 import ProfitLossPage from "./pages/ProfitLossPage";
 import VarianceReviewLogPage from "./pages/VarianceReviewLogPage";
 import TaxRegisterPage from "./pages/TaxRegisterPage";
+import KlayImpactPage from "./pages/KlayImpactPage";
 import InvoicesPage from "./pages/InvoicesPage";
 import InvoiceCreatePage from "./pages/InvoiceCreatePage";
 import VendorsPage from "./pages/VendorsPage";
@@ -210,6 +211,7 @@ export default function App() {
                 <Route path="/reports/review-log" element={<VarianceReviewLogPage />} />
                 <Route path="/reports/profit-loss/review-log" element={<Navigate to="/reports/review-log" replace />} />
                 <Route path="/reports/tax-register" element={<TaxRegisterPage />} />
+                <Route path="/reports/klay-impact" element={<KlayImpactPage />} />
                 <Route path="/trial-balance" element={<TrialBalancePage />} />
                 <Route path="/close" element={<ApCloseCommandCenterPage />} />
                 <Route path="/bank-reconciliation" element={<BankReconciliationPage />} />

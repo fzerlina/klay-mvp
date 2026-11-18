@@ -13,7 +13,10 @@ import { computeHomeTasks } from "../lib/homeTasks";
 import { computeHomeInsights } from "../lib/homeInsights";
 import { formatRupiah, formatDateEn } from "../lib/format";
 import { TODAY } from "../lib/clock";
+import { periodPresets } from "../lib/reportPeriods";
+import { summarizeImpact, fmtHours, fmtRpShort } from "../lib/klayImpact";
 import "./home.css";
+import "./klay-impact.css";
 import "./insights.css";
 import "./modules.css";
 
@@ -192,6 +195,12 @@ export default function CommandCenterPage() {
     () => computeHomeInsights({ agingLines, invoices, can }),
     [agingLines, invoices, can],
   );
+  // Klay Impact, year to date — the day-1 proof of value (Michael, 16 Nov 2026).
+  // The report offers YTD and since inception only (18 Nov), so the strip uses YTD.
+  const impact = useMemo(() => {
+    const p = periodPresets().find((x) => x.key === "ytd");
+    return summarizeImpact(p);
+  }, []);
 
   // Tab lens — defaults to Your Tasks. The retired /insights route redirects
   // here with ?tab=insights so its deep-links land on the right lens. We leave
@@ -229,6 +238,16 @@ export default function CommandCenterPage() {
               <span className="hm-tally-lbl">{tab === "tasks" ? `open task${s(taskCount)}` : `insight${s(insightCount)}`}</span>
             </div>
           </div>
+
+          {can("reports") && (
+            <button type="button" className="ki-home" onClick={() => navigate("/reports/klay-impact?period=ytd")}>
+              <span className="ki-home-lbl">Klay this year</span>
+              <span className="ki-home-stat"><strong>≈ {fmtHours(impact.totalMinutes)}</strong> saved</span>
+              <span className="ki-home-sep">·</span>
+              <span className="ki-home-stat"><strong>{fmtRpShort(impact.guardedValue)}</strong> guarded</span>
+              <span className="ki-home-go">See impact →</span>
+            </button>
+          )}
 
           {/* Lens tabs — Your Tasks (work to do) vs Insights (what the data shows). */}
           <div className="cc-tabs" role="tablist">

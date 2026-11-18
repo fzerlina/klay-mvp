@@ -12,6 +12,17 @@ import "./reports.css";
 // listed.
 const REPORTS = [
   {
+    key: "klay-impact",
+    title: "Klay Impact",
+    blurb: "Time Klay saved your team and money it kept from leaving by mistake — duplicates, tax mistakes and suspicious vendors caught.",
+    to: "/reports/klay-impact",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z" /><polyline points="8.5 12 11 14.5 15.5 9.5" />
+      </svg>
+    ),
+  },
+  {
     key: "general-ledger",
     title: "General Ledger",
     blurb: "Every journal line by account — opening balance, each posting by date and the running balance to close.",
