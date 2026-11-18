@@ -187,7 +187,7 @@ export default function KlayImpactPage() {
                 return (
                   <div key={r.key} className="ki-row ki-money" role="row" title={moneyTip(r)}>
                     <span className="ki-act">
-                      <span className="ki-act-lbl">{r.label}{r.proposed && <span className="ki-tag" title="Proposed for discussion — not in Michael's original list. A prototype marker, not something clients would see.">Proposed</span>}</span>
+                      <span className="ki-act-lbl">{r.label}</span>
                       <span className="ki-act-sub">{r.desc}</span>
                     </span>
                     <span className="ki-mods">{r.modules.map((m) => <span key={m} className="ki-mod">{m}</span>)}</span>
