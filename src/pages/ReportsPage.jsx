@@ -12,6 +12,17 @@ import "./reports.css";
 // listed.
 const REPORTS = [
   {
+    key: "directors-summary",
+    title: "Director's Summary",
+    blurb: "One page for the directors — revenue, profit, cash and equity against the prior period, with the finance team's commentary.",
+    to: "/reports/directors-summary",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="3" width="7" height="9" rx="1" /><rect x="14" y="3" width="7" height="5" rx="1" /><rect x="14" y="12" width="7" height="9" rx="1" /><rect x="3" y="16" width="7" height="5" rx="1" />
+      </svg>
+    ),
+  },
+  {
     key: "klay-impact",
     title: "Klay Impact",
     blurb: "Time Klay saved your team and money it kept from leaving by mistake — duplicates, tax mistakes and suspicious vendors caught.",
@@ -64,6 +75,28 @@ const REPORTS = [
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
         <path d="M12 3v18" /><path d="M5 21h14" /><path d="M3 8h18" /><path d="M6 8l-3 6a3 3 0 0 0 6 0z" /><path d="M18 8l-3 6a3 3 0 0 0 6 0z" />
+      </svg>
+    ),
+  },
+  {
+    key: "cash-flow",
+    title: "Cash Flow",
+    blurb: "Arus kas — cash from operating, investing and financing activities over the period, proved against cash on the Balance Sheet.",
+    to: "/reports/cash-flow",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 7h13" /><polyline points="13 3 17 7 13 11" /><path d="M20 17H7" /><polyline points="11 13 7 17 11 21" />
+      </svg>
+    ),
+  },
+  {
+    key: "changes-in-equity",
+    title: "Changes in Equity",
+    blurb: "Perubahan modal — how share capital, paid-in capital and retained earnings moved over the period, tied to the Balance Sheet.",
+    to: "/reports/changes-in-equity",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 12a9 9 0 1 1-9-9" /><path d="M12 3v9h9" /><path d="M16 3.5A9 9 0 0 1 20.5 8" />
       </svg>
     ),
   },
