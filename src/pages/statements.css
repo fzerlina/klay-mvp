@@ -1,0 +1,125 @@
+/* Phase 2 statements — Changes in Equity, Cash Flow, Director's Summary.
+   They wear the Balance Sheet / P&L classes (.tb-report .pl-page, from
+   trial-balance.css and profit-loss.css); only what differs lives here. */
+
+.st-sub { margin: 4px 0 0; font-size: 12.5px; color: var(--color-text-secondary); }
+.st-foot-link { text-decoration: none; }
+.st-foot-link:hover { text-decoration: underline; text-underline-offset: 2px; }
+
+/* ── Changes in Equity ─────────────────────────────────────────────────── */
+/* Component columns are wider than the P&L's amount columns: their headings
+   are words ("Additional paid-in capital"), not dates. */
+.ce-page .lg-card.lg-table-tb .lg-row,
+.ce-page .lg-card.lg-table-tb .lg-col-header {
+  grid-template-columns: 340px repeat(var(--tb-n, 1), 170px) minmax(0, 1fr);
+  min-width: calc(340px + var(--tb-n, 1) * 170px + 44px);
+}
+.ce-page .lg-card.lg-table-tb .lg-col-header > div { white-space: normal; line-height: 1.3; align-self: end; }
+.ce-page .lg-row.ce-period-row { cursor: default; margin-top: 10px; }
+.ce-page .lg-row.ce-period-row .lg-group-lbl { font-weight: 700; }
+.ce-page .lg-row.ce-balance-row .tb-total-lbl { font-weight: 600; }
+.ce-gap { height: 8px; }
+
+/* ── Cash Flow ─────────────────────────────────────────────────────────── */
+.cf-page .lg-row.cf-section-row { cursor: default; }
+.cf-page .lg-row.cf-section-row .lg-group-lbl { font-weight: 700; }
+.cf-page .lg-row.cf-sub-row { cursor: default; }
+.cf-page .lg-row.cf-sub-row .lg-group-lbl { font-style: italic; font-weight: 500; color: var(--color-text-secondary); }
+.cf-page .lg-row.cf-recon-row .tb-total-lbl { font-weight: 500; }
+.cf-page .lg-row.cf-check-row { cursor: default; }
+.cf-page .lg-row.cf-check-row .tb-total-lbl,
+.cf-page .lg-row.cf-check-row .lg-cell-total { font-size: 11.5px; font-style: italic; color: var(--color-text-tertiary); font-weight: 400; }
+.cf-gap { height: 10px; }
+.cf-line-btn { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.cf-line-btn:focus-visible { outline: 2px solid var(--color-action); outline-offset: 2px; border-radius: 3px; }
+.cf-acct-count { font-size: 10.5px; color: var(--color-text-tertiary); font-weight: 400; }
+
+/* Mapping panel: the Transactions panel's shell, a list of accounts inside. */
+.cf-map { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.cf-map-body { overflow: auto; padding: 4px 16px 16px; flex: 1; }
+.cf-map-grp { margin-top: 14px; font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--color-text-tertiary); }
+.cf-map-row { display: grid; grid-template-columns: minmax(0, 1fr) 210px; gap: 10px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--color-border-subtle); font-size: 12px; }
+.cf-map-row.changed .cf-map-name { font-weight: 600; }
+.cf-map-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cf-map-name .tb-code { margin-right: 6px; }
+.cf-map-row select { font: inherit; font-size: 12px; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--color-border-default); background: var(--color-surface-raised); color: var(--color-text-primary); min-width: 0; }
+.cf-map-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--color-border-subtle); font-size: 11.5px; color: var(--color-text-tertiary); }
+
+/* ── Director's Summary ────────────────────────────────────────────────── */
+.ds-page .lg-scroll-container { padding-bottom: 40px; }
+.ds-wrap { max-width: 1080px; }
+.ds-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 4px 0 18px; }
+@media (max-width: 1100px) { .ds-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.ds-tile {
+  all: unset; box-sizing: border-box; cursor: pointer; display: flex; flex-direction: column; gap: 6px; min-width: 0;
+  padding: 14px 16px; border-radius: 12px; background: var(--color-surface-raised);
+  border: 1px solid var(--color-border-default); transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.ds-tile:hover { border-color: var(--color-border-strong, var(--color-text-tertiary)); box-shadow: 0 4px 14px rgba(40, 30, 10, .06); }
+.ds-tile:focus-visible { outline: 2px solid var(--color-action); outline-offset: 2px; }
+.ds-tile-lbl { font-size: 11.5px; font-weight: 600; color: var(--color-text-secondary); display: flex; justify-content: space-between; gap: 6px; }
+.ds-tile-lbl em { font-style: normal; font-weight: 500; color: var(--color-text-tertiary); }
+.ds-tile-val { font-size: 22px; font-weight: 700; letter-spacing: -.01em; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ds-tile-val.loss { color: var(--color-danger-text); }
+.ds-tile-sub { font-size: 11.5px; color: var(--color-text-tertiary); display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+.ds-delta { font-weight: 600; white-space: nowrap; }
+.ds-delta.up { color: var(--color-success-text); }
+.ds-delta.down { color: var(--color-danger-text); }
+.ds-delta.flat { color: var(--color-text-tertiary); }
+
+.ds-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+@media (max-width: 1100px) { .ds-grid { grid-template-columns: minmax(0, 1fr); } }
+.ds-card { background: var(--color-surface-raised); border: 1px solid var(--color-border-default); border-radius: 12px; overflow: hidden; min-width: 0; }
+.ds-card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 12px 16px 6px; }
+.ds-card-title { font-size: 13px; font-weight: 700; color: var(--color-text-primary); }
+.ds-card-link { font-size: 11.5px; font-weight: 600; color: var(--color-action); text-decoration: none; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.ds-card-link svg { width: 11px; height: 11px; fill: none; stroke: currentColor; stroke-width: 2; }
+.ds-card-link:hover { text-decoration: underline; text-underline-offset: 2px; }
+.ds-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.ds-table th { font-size: 10.5px; font-weight: 600; color: var(--color-text-tertiary); text-align: right; padding: 6px 16px 6px 8px; border-bottom: 1px solid var(--color-border-subtle); white-space: nowrap; }
+.ds-table th:first-child { text-align: left; padding-left: 16px; }
+.ds-table td { padding: 6px 16px 6px 8px; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--color-text-primary); }
+.ds-table td:first-child { text-align: left; padding-left: 16px; white-space: normal; }
+.ds-table tr.strong td { font-weight: 700; border-top: 1px solid var(--color-border-default); }
+.ds-table tr.muted td { font-size: 11.5px; font-style: italic; color: var(--color-text-tertiary); }
+.ds-table td.loss { color: var(--color-danger-text); }
+.ds-table tr:last-child td { padding-bottom: 12px; }
+
+.ds-commentary { margin-top: 14px; }
+.ds-commentary .ds-card-head { padding-bottom: 2px; }
+.ds-note-hint { font-size: 11.5px; color: var(--color-text-tertiary); padding: 0 16px; }
+.ds-note { display: block; box-sizing: border-box; width: calc(100% - 32px); margin: 8px 16px 14px; min-height: 120px; resize: vertical; font: inherit; font-size: 12.5px; line-height: 1.6; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--color-border-default); background: var(--color-surface-base, #fff); color: var(--color-text-primary); }
+.ds-note:focus { outline: 2px solid var(--color-action); outline-offset: 0; }
+.ds-note-actions { display: flex; gap: 8px; align-items: center; padding: 0 16px 14px; flex-wrap: wrap; }
+.ds-note-meta { font-size: 11.5px; color: var(--color-text-tertiary); margin-left: auto; }
+.ds-note-print { display: none; white-space: pre-wrap; font-size: 11pt; line-height: 1.55; padding: 0 16px 12px; }
+.ds-highlights { margin: 6px 16px 12px; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.ds-highlights li { font-size: 12px; line-height: 1.5; color: var(--color-text-secondary); padding-left: 14px; position: relative; }
+.ds-highlights li::before { content: ""; position: absolute; left: 2px; top: 7px; width: 5px; height: 5px; border-radius: 50%; background: var(--color-text-tertiary); }
+.ds-highlights li.warn::before { background: var(--color-danger-text); }
+.ds-highlights li.good::before { background: var(--color-success-text); }
+
+@media print {
+  .ds-page .lg-scroll-container { padding: 0; }
+  .ds-tiles { grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .ds-tile { padding: 8px 10px; border-radius: 6px; break-inside: avoid; }
+  .ds-tile-val { font-size: 15px; }
+  .ds-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .ds-card { break-inside: avoid; border-radius: 6px; }
+  .ds-note { display: none; }
+  .ds-note-print { display: block; }
+  .ds-note-actions, .ds-note-hint { display: none; }
+}
+
+/* By account (the SME's Jurnal layout): code + name, then Permulaan ·
+   Debit · Kredit · Saldo akhir — short headings, so P&L widths. */
+.ce-page .lg-card.lg-table-tb.ce-by-account .lg-row,
+.ce-page .lg-card.lg-table-tb.ce-by-account .lg-col-header {
+  grid-template-columns: 380px repeat(var(--tb-n, 1), 160px) minmax(0, 1fr);
+  min-width: calc(380px + var(--tb-n, 1) * 160px + 44px);
+}
+.ce-title-id { font-size: 15px; font-weight: 500; color: var(--color-text-tertiary); margin-left: 6px; }
+.ce-view-seg { align-self: center; }
+.ce-view-seg button.on { background: var(--color-text-primary); color: var(--color-surface-raised); }
+.ce-page .lg-row.ce-move-row { cursor: default; }
+.ce-page .lg-row.ce-move-row .tb-total-lbl { font-weight: 600; }

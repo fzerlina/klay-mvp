@@ -26,6 +26,7 @@ import { TAX_CODES } from "../data/seed/taxCodes";
 import { COA_BY_CODE } from "../data/seed/coa";
 import { normalizePph } from "../data/labels";
 import { billPostedOn } from "./apAging";
+import { CUSTOMER_RENT, CONSTRUCTION, PREPAID_PPH42, pphOn, seededTaxDocNo } from "../data/seed/taxExtras";
 
 const r2 = (v) => Math.round(v * 100) / 100;
 const pad = (n) => String(n).padStart(2, "0");
@@ -57,7 +58,12 @@ export const TAX_TYPES = [
   { key: "pph05_final", label: "PPh Final 0.5%", side: "purchases", rate: 0.5, nonNpwpRate: null, account: "2-2300", inSettings: false },
   { key: "pph26", label: "PPh 26", side: "purchases", rate: 20, nonNpwpRate: null, account: "2-2300", inSettings: false },
   fromCode("pph21", { label: "PPh 21", side: "purchases" }),
+  // Withheld FROM us by customers (sheets "PPh 4(2) by Customer" and "PPh
+  // 4(2) Construction"): we receive the bukti potong instead of issuing it.
+  { key: "pph42_cust", label: "PPh 4(2) by customers", side: "sales", rate: 10, nonNpwpRate: null, account: null, inSettings: false },
 ];
+// PPN or PPh — the two halves of the closed vs outstanding summary.
+export const taxFamily = (type) => (type.startsWith("ppn") ? "ppn" : "pph");
 export const TAX_TYPE_BY_KEY = Object.fromEntries(TAX_TYPES.map((t) => [t.key, t]));
 
 // The GL accounts tax books to: PPN Masukan, PPN Keluaran, and every PPh.
@@ -125,6 +131,9 @@ export function buildTaxRegister({ ym, bills = [], invoices = [], vendors = [], 
       account: TAX_TYPE_BY_KEY[row.type]?.account || null,
       taxDocNo: "",
       ...row,
+      // The bill and invoice seed carry no faktur / bukti potong numbers;
+      // sample ones keep the closed vs outstanding mix realistic.
+      taxDocNo: row.taxDocNo || seededTaxDocNo(row),
       tax: r2(row.tax),
       dpp: row.dpp == null ? null : r2(row.dpp),
     });
@@ -266,6 +275,30 @@ export function buildTaxRegister({ ym, bills = [], invoices = [], vendors = [], 
     });
   }
 
+  // 4. PPh 4(2) withheld by customers: rent (10%) and construction termins
+  //    (2.65%). The customer withholds and sends us the bukti potong.
+  for (const r of CUSTOMER_RENT) {
+    if (r.ym !== ym) continue;
+    const c = customerById.get(r.customer);
+    push({
+      id: r.id, type: "pph42_cust", source: "Invoice", docNo: r.invNo, ref: r.object, link: null, jeNumber: "",
+      docDate: r.date, postingDate: r.date, party: c?.name || r.customer, partyId: r.customer, partyKind: "customer",
+      npwp: npwpOf(c?.npwp), taxDocNo: r.bupotNo, taxDocDate: r.bupotDate, object: r.object,
+      dpp: r.dpp, rate: r.rate, tax: r.dpp * r.rate / 100, account: "8-1300", posted: true,
+    });
+  }
+  for (const prj of CONSTRUCTION) {
+    const m = prj.months.find((x) => x.ym === ym && x.termin);
+    if (!m) continue;
+    const c = customerById.get(prj.customer);
+    push({
+      id: `${prj.id}:${ym}`, type: "pph42_cust", source: "Invoice", docNo: m.termin.invNo, ref: `${prj.name} · ${m.termin.label}`, link: null, jeNumber: "",
+      docDate: `${ym}-20`, postingDate: `${ym}-20`, party: c?.name || prj.customer, partyId: prj.customer, partyKind: "customer",
+      npwp: npwpOf(c?.npwp), taxDocNo: m.termin.bupotNo, object: "Jasa konstruksi", project: prj.id,
+      dpp: m.termin.amount, rate: prj.rate, tax: pphOn(m.termin.amount, prj.rate), account: PREPAID_PPH42, posted: true,
+    });
+  }
+
   const order = Object.fromEntries(TAX_TYPES.map((t, i) => [t.key, i]));
   return rows.sort((a, b) =>
     order[a.type] - order[b.type]
@@ -312,3 +345,86 @@ export const TAX_REGISTER_COLUMNS = [
   { key: "account", label: "GL account", value: (r) => r.account || "" },
   { key: "jeNumber", label: "Journal", value: (r) => r.jeNumber, screen: false },
 ];
+
+// ── Status ──────────────────────────────────────────────────────────────────
+// A line is Closed once its faktur / bukti potong number is recorded and
+// Outstanding until then (GKB's sheets, research §0.4). A manual journal on a
+// tax account has no document to wait for: n/a. `docNos` holds numbers
+// entered on the page, which win over the document's own.
+export function taxStatus(row, docNos = {}) {
+  // PPN on a journal still needs its faktur to be credited; a PPh journal
+  // line (payroll PPh 21, a dividend) has no bukti potong to wait for here.
+  if (row.source === "Journal" && !row.type.startsWith("ppn")) return "na";
+  return (docNos[row.id] ?? row.taxDocNo) ? "closed" : "outstanding";
+}
+
+// Months "YYYY-MM" from `fromYm` to `toYm`, inclusive.
+export function masaList(fromYm, toYm) {
+  const out = [];
+  let [y, m] = fromYm.split("-").map(Number);
+  const [ty, tm] = toYm.split("-").map(Number);
+  while (y * 12 + m <= ty * 12 + tm) { out.push(`${y}-${String(m).padStart(2, "0")}`); m += 1; if (m > 12) { m = 1; y += 1; } }
+  return out;
+}
+
+// Every row for a range of masa.
+export function buildTaxRegisterRange({ fromYm, toYm, ...rest }) {
+  return masaList(fromYm, toYm).flatMap((ym) => buildTaxRegister({ ym, ...rest }));
+}
+
+// ── PPh 4(2) construction ───────────────────────────────────────────────────
+// Per project, per masa: termin received and the PPh the customer withheld
+// on it, revenue recognised by progress and the PPh expensed on it, and the
+// running prepaid / (accrued) balance — cumulative withheld less cumulative
+// expensed, from the project's first month. Ties to the GL: the sum of the
+// projects' balances at the end of the range is 1-5510's balance then.
+export function computeConstruction({ fromYm, toYm, entries = [], customers = [] }) {
+  const customerById = new Map(customers.map((c) => [c.id, c]));
+  const projects = CONSTRUCTION.map((p) => {
+    let bal = 0;
+    const months = [];
+    let opening = 0;
+    for (const m of p.months) {
+      if (m.ym > toYm) break;
+      const withheld = m.termin ? pphOn(m.termin.amount, p.rate) : 0;
+      const expensed = pphOn(m.revenue, p.rate);
+      bal = r2(bal + withheld - expensed);
+      if (m.ym < fromYm) { opening = bal; continue; }
+      months.push({
+        ym: m.ym, termin: m.termin, terminAmount: m.termin?.amount || 0, withheld, revenue: m.revenue, expensed, balance: bal,
+        status: !m.termin ? "na" : m.termin.bupotNo ? "closed" : "outstanding",
+      });
+    }
+    const sum = (k) => r2(months.reduce((s, x) => s + x[k], 0));
+    return {
+      ...p, customerName: customerById.get(p.customer)?.name || p.customer, opening, months, balance: bal,
+      terminAmount: sum("terminAmount"), withheld: sum("withheld"), revenue: sum("revenue"), expensed: sum("expensed"),
+    };
+  }).filter((p) => p.months.length || Math.abs(p.opening) >= 0.5);
+  const lastDay = masaRange(toYm).to;
+  let gl = 0;
+  for (const je of entries) {
+    if (je.status !== "posted" || !je.je_date || je.je_date > lastDay) continue;
+    for (const l of je.lines || []) if (l.account_code === PREPAID_PPH42) gl += (Number(l.debit) || 0) - (Number(l.credit) || 0);
+  }
+  const balance = r2(projects.reduce((s, p) => s + p.balance, 0));
+  return {
+    projects, balance, gl: r2(gl), ties: Math.abs(balance - gl) < 0.5, glAccount: PREPAID_PPH42, asOf: lastDay,
+    prepaid: r2(projects.filter((p) => p.balance > 0).reduce((s, p) => s + p.balance, 0)),
+    accrued: r2(projects.filter((p) => p.balance < 0).reduce((s, p) => s + p.balance, 0)),
+  };
+}
+
+// The service object for PPh 23 ("Kind of Taxes" in GKB's sheet), read from
+// the vendor until vendors carry their own Coretax object code (V1.1).
+export function pph23Object(vendor) {
+  const t = `${vendor?.name || ""} ${vendor?.notes || ""}`.toLowerCase();
+  if (/konsult|consult|advis/.test(t)) return "Jasa konsultan";
+  if (/outsourc|tenaga kerja|manpower/.test(t)) return "Jasa outsourcing";
+  if (/event|organi[sz]er/.test(t)) return "Jasa penyelenggara kegiatan (event organizer)";
+  if (/hama|pest/.test(t)) return "Jasa pembasmian hama";
+  if (/teknik|engineer|maint|servis|service|repair/.test(t)) return "Jasa teknik";
+  if (/sewa|rent|rental/.test(t)) return "Sewa harta";
+  if (/software|it |teknologi|cloud|digital/.test(t)) return "Jasa teknologi informasi";
+  return "Jasa lainnya";
+}

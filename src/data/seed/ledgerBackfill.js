@@ -222,6 +222,9 @@ function build() {
     out.unshift({
       je_number: `JE-${openDate.slice(0, 4)}-${String(openNo).padStart(4, "0")}`, je_date: openDate, status: "posted",
       memo: "Opening balances — brought forward from the previous system",
+      // The cut-over from the old system, not a movement: equity and cash
+      // statements read it as part of the opening balance.
+      is_opening: true,
       reference_type: "manual", reference_id: null,
       created_by: "Sari Dewanti", created_date: openDate, posted_by: "Sari Dewanti", posted_date: openDate,
       lines: [
