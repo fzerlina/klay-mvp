@@ -176,3 +176,12 @@
 
 /* Settings → Fixed Assets → Preferences: the preference card, outside Accounting. */
 .fa-prefs .ap-section{margin-top:18px}
+/* Chart of accounts → Cash Flow group (Settings → Accounting → Cash flow) */
+.coa-row td.cf{font-size:12px;max-width:260px}
+.coa-cf{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-secondary);vertical-align:middle}
+.coa-cf.cash{color:var(--color-text-tertiary)}
+.coa-cf-sec{font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--color-text-tertiary);margin-right:6px}
+.coa-tag.coa-cf-none{margin-left:0;background:var(--warning-surface,#FFF6E0);border-color:var(--warning-border,#E8C77A);color:var(--warning-text,#8A5A00)}
+.coa-cf-filter{font-family:var(--font-sans);font-size:12px;padding:5px 8px;border:1px solid var(--color-border-default);border-radius:var(--radius-sm);background:var(--color-surface-raised);color:var(--color-text-primary);max-width:240px}
+.coa-field-help{font-style:normal;font-weight:400;font-size:11.5px;color:var(--color-text-tertiary)}
+.coa-field-help a{color:var(--color-action);font-weight:600;text-decoration:none}

@@ -52,6 +52,7 @@ import RoleDetailPage from "./pages/RoleDetailPage";
 import ApprovalSettingsPage from "./pages/ApprovalSettingsPage";
 import AccountingPreferencesPage from "./pages/AccountingPreferencesPage";
 import JournalTemplatesPage from "./pages/JournalTemplatesPage";
+import CashFlowStructurePage from "./pages/CashFlowStructurePage";
 import { SettingsAuditProvider } from "./state/SettingsAuditContext";
 import TaxSettingsPage from "./pages/TaxSettingsPage";
 import { InvoicesProvider } from "./state/InvoicesContext";
@@ -233,6 +234,7 @@ export default function App() {
                 <Route path="/approval" element={<ApprovalSettingsPage />} />
                 <Route path="/tax" element={<TaxSettingsPage />} />
                 <Route path="/journal-templates" element={<JournalTemplatesPage />} />
+                <Route path="/cash-flow-structure" element={<CashFlowStructurePage />} />
                 <Route path="/accounting-preferences" element={<AccountingPreferencesPage />} />
                 {/* Old one-setting pages now live as sections of Preferences. */}
                 <Route path="/posting-periods" element={<Navigate to="/accounting-preferences#posting" replace />} />

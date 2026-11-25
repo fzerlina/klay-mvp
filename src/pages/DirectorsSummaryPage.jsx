@@ -60,7 +60,7 @@ function Delta({ cur, prev, goodUp = true, kind = "pct" }) {
 export default function DirectorsSummaryPage() {
   const navigate = useNavigate();
   const { entries } = useJournalEntries();
-  const { fiscalYearStart } = useAccountingSettings();
+  const { fiscalYearStart, cfGroups, cfAssign } = useAccountingSettings();
   const { user } = useCurrentUser();
   const { closedThrough } = useClosePeriod();
   const storeKey = (what) => `klay.directorsSummary.${what}.${user?.id || "anon"}`;
@@ -92,11 +92,11 @@ export default function DirectorsSummaryPage() {
     const plYtd = computeProfitLoss(entries, { from: fyStart, to });
     const bs = computeBalanceSheet(entries, to, opts);
     const bsPrev = computeBalanceSheet(entries, prior.to, opts);
-    const cf = computeCashFlow(entries, { from, to }, { mapping: loadLocal("klay.cashFlow.mapping", {}), fiscalYearStart });
-    const cfPrev = computeCashFlow(entries, prior, { mapping: loadLocal("klay.cashFlow.mapping", {}), fiscalYearStart });
+    const cf = computeCashFlow(entries, { from, to }, { groups: cfGroups, assign: cfAssign, fiscalYearStart });
+    const cfPrev = computeCashFlow(entries, prior, { groups: cfGroups, assign: cfAssign, fiscalYearStart });
     const eq = computeChangesInEquity(entries, { from, to }, opts);
     return { pl, plPrev, plYtd, bs, bsPrev, cf, cfPrev, eq };
-  }, [entries, from, to, prior.from, prior.to, fyStart, fiscalYearStart]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [entries, from, to, prior.from, prior.to, fyStart, fiscalYearStart, cfGroups, cfAssign]); // eslint-disable-line react-hooks/exhaustive-deps
   const { pl, plPrev, plYtd, bs, bsPrev, cf, cfPrev, eq } = data;
   const ratios = bsRatios(bs.totals), ratiosPrev = bsRatios(bsPrev.totals);
   const ar = bs.byCode[DEFAULT_ACCOUNTS.ar] || 0, arPrev = bsPrev.byCode[DEFAULT_ACCOUNTS.ar] || 0;
