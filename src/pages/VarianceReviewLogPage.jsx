@@ -22,10 +22,13 @@ const dayLabel = (iso) => new Date(iso).toLocaleDateString("en-GB", { weekday: "
 const timeLabel = (iso) => new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 const initials = (name = "") => name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase() || "?";
 const ACTION = { reviewed: "marked reviewed", updated: "updated the reason on", reopened: "reopened" };
+// A Director's Summary anomaly isn't an account: Finance marks it as known.
+const DS_ACTION = { reviewed: "marked as known", updated: "updated the note on", reopened: "brought back" };
 const REPORTS = {
   pl: { label: "P&L", name: "Profit & Loss", to: "/reports/profit-loss" },
   tb: { label: "Trial Balance", name: "Trial Balance", to: "/trial-balance" },
   bs: { label: "Balance Sheet", name: "Balance Sheet", to: "/reports/balance-sheet" },
+  ds: { label: "Director's Summary", name: "Director's Summary", to: "/reports/directors-summary" },
 };
 
 export default function VarianceReviewLogPage() {
@@ -39,7 +42,7 @@ export default function VarianceReviewLogPage() {
   const shown = events.filter((e) => {
     if (!q.trim()) return true;
     const name = COA_BY_CODE[e.code]?.name || "";
-    return `${e.code} ${name} ${e.note || ""} ${e.by}`.toLowerCase().includes(q.trim().toLowerCase());
+    return `${e.code} ${name} ${e.title || ""} ${e.note || ""} ${e.by}`.toLowerCase().includes(q.trim().toLowerCase());
   });
   // Grouped by day, as an activity log reads.
   const days = [];
@@ -50,6 +53,7 @@ export default function VarianceReviewLogPage() {
   });
 
   const open = (e) => navigate(REPORTS[e.report || "pl"].to, { state: { period: { from: e.from, to: e.to }, review: e.code } });
+  const isDs = (e) => e.report === "ds";
 
   return (
     <div className="lg-page pl-log-page">
@@ -60,7 +64,7 @@ export default function VarianceReviewLogPage() {
             <div style={{ flex: 1, minWidth: 0 }}>
               <h1 className="lg-title">Review log</h1>
               <p className="pl-log-intro">
-                Every variance reason written on the Profit &amp; Loss, the Trial Balance and the Balance Sheet — who reviewed which account, for which period, and why it moved.
+                Every variance reason written on the Profit &amp; Loss, the Trial Balance and the Balance Sheet — who reviewed which account, for which period, and why it moved — and every Director&apos;s Summary item Finance marked as known.
               </p>
             </div>
           </div>
@@ -97,14 +101,14 @@ export default function VarianceReviewLogPage() {
                     <span className="pl-log-avatar" aria-hidden="true">{initials(e.by)}</span>
                     <div className="pl-log-body">
                       <div className="pl-log-line">
-                        <strong>{e.by}</strong> {ACTION[e.action] || e.action}{" "}
-                        <span className="tb-code">{e.code}</span> <strong>{name}</strong>
+                        <strong>{e.by}</strong> {(e.report === "ds" ? DS_ACTION : ACTION)[e.action] || e.action}{" "}
+                        {e.report === "ds" ? <strong>{e.title || "an anomaly"}</strong> : <><span className="tb-code">{e.code}</span> <strong>{name}</strong></>}
                         <span className="pl-log-time">{timeLabel(e.at)}</span>
                       </div>
                       <div className="pl-log-meta">
                         <span className="pl-log-chip">{rangeLabel(e.from, e.to)}</span>
                         <span className="pl-log-chip pl-log-rep">{rep.label}</span>
-                        {delta != null && (
+                        {delta != null && !isDs(e) && (
                           <span className="pl-log-move">
                             {delta >= 0 ? "+" : "−"}{rp(delta)}{pctMove != null ? ` (${delta >= 0 ? "+" : "−"}${pctMove}%)` : " (new)"} · {rp(e.prev)} → {rp(e.amount)}
                           </span>

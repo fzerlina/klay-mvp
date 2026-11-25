@@ -46,22 +46,30 @@
 .cf-map-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--color-border-subtle); font-size: 11.5px; color: var(--color-text-tertiary); }
 
 /* ── Director's Summary ────────────────────────────────────────────────── */
+/* Simplified 25 Nov 2026: big boxes for what the CEO asks — cash now, what's
+   still owed, cash to come — then performance, then AR / AP aging. */
 .ds-page .lg-scroll-container { padding-bottom: 40px; }
-.ds-wrap { max-width: 1080px; }
-.ds-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 4px 0 18px; }
-@media (max-width: 1100px) { .ds-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.ds-wrap { max-width: 1120px; padding: 22px 32px 0; }
+.ds-sec-lbl { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--color-text-tertiary); margin: 6px 0 10px; }
+.ds-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin: 0 0 22px; }
+.ds-tiles.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 1100px) { .ds-tiles, .ds-tiles.three { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .ds-tiles, .ds-tiles.three { grid-template-columns: minmax(0, 1fr); } }
 .ds-tile {
-  all: unset; box-sizing: border-box; cursor: pointer; display: flex; flex-direction: column; gap: 6px; min-width: 0;
-  padding: 14px 16px; border-radius: 12px; background: var(--color-surface-raised);
+  all: unset; box-sizing: border-box; cursor: pointer; display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 150px;
+  padding: 20px 22px; border-radius: 14px; background: var(--color-surface-raised);
   border: 1px solid var(--color-border-default); transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 .ds-tile:hover { border-color: var(--color-border-strong, var(--color-text-tertiary)); box-shadow: 0 4px 14px rgba(40, 30, 10, .06); }
 .ds-tile:focus-visible { outline: 2px solid var(--color-action); outline-offset: 2px; }
-.ds-tile-lbl { font-size: 11.5px; font-weight: 600; color: var(--color-text-secondary); display: flex; justify-content: space-between; gap: 6px; }
-.ds-tile-lbl em { font-style: normal; font-weight: 500; color: var(--color-text-tertiary); }
-.ds-tile-val { font-size: 22px; font-weight: 700; letter-spacing: -.01em; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ds-tile.hero { background: var(--color-surface-sunken); }
+.ds-tile-lbl { font-size: 13px; font-weight: 600; color: var(--color-text-secondary); display: flex; justify-content: space-between; gap: 6px; flex-wrap: wrap; }
+.ds-tile-lbl em { font-style: normal; font-weight: 500; font-size: 12px; color: var(--color-text-tertiary); }
+.ds-tile-val { font-size: 32px; line-height: 1.1; font-weight: 700; letter-spacing: -.02em; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 .ds-tile-val.loss { color: var(--color-danger-text); }
-.ds-tile-sub { font-size: 11.5px; color: var(--color-text-tertiary); display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+.ds-tile-sub { margin-top: auto; font-size: 12.5px; line-height: 1.45; color: var(--color-text-tertiary); display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+.ds-tile-sub b { font-weight: 600; color: var(--color-text-secondary); }
+.ds-tile-sub .warn { color: var(--color-danger-text); font-weight: 600; }
 .ds-delta { font-weight: 600; white-space: nowrap; }
 .ds-delta.up { color: var(--color-success-text); }
 .ds-delta.down { color: var(--color-danger-text); }
@@ -69,41 +77,48 @@
 
 .ds-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
 @media (max-width: 1100px) { .ds-grid { grid-template-columns: minmax(0, 1fr); } }
-.ds-card { background: var(--color-surface-raised); border: 1px solid var(--color-border-default); border-radius: 12px; overflow: hidden; min-width: 0; }
-.ds-card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 12px 16px 6px; }
-.ds-card-title { font-size: 13px; font-weight: 700; color: var(--color-text-primary); }
-.ds-card-link { font-size: 11.5px; font-weight: 600; color: var(--color-action); text-decoration: none; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.ds-card { background: var(--color-surface-raised); border: 1px solid var(--color-border-default); border-radius: 14px; overflow: hidden; min-width: 0; }
+.ds-card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 16px 20px 6px; }
+.ds-card-title { font-size: 14px; font-weight: 700; color: var(--color-text-primary); }
+.ds-card-link { font-size: 12px; font-weight: 600; color: var(--color-action); text-decoration: none; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .ds-card-link svg { width: 11px; height: 11px; fill: none; stroke: currentColor; stroke-width: 2; }
 .ds-card-link:hover { text-decoration: underline; text-underline-offset: 2px; }
-.ds-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-.ds-table th { font-size: 10.5px; font-weight: 600; color: var(--color-text-tertiary); text-align: right; padding: 6px 16px 6px 8px; border-bottom: 1px solid var(--color-border-subtle); white-space: nowrap; }
-.ds-table th:first-child { text-align: left; padding-left: 16px; }
-.ds-table td { padding: 6px 16px 6px 8px; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--color-text-primary); }
-.ds-table td:first-child { text-align: left; padding-left: 16px; white-space: normal; }
-.ds-table tr.strong td { font-weight: 700; border-top: 1px solid var(--color-border-default); }
-.ds-table tr.muted td { font-size: 11.5px; font-style: italic; color: var(--color-text-tertiary); }
-.ds-table td.loss { color: var(--color-danger-text); }
-.ds-table tr:last-child td { padding-bottom: 12px; }
+
+/* AR / AP aging cards */
+.ds-aging-total { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; padding: 2px 20px 12px; }
+.ds-aging-total b { font-size: 24px; font-weight: 700; letter-spacing: -.01em; font-variant-numeric: tabular-nums; color: var(--color-text-primary); }
+.ds-aging-total span { font-size: 12.5px; color: var(--color-text-tertiary); }
+.ds-aging-total .warn { color: var(--color-danger-text); font-weight: 600; }
+.ds-bar { display: flex; height: 12px; margin: 0 20px 14px; border-radius: 6px; overflow: hidden; background: var(--color-surface-sunken); gap: 2px; }
+.ds-bar span { display: block; height: 100%; }
+.ds-legend { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 14px; padding: 0 20px 14px; }
+.ds-legend div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ds-legend span { font-size: 11.5px; color: var(--color-text-tertiary); display: inline-flex; align-items: center; gap: 6px; }
+.ds-legend i { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.ds-legend b { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ds-top { border-top: 1px solid var(--color-border-subtle); padding: 10px 20px 14px; }
+.ds-top-lbl { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--color-text-tertiary); margin-bottom: 6px; }
+.ds-top-row { display: flex; justify-content: space-between; gap: 12px; font-size: 12.5px; padding: 3px 0; color: var(--color-text-primary); }
+.ds-top-row span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ds-top-row span:last-child { font-variant-numeric: tabular-nums; color: var(--color-danger-text); font-weight: 600; white-space: nowrap; }
+.ds-top-none { font-size: 12.5px; color: var(--color-text-tertiary); }
 
 .ds-commentary { margin-top: 14px; }
 .ds-commentary .ds-card-head { padding-bottom: 2px; }
-.ds-note-hint { font-size: 11.5px; color: var(--color-text-tertiary); padding: 0 16px; }
-.ds-note { display: block; box-sizing: border-box; width: calc(100% - 32px); margin: 8px 16px 14px; min-height: 120px; resize: vertical; font: inherit; font-size: 12.5px; line-height: 1.6; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--color-border-default); background: var(--color-surface-base, #fff); color: var(--color-text-primary); }
+.ds-note-hint { font-size: 12px; color: var(--color-text-tertiary); }
+.ds-note { display: block; box-sizing: border-box; width: calc(100% - 40px); margin: 8px 20px 14px; min-height: 120px; resize: vertical; font: inherit; font-size: 13px; line-height: 1.6; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--color-border-default); background: var(--color-surface-base, #fff); color: var(--color-text-primary); }
 .ds-note:focus { outline: 2px solid var(--color-action); outline-offset: 0; }
-.ds-note-actions { display: flex; gap: 8px; align-items: center; padding: 0 16px 14px; flex-wrap: wrap; }
+.ds-note-actions { display: flex; gap: 8px; align-items: center; padding: 0 20px 14px; flex-wrap: wrap; }
 .ds-note-meta { font-size: 11.5px; color: var(--color-text-tertiary); margin-left: auto; }
-.ds-note-print { display: none; white-space: pre-wrap; font-size: 11pt; line-height: 1.55; padding: 0 16px 12px; }
-.ds-highlights { margin: 6px 16px 12px; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
-.ds-highlights li { font-size: 12px; line-height: 1.5; color: var(--color-text-secondary); padding-left: 14px; position: relative; }
-.ds-highlights li::before { content: ""; position: absolute; left: 2px; top: 7px; width: 5px; height: 5px; border-radius: 50%; background: var(--color-text-tertiary); }
-.ds-highlights li.warn::before { background: var(--color-danger-text); }
-.ds-highlights li.good::before { background: var(--color-success-text); }
+.ds-note-print { display: none; white-space: pre-wrap; font-size: 11pt; line-height: 1.55; padding: 0 20px 12px; }
 
 @media print {
   .ds-page .lg-scroll-container { padding: 0; }
-  .ds-tiles { grid-template-columns: repeat(4, 1fr); gap: 6px; }
-  .ds-tile { padding: 8px 10px; border-radius: 6px; break-inside: avoid; }
-  .ds-tile-val { font-size: 15px; }
+  .ds-wrap { padding: 0; }
+  .ds-tiles { grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 10px; }
+  .ds-tiles.three { grid-template-columns: repeat(3, 1fr); }
+  .ds-tile { padding: 10px 12px; min-height: 0; border-radius: 6px; break-inside: avoid; gap: 4px; }
+  .ds-tile-val { font-size: 18px; }
   .ds-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
   .ds-card { break-inside: avoid; border-radius: 6px; }
   .ds-note { display: none; }
@@ -123,3 +138,67 @@
 .ce-view-seg button.on { background: var(--color-text-primary); color: var(--color-surface-raised); }
 .ce-page .lg-row.ce-move-row { cursor: default; }
 .ce-page .lg-row.ce-move-row .tb-total-lbl { font-weight: 600; }
+
+/* Director's Summary drill-down (25 Nov): boxes, the aging total, its age
+   buckets and the largest overdue open the side panel. */
+.ds-tile { text-align: left; font: inherit; }
+.ds-tile.on, .ds-card.on { border-color: var(--color-action); box-shadow: 0 0 0 1px var(--color-action); }
+.ds-click { border: none; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; border-radius: 8px; }
+.ds-click:hover:not(:disabled), .ds-click:focus-visible { background: var(--color-surface-sunken); outline: none; }
+.ds-click:disabled { cursor: default; opacity: .55; }
+.ds-aging-total.ds-click { width: calc(100% - 20px); margin: 0 10px 2px; padding: 4px 10px 10px; box-sizing: border-box; }
+.ds-legend .ds-click { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 4px 6px; margin: -4px -6px; }
+.ds-top-row.ds-click { width: calc(100% + 12px); box-sizing: border-box; margin: 0 -6px; padding: 4px 6px; }
+@media (min-width: 1100px) {
+  .ds-page.txp-is-open .ds-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ds-page.txp-is-open .ds-tiles.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ds-page.txp-is-open .ds-tiles.three .ds-tile-val { font-size: 24px; }
+  .ds-page.txp-is-open .ds-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Director's Summary → Worth a look (26 Nov): what might explain the numbers. */
+.ds-anoms { margin-bottom: 22px; }
+.ds-anoms .ds-card-head { padding-bottom: 10px; border-bottom: 1px solid var(--color-border-subtle); flex-wrap: wrap; }
+.ds-anom { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 4px 14px; padding: 4px 20px 4px 10px; border-bottom: 1px solid var(--color-border-subtle); }
+.ds-anom.known { opacity: .7; }
+.ds-anom-main { border: none; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 8px 10px; border-radius: 8px; }
+.ds-anom-main:hover, .ds-anom-main:focus-visible { background: var(--color-surface-sunken); outline: none; }
+.ds-anom-tag { align-self: flex-start; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--color-text-tertiary); }
+.ds-anom-title { font-size: 13.5px; font-weight: 600; color: var(--color-text-primary); }
+.ds-anom-detail { font-size: 12px; color: var(--color-text-secondary); }
+.ds-anom-detail b { font-weight: 600; color: var(--color-text-primary); }
+.ds-anom-known-note { font-size: 12px; color: var(--color-text-secondary); font-style: italic; }
+.ds-anom-known-note em { font-style: normal; color: var(--color-text-tertiary); }
+.ds-anom-amt { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ds-anom-amt.up { color: var(--color-success-text); }
+.ds-anom-amt.down { color: var(--color-danger-text); }
+.ds-anom-acts { display: flex; justify-content: flex-end; min-width: 112px; }
+.ds-anom-btn { border: none; background: none; padding: 4px 6px; border-radius: var(--radius-sm); font: inherit; font-size: 12px; font-weight: 600; color: var(--color-action); cursor: pointer; white-space: nowrap; }
+.ds-anom-btn:hover { background: var(--color-surface-sunken); }
+.ds-anom-note { grid-column: 1 / -1; display: flex; gap: 8px; padding: 0 10px 10px; }
+.ds-anom-note input { flex: 1; min-width: 0; font: inherit; font-size: 12.5px; padding: 7px 10px; border: 1px solid var(--color-border-default); border-radius: var(--radius-sm); background: var(--color-surface-raised); color: var(--color-text-primary); }
+.ds-anom-note input:focus { outline: 2px solid var(--color-action); outline-offset: 0; }
+.ds-anom-foot { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 12px; padding: 10px 20px 14px; }
+.ds-anom-rules { flex: 1 1 320px; font-size: 11.5px; color: var(--color-text-tertiary); line-height: 1.5; text-align: right; }
+.ds-anom-rules a { color: var(--color-action); font-weight: 600; text-decoration: none; }
+.ds-tile-flag { align-self: flex-start; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--color-warning-surface, #FFF6E0); color: var(--color-warning-text, #8A5A00); }
+@media (max-width: 640px) {
+  .ds-anom { grid-template-columns: minmax(0, 1fr) auto; }
+  .ds-anom-acts { grid-column: 1 / -1; justify-content: flex-start; min-width: 0; padding-left: 4px; }
+  .ds-anom-rules { text-align: left; }
+}
+@media print {
+  .ds-anom { padding: 2px 0; }
+  .ds-anom-main { padding: 4px 0; }
+  .ds-anom-acts, .ds-anom-foot { display: none; }
+}
+
+/* Worth a look on the boxes (26 Nov): the box's biggest anomaly, one line. */
+.ds-tile-anom { display: flex; align-items: baseline; gap: 6px; min-width: 0; padding-top: 10px; border-top: 1px dashed var(--color-border-default); font-size: 12px; color: var(--color-warning-text, #8A5A00); }
+.ds-tile-anom::before { content: "⚑"; flex: none; font-size: 11px; }
+.ds-tile-anom-txt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.ds-tile-anom em { flex: none; font-style: normal; color: var(--color-text-tertiary); }
+/* Finance's review panel reuses the list rows. */
+.ds-review .ds-anom { padding: 2px 14px 2px 8px; }
+.ds-review .ds-anom-acts { min-width: 0; }
+.ds-review .ds-anom-rules { text-align: left; flex: none; }

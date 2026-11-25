@@ -40,10 +40,12 @@ export function VarianceReviewsProvider({ children }) {
   const update = useCallback((fn) => setReviews((prev) => { const next = fn(prev); save(next); return next; }), []);
 
   // Mark reviewed with a note, at the account's current figures.
-  const markReviewed = useCallback((key, { note, by, amount, prev, report = "pl" }) => update((all) => {
+  // `title` names what was reviewed when it isn't an account (a Director's
+  // Summary anomaly, keyed "ds:<id>").
+  const markReviewed = useCallback((key, { note, by, amount, prev, report = "pl", title }) => update((all) => {
     const at = new Date().toISOString();
     const old = all[key];
-    return { ...all, [key]: { note, by, at, amount, prev, log: [...(old?.log || []), { action: old && !old.reopened ? "updated" : "reviewed", by, at, note, amount, prev, report }] } };
+    return { ...all, [key]: { note, by, at, amount, prev, title, log: [...(old?.log || []), { action: old && !old.reopened ? "updated" : "reviewed", by, at, note, amount, prev, report, title }] } };
   }), [update]);
 
   // Reopen: the flag shows again; the history stays.
@@ -51,7 +53,7 @@ export function VarianceReviewsProvider({ children }) {
     const old = all[key];
     if (!old) return all;
     const at = new Date().toISOString();
-    return { ...all, [key]: { ...old, reopened: true, log: [...(old.log || []), { action: "reopened", by, at, report }] } };
+    return { ...all, [key]: { ...old, reopened: true, log: [...(old.log || []), { action: "reopened", by, at, report, title: old.title }] } };
   }), [update]);
 
   const value = useMemo(() => ({ reviews, markReviewed, reopen }), [reviews, markReviewed, reopen]);
