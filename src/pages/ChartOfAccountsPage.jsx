@@ -1,5 +1,7 @@
 import { useState, useMemo, Fragment } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { COA } from "../data/seed/coa";
+import { CF_SECTIONS, CASH_LINE, childrenOf, groupDepth, groupPath, resolveCfAssign } from "../lib/cashFlow";
 import { DIM_BY_KEY, paletteFor, dimensionsForAccount } from "../data/seed/dimensions";
 import { useAccountingSettings } from "../state/AccountingSettingsContext";
 import { useJournalEntries } from "../state/JournalEntriesContext";
@@ -15,6 +17,8 @@ import SettingsHeader, { ACCOUNTING_TABS } from "../components/SettingsHeader";
 // name shows everywhere, posted journals included); its code and type can't.
 // The edit dialog also holds "settle through Payment" — journal lines crediting
 // the account become payables on the Payment list (reconcilable accounts).
+// It also holds the account's Cash Flow group (Settings → Accounting → Cash
+// flow builds the groups; direct method, account level — 25 Nov 2026).
 // Editing needs coa.manage.
 
 // Tax and control accounts the system posts to by code.
@@ -52,12 +56,40 @@ function LockIcon() {
   );
 }
 
-function EditAccountModal({ acct, lineCount, reconcilable, onClose, onSave }) {
+// The group options, nested, by activity — and "cash" or none.
+function CfGroupSelect({ groups, value, onChange }) {
+  const walk = (parent, section) => childrenOf(groups, parent, section).flatMap((g) => [g, ...walk(g.key)]);
+  return (
+    <select value={value ?? ""} onChange={(e) => onChange(e.target.value || null)}>
+      <option value="cash">{CASH_LINE.label} — counted as cash</option>
+      {CF_SECTIONS.map((s) => (
+        <optgroup key={s.key} label={s.label}>
+          {walk(null, s.key).map((g) => <option key={g.key} value={g.key}>{" ".repeat(groupDepth(groups, g.key))}{g.label}</option>)}
+        </optgroup>
+      ))}
+      <option value="">Not assigned</option>
+    </select>
+  );
+}
+
+function CfGroupCell({ groups, k }) {
+  if (k === "cash") return <span className="coa-cf cash">{CASH_LINE.label}</span>;
+  if (!k) return <span className="coa-tag coa-cf-none">Not assigned</span>;
+  const path = groupPath(groups, k);
+  return (
+    <span className="coa-cf" title={path.join(" › ")}>
+      <span className="coa-cf-sec">{path[0]}</span>{path[path.length - 1]}
+    </span>
+  );
+}
+
+function EditAccountModal({ acct, lineCount, reconcilable, cfGroups, cfGroup, onClose, onSave }) {
   const [name, setName] = useState(acct.name);
   const [payable, setPayable] = useState(reconcilable);
+  const [cf, setCf] = useState(cfGroup);
   const renamed = name.trim() !== acct.name;
   const canPay = acct.fs === "BS" && !CONTROL_CODES.has(acct.code);
-  const ok = name.trim().length >= 2 && (renamed || payable !== reconcilable);
+  const ok = name.trim().length >= 2 && (renamed || payable !== reconcilable || cf !== cfGroup);
   return (
     <div className="rl-modal-overlay" onClick={onClose}>
       <div className="rl-modal wide" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
@@ -86,9 +118,17 @@ function EditAccountModal({ acct, lineCount, reconcilable, onClose, onSave }) {
             </span>
           </label>
         )}
+        <label className="rl-field">
+          <span>Cash flow group</span>
+          <CfGroupSelect groups={cfGroups} value={cf} onChange={setCf} />
+          <em className="coa-field-help">
+            Cash received or paid against this account lands in this group on the Cash Flow report.{" "}
+            <Link to="/cash-flow-structure">Edit the groups</Link>
+          </em>
+        </label>
         <div className="rl-modal-actions">
           <button type="button" className="drawer-btn ghost" onClick={onClose}>Cancel</button>
-          <button type="button" className="drawer-btn primary" disabled={!ok} onClick={() => onSave(name.trim(), payable)}>
+          <button type="button" className="drawer-btn primary" disabled={!ok} onClick={() => onSave(name.trim(), payable, cf)}>
             {renamed ? "Rename account" : "Save"}
           </button>
         </div>
@@ -103,7 +143,12 @@ export default function ChartOfAccountsPage() {
   const [editing, setEditing] = useState(null);
   const [rev, setRev] = useState(0); // bumps when a rename writes into COA
   const [toast, setToast] = useState("");
-  const { reconcilableAccounts, toggleReconcilable } = useAccountingSettings();
+  const { reconcilableAccounts, toggleReconcilable, cfGroups, cfAssign, setCfAssign } = useAccountingSettings();
+  const [params, setParams] = useSearchParams();
+  const cfFilter = params.get("cf") || ""; // "" | group key | "cash" | "unassigned"
+  const setCfFilter = (v) => setParams((p) => { const n = new URLSearchParams(p); if (v) n.set("cf", v); else n.delete("cf"); return n; }, { replace: true });
+  const cfOf = useMemo(() => resolveCfAssign(cfGroups, cfAssign), [cfGroups, cfAssign]);
+  const unassignedCount = Object.values(cfOf).filter((v) => !v).length;
   const { entries } = useJournalEntries();
   const { hasCapability } = useCurrentUser();
   const { log } = useSettingsAudit();
@@ -130,6 +175,7 @@ export default function ChartOfAccountsPage() {
     for (const acct of accounts) {
       if (lockedOnly && !LOCKED_CODES.has(acct.code)) continue;
       if (q && !`${acct.code} ${acct.name}`.toLowerCase().includes(q)) continue;
+      if (cfFilter && (cfFilter === "unassigned" ? cfOf[acct.code] : cfOf[acct.code] !== cfFilter)) continue;
       const top = topGroup(acct, byId);
       if (!top) continue;
       if (!bySec.has(top)) {
@@ -143,10 +189,15 @@ export default function ChartOfAccountsPage() {
     }
     return out;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accounts, byId, q, lockedOnly, rev]);
+  }, [accounts, byId, q, lockedOnly, rev, cfFilter, cfOf]);
   const shown = sections.reduce((n, s) => n + [...s.subs.values()].reduce((m, r) => m + r.length, 0), 0);
 
-  function save(acct, name, payable) {
+  function save(acct, name, payable, cf) {
+    if (cf !== cfOf[acct.code]) {
+      const label = (k) => (k === "cash" ? CASH_LINE.label : k ? groupPath(cfGroups, k).join(" › ") : "Not assigned");
+      setCfAssign((cur) => ({ ...cur, [acct.code]: cf }));
+      log("General Settings", "Chart of accounts", `${acct.code} ${name}: cash flow group ${label(cfOf[acct.code])} → ${label(cf)}`);
+    }
     if (name !== acct.name) {
       log("General Settings", "Chart of accounts", `Renamed ${acct.code}: ${acct.name} → ${name}`);
       acct.name = name; // write-through: every screen reads COA
@@ -167,7 +218,7 @@ export default function ChartOfAccountsPage() {
         <SettingsHeader
           title="General Settings"
           tabs={ACCOUNTING_TABS}
-          intro="Every account in the ledger, by section. Rename an account from its row — the code, type and balances stay as they are. Locked tax and control accounts can be renamed too."
+          intro="Every account in the ledger, by section. Rename an account or change its Cash Flow group from its row — the code, type and balances stay as they are. Locked tax and control accounts can be renamed too."
         />
         <div className="acc-body">
           <div className="coa-tools">
@@ -175,6 +226,20 @@ export default function ChartOfAccountsPage() {
             <label className="coa-filter">
               <input type="checkbox" checked={lockedOnly} onChange={(e) => setLockedOnly(e.target.checked)} />
               Locked only
+            </label>
+            <label className="coa-filter">
+              Cash flow
+              <select className="coa-cf-filter" value={cfFilter} onChange={(e) => setCfFilter(e.target.value)} aria-label="Filter by cash flow group">
+                <option value="">All groups</option>
+                <option value="unassigned">Not assigned ({unassignedCount})</option>
+                <option value="cash">{CASH_LINE.label}</option>
+                {CF_SECTIONS.map((s) => (
+                  <optgroup key={s.key} label={s.label}>
+                    {(function walk(parent) { return childrenOf(cfGroups, parent, s.key).flatMap((g) => [g, ...walk(g.key)]); })(null)
+                      .map((g) => <option key={g.key} value={g.key}>{" ".repeat(groupDepth(cfGroups, g.key))}{g.label}</option>)}
+                  </optgroup>
+                ))}
+              </select>
             </label>
             <span className="coa-count">
               {shown === accounts.length ? <><b>{accounts.length}</b> accounts · <b>{lockedCount}</b> locked</> : <><b>{shown}</b> of {accounts.length} accounts</>}
@@ -184,16 +249,16 @@ export default function ChartOfAccountsPage() {
           <div className="coa-wrap">
             <table className="coa-table">
               <thead>
-                <tr><th>Code</th><th>Account name</th><th>Type</th><th>Dimensions</th><th /></tr>
+                <tr><th>Code</th><th>Account name</th><th>Type</th><th>Dimensions</th><th>Cash flow group</th><th /></tr>
               </thead>
               <tbody>
-                {sections.length === 0 && <tr className="coa-empty"><td colSpan={5}>No accounts match your filter.</td></tr>}
+                {sections.length === 0 && <tr className="coa-empty"><td colSpan={6}>No accounts match your filter.</td></tr>}
                 {sections.map((sec) => (
                   <Fragment key={sec.key}>
-                    <tr className="coa-section-row"><td colSpan={5}>{sec.label}</td></tr>
+                    <tr className="coa-section-row"><td colSpan={6}>{sec.label}</td></tr>
                     {[...sec.subs.entries()].map(([sub, rows]) => (
                       <Fragment key={sub || "-"}>
-                        {sec.subs.size > 1 && sub && <tr className="coa-subsection-row"><td colSpan={5}>{sub}</td></tr>}
+                        {sec.subs.size > 1 && sub && <tr className="coa-subsection-row"><td colSpan={6}>{sub}</td></tr>}
                         {rows.map((acct) => {
                           const dims = dimensionsForAccount(acct);
                           return (
@@ -217,6 +282,7 @@ export default function ChartOfAccountsPage() {
                                   </span>
                                 )}
                               </td>
+                              <td className="cf"><CfGroupCell groups={cfGroups} k={cfOf[acct.code]} /></td>
                               <td className="act">
                                 {canEdit && <button type="button" className="coa-edit" onClick={(e) => { e.stopPropagation(); setEditing(acct); }}>Edit</button>}
                               </td>
@@ -244,8 +310,10 @@ export default function ChartOfAccountsPage() {
           acct={editing}
           lineCount={linesByCode[editing.code] || 0}
           reconcilable={reconcilableAccounts.includes(editing.code)}
+          cfGroups={cfGroups}
+          cfGroup={cfOf[editing.code] ?? null}
           onClose={() => setEditing(null)}
-          onSave={(name, payable) => save(editing, name, payable)}
+          onSave={(name, payable, cf) => save(editing, name, payable, cf)}
         />
       )}
       {toast && <div className="toast show">{toast}</div>}

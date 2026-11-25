@@ -5,6 +5,18 @@ import { DEFAULT_ACCOUNTS } from "../data/seed/defaultAccounts";
 import { JOURNAL_TEMPLATES } from "../data/seed/journalTemplates";
 import { MOVEMENT_ACCOUNTS } from "../lib/inventorySubledger";
 import { BOOK_STATUS_JOURNALS, DEPRECIATION_JOURNALS } from "../lib/fixedAssets";
+import { defaultCfGroups } from "../lib/cashFlow";
+
+// Kept in this browser so the prototype survives a reload; company-wide in the
+// product.
+const CF_GROUPS_KEY = "klay.cashFlow.groups";
+const CF_ASSIGN_KEY = "klay.cashFlow.assign";
+const loadStored = (key, fallback) => {
+  try { return JSON.parse(window.localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
+};
+const store = (key, value) => {
+  try { window.localStorage.setItem(key, JSON.stringify(value)); } catch { /* prototype nicety only */ }
+};
 
 const cloneBookJournals = () => Object.fromEntries(
   Object.entries(BOOK_STATUS_JOURNALS).map(([type, byStatus]) => [type, Object.fromEntries(
@@ -101,6 +113,21 @@ export function AccountingSettingsProvider({ children }) {
     if (DEPRECIATION_JOURNALS[type]) DEPRECIATION_JOURNALS[type][side] = role;
     setDepreciationJournals(cloneDepreciation());
   }, []);
+  // Cash Flow structure (Settings → Accounting → Cash flow): the company's own
+  // groups, nested, in print order — and the group each account is in (Chart
+  // of accounts; only changes from the default are kept, see lib/cashFlow).
+  const [cfGroups, setCfGroupsState] = useState(() => loadStored(CF_GROUPS_KEY, null) || defaultCfGroups());
+  const [cfAssign, setCfAssignState] = useState(() => loadStored(CF_ASSIGN_KEY, {}));
+  const setCfGroups = useCallback((next) => setCfGroupsState((cur) => {
+    const v = typeof next === "function" ? next(cur) : next;
+    store(CF_GROUPS_KEY, v);
+    return v;
+  }), []);
+  const setCfAssign = useCallback((next) => setCfAssignState((cur) => {
+    const v = typeof next === "function" ? next(cur) : next;
+    store(CF_ASSIGN_KEY, v);
+    return v;
+  }), []);
   const toggleReconcilable = useCallback((code) => setReconcilableAccounts((prev) => (
     prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]
   )), []);
@@ -118,13 +145,14 @@ export function AccountingSettingsProvider({ children }) {
       selfPost, setSelfPost,
       closeCutoffDay, setCloseCutoffDay,
       varianceThreshold, setVarianceThreshold,
+      cfGroups, setCfGroups, cfAssign, setCfAssign,
       journalTemplates, saveJournalTemplate, deleteJournalTemplate,
       baseCurrency: COMPANY.baseCurrency, fiscalYearStart, setFiscalYearStart, timezone, setTimezone,
     }),
     [inventoryCostingMethod, assetDepreciationMethod, reconDifferenceAccounts, reconcilableAccounts, toggleReconcilable, defaultAccounts,
       setDefaultAccount, movementAccounts, setMovementAccount,
       bookJournals, setBookJournalRole, depreciationJournals, setDepreciationRole, sodMode,
-      journalDeletion, selfPost, closeCutoffDay, varianceThreshold, journalTemplates, saveJournalTemplate, deleteJournalTemplate, fiscalYearStart, timezone],
+      journalDeletion, selfPost, closeCutoffDay, varianceThreshold, cfGroups, setCfGroups, cfAssign, setCfAssign, journalTemplates, saveJournalTemplate, deleteJournalTemplate, fiscalYearStart, timezone],
   );
   return (
     <AccountingSettingsContext.Provider value={value}>

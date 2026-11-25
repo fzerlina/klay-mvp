@@ -35,6 +35,7 @@ export const ACCOUNTING_TABS = [
   { label: "Locations", to: "/locations", match: (l) => under(l.pathname, "/locations") },
   { label: "Tax", to: "/tax", match: (l) => under(l.pathname, "/tax") },
   { label: "Journal templates", to: "/journal-templates", match: (l) => under(l.pathname, "/journal-templates") },
+  { label: "Cash flow", to: "/cash-flow-structure", match: (l) => under(l.pathname, "/cash-flow-structure") },
   { label: "Preferences", to: "/accounting-preferences", match: (l) => under(l.pathname, "/accounting-preferences") },
 ];
 
