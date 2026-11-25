@@ -24,6 +24,7 @@ import "./roles.css";
 //   • Self-posting — whether an approver may post their own manual journal
 //   • Closing — the day of the next month each month's books close by
 //   • Trial Balance — when Needs review flags a big move (percentage + amount)
+//   • Director's Summary — Worth a look: large transaction, minimum cash
 //   • Delete journals — by JE number; only when Klay has turned it on
 // Costing method and reconciliation difference accounts moved to their module
 // settings (Settings → Inventory → Costing, Settings → Reconciliation); their
@@ -192,10 +193,55 @@ function ClosingSection() {
               <em>A {Math.round(varianceThreshold.pct * 100)}% move under {rupiah(varianceThreshold.amount)} isn't flagged.</em>
             </label>
           </div>
+          <p className="pp-setting-desc" style={{ marginBottom: 0 }}>
+            The Director&apos;s Summary uses the same two figures for Worth a look: a customer or vendor moving this much against their usual, and the smallest amount worth listing.
+          </p>
         </div>
       </div>
     </Section>
+    <DirectorsSummarySection />
     </>
+  );
+}
+
+// Director's Summary → Worth a look (25–26 Nov 2026). The percentage and the
+// rupiah floor are the Trial Balance's; these two are its own.
+function DirectorsSummarySection() {
+  const { anomalyThresholds, setAnomalyThresholds } = useAccountingSettings();
+  const canEdit = useCurrentUser().hasCapability("settings.period.lock");
+  const { log } = useSettingsAudit();
+  const [text, setText] = useState({ large: String(anomalyThresholds.large), minCash: String(anomalyThresholds.minCash) });
+  const commit = (key, label) => {
+    const v = Math.max(0, parseInt(String(text[key]).replace(/\D/g, ""), 10) || 0);
+    setText((t) => ({ ...t, [key]: String(v) }));
+    if (v === anomalyThresholds[key]) return;
+    log("General Settings", "Preferences", `Director's Summary ${label}: ${rupiah(anomalyThresholds[key])} → ${rupiah(v)}`);
+    setAnomalyThresholds((t) => ({ ...t, [key]: v }));
+  };
+  const field = (key, label, help) => (
+    <label className="cp-field">
+      <span>{label}</span>
+      <input inputMode="numeric" value={Number(text[key] || 0).toLocaleString("id-ID")} disabled={!canEdit}
+        onChange={(e) => setText((t) => ({ ...t, [key]: e.target.value.replace(/\D/g, "") }))} onBlur={() => commit(key, label.toLowerCase())}
+        onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()} aria-label={label} />
+      <em>{help}</em>
+    </label>
+  );
+  return (
+    <Section id="directors-summary" title="Director's Summary">
+      <div className="pp-setting-card">
+        <div className="pp-setting-pad">
+          <div className="pp-setting-title">Worth a look</div>
+          <p className="pp-setting-desc">
+            What the Director&apos;s Summary lists as worth asking about. Customers and vendors use the Trial Balance figures above.
+          </p>
+          <div className="cp-grid ap-basics">
+            {field("large", "Large transaction (IDR)", "One invoice or bill at least this big is listed.")}
+            {field("minCash", "Minimum cash balance (IDR)", anomalyThresholds.minCash ? "Listed when cash expected in 30 days falls below this." : "Listed when cash expected in 30 days goes negative.")}
+          </div>
+        </div>
+      </div>
+    </Section>
   );
 }
 

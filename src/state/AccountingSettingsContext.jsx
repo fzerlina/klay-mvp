@@ -81,6 +81,13 @@ export function AccountingSettingsProvider({ children }) {
     cur.some((x) => x.id === t.id) ? cur.map((x) => (x.id === t.id ? t : x)) : [...cur, t]
   )), []);
   const deleteJournalTemplate = useCallback((id) => setJournalTemplates((cur) => cur.filter((x) => x.id !== id)), []);
+  // Director's Summary "Worth a look" (Accounting → Preferences): a single
+  // document at least this big is flagged, and expected cash in 30 days below
+  // the minimum is flagged. The percentage and rupiah floor for every other
+  // rule are the Trial Balance's variance setting above. New companies start
+  // at Rp 100 M; the demo company's bills run to billions, so it's set at
+  // Rp 1 M (billion).
+  const [anomalyThresholds, setAnomalyThresholds] = useState({ large: 1_000_000_000, minCash: 0 });
   // Accounting basics (Accounting → Preferences), set at company creation.
   const [fiscalYearStart, setFiscalYearStart] = useState(COMPANY.fiscalYearStart);
   const [timezone, setTimezone] = useState(COMPANY.timezone);
@@ -146,13 +153,14 @@ export function AccountingSettingsProvider({ children }) {
       closeCutoffDay, setCloseCutoffDay,
       varianceThreshold, setVarianceThreshold,
       cfGroups, setCfGroups, cfAssign, setCfAssign,
+      anomalyThresholds, setAnomalyThresholds,
       journalTemplates, saveJournalTemplate, deleteJournalTemplate,
       baseCurrency: COMPANY.baseCurrency, fiscalYearStart, setFiscalYearStart, timezone, setTimezone,
     }),
     [inventoryCostingMethod, assetDepreciationMethod, reconDifferenceAccounts, reconcilableAccounts, toggleReconcilable, defaultAccounts,
       setDefaultAccount, movementAccounts, setMovementAccount,
       bookJournals, setBookJournalRole, depreciationJournals, setDepreciationRole, sodMode,
-      journalDeletion, selfPost, closeCutoffDay, varianceThreshold, cfGroups, setCfGroups, cfAssign, setCfAssign, journalTemplates, saveJournalTemplate, deleteJournalTemplate, fiscalYearStart, timezone],
+      journalDeletion, selfPost, closeCutoffDay, varianceThreshold, cfGroups, setCfGroups, cfAssign, setCfAssign, anomalyThresholds, journalTemplates, saveJournalTemplate, deleteJournalTemplate, fiscalYearStart, timezone],
   );
   return (
     <AccountingSettingsContext.Provider value={value}>
